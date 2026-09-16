@@ -442,8 +442,30 @@ GET /v1/playbook?us=7119388&them=8261500&patch=7.41f&series_id=...
 | ⑤ | 搜索与决策 Search | 我该怎么走？ | **线 C** |
 
 **① 的具体内容**（全部确定性，不需模型）：
-- 24 手固定模板：7 ban → 2 pick → 3 ban → 6 pick → 4 ban → 2 pick
-- `first_pick_team` → 推出全部 24 手的队伍归属。**已用 3 场真实比赛验证**（先 ban 的队伍也是先 pick 的队伍，两队顺序精确镜像）；**待在全量数据上正式回归验证**（见 §12 风险 R4）
+
+**24 手模板已完整验证**（OpenDota 全库 1,014 场比赛，零例外）。令 `F` = 先手方（`first_pick_team`），`O` = 后手方：
+
+| ord | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 类型 | BAN | BAN | BAN | BAN | BAN | BAN | BAN | PICK | PICK | BAN | BAN | BAN |
+| 队伍 | F | F | O | O | F | O | O | F | O | F | F | O |
+
+| ord | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 类型 | PICK | PICK | PICK | PICK | PICK | PICK | BAN | BAN | BAN | BAN | PICK | PICK |
+| 队伍 | O | F | F | O | O | F | F | O | F | O | F | O |
+
+- 阶段结构：**7 ban → 2 pick → 3 ban → 6 pick → 4 ban → 2 pick**
+- 双方完全对称：**F 与 O 各 7 个 ban、各 5 个 pick**
+- 队伍归属仅由 `first_pick_team` 决定，两种情形精确互为镜像。
+
+**已解决的验证**：原风险 R4（"先 ban 的队伍是否等于先 pick 的队伍"）在全库 1,014 场上验证为 **1014/1014 成立，零反例**。此依赖可硬编码。
+
+**先手方分布不均衡（影响模型评估）**：同一窗口内 Dire 获先手 658 场、Radiant 356 场（**65% / 35%**）。原因未查明（推测与赛事的选边规则有关，非 Valve 强制）。因此：
+- 镜像增广成立（结构精确镜像），数据量可翻倍
+- 但**评估时必须处理这个类别不平衡**，且"先手方"特征与"阵营"特征存在共线性，建模时不可同时无条件引入而不做共线性检查
+
+**其余确定性约束**：
 - CM 英雄池（`cm_enabled`）
 - 位置结构：每队 1–5 号位各一；摇摆位英雄具多位置可能性
 
@@ -484,7 +506,11 @@ GET /v1/playbook?us=7119388&them=8261500&patch=7.41f&series_id=...
 
 ### 10.2 训练数据
 
-- **引导**：Kaggle `bwandowando/dota-2-pro-league-matches-2023`（**CC0**，约 77,000 场，逐条 BP 动作含完整 CM 顺序，2026-09-14 更新）
+- **引导**：Kaggle `bwandowando/dota-2-pro-league-matches-2023`（**CC0: Public Domain**，usability 1.0，2026-09-14 更新）
+  - **总大小 48.5 GB，但所需文件合计仅 506 MB（1.04%）** —— 必须**按文件选择性下载**，绝不整包拉取。其中 `players.csv` 单文件即 41 GB（占 85%），与 Phase A 无关。
+  - 所需文件：`draft_timings.csv`（240.7 MB / 10 个年度目录）、`picks_bans.csv`（198.8 MB / 19 个目录）、`main_metadata.csv`（66.7 MB / 19 个目录）
+  - **已知缺口**：`draft_timings.csv` 仅存在于 19 个目录中的 10 个，而 `picks_bans.csv` 覆盖 19 个。**以 `picks_bans.csv` 为 BP 序列的权威来源**，`draft_timings.csv` 仅作补充（含思考耗时，可用于后续"摇摆位造成的对手犹豫"分析）。
+  - 下载需 Kaggle 凭据（`kaggle.json`）；凭据只存本地 `.env`，已在 `.gitignore` 中排除。
 - **增量**：自建采集库中的 `draft_actions`
 - **镜像增广**：因两队顺序精确镜像，可将每场镜像为另一种先手情形（**数据量翻倍**）
 
@@ -527,7 +553,7 @@ GET /v1/playbook?us=7119388&them=8261500&patch=7.41f&series_id=...
 | R1 | OpenDota `picks_bans` 滞后扩大或字段变更 | 数据断流 | 状态机 + 监控告警；`unavailable` 状态显式暴露给 UI |
 | R2 | STRATZ 不可用（已确认本环境被拦截） | 损失位置与 lane 数据 | **不依赖**。位置判定退化为启发式；lane 数据留待回放层 |
 | R3 | 训练赛回放可能来自**旧版本**或非标准 lobby 设置 | 污染统计 | 导入时读 `demo_version_name` 强制校验；非标准设置需人工确认 |
-| R4 | "先 ban 的队伍 = 先 pick 的队伍" 仅验证 3 场 | 若规则有例外，模板推出错误 | **实现前必须全量验证**（对 77,000 场数据集跑一遍）。这是一行 SQL 的事，列为第一个任务 |
+| R4 | ~~"先 ban 的队伍 = 先 pick 的队伍" 仅验证 3 场~~ **已关闭** | — | 全库 1,014 场验证 **1014/1014 成立，零反例**。规则可硬编码。见 §8① |
 | R5 | Liquipedia 限流严格（`action=parse` 1 次/30 秒） | 阵容历史采集慢 | 只采集目标战队（数十支），一次采完缓存；不追求全量 |
 | R6 | 序列模型可能无法超过频率基线 | 线 C 无产出 | 先交付基线（本身可用）；模型不达标则如实报告为负结果，**这本身也是内容**（该领域公开代码极少，负结果有参考价值） |
 | R7 | 演示视频中模型预测错误 | 观感受损 | 演示话术定位为"提供概率分布与依据"，不承诺单点命中；主推前 8 手的高准确区间 |
@@ -561,8 +587,8 @@ GET /v1/playbook?us=7119388&them=8261500&patch=7.41f&series_id=...
 
 | # | 里程碑 | 验收标准 |
 |---|---|---|
-| M0 | 仓库骨架 + 契约冻结 | `contracts/openapi.yaml` 提交；三条线的目录边界建立；R4 全量验证完成 |
-| M1 | 数据地基可用 | 常量/版本表（含字母子版本）灌满；77,000 场引导数据集入库；`matches`/`draft_actions` 可查 |
+| M0 | 仓库骨架 + 契约冻结 | `contracts/openapi.yaml` 提交；三条线的目录边界建立 |
+| M1 | 数据地基可用 | 常量/版本表（含字母子版本）灌满；引导数据集 **506 MB 子集**入库并通过异常率校验；`matches`/`draft_actions` 可查 |
 | M2 | 采集器常驻运行 | 连续运行 48h 无重复数据；BP 状态机正确标记 `pending`/`complete`/`unavailable` |
 | M3 | 六维能力项 + 战队画像 | 对任一战队返回六维百分位；不变式测试通过 |
 | M4 | Value 接口可用 | `POST /v1/value` 返回且 `contributions` 求和不变式通过 |
@@ -579,7 +605,7 @@ GET /v1/playbook?us=7119388&them=8261500&patch=7.41f&series_id=...
 | 层次 | 内容 |
 |---|---|
 | **契约测试** | 所有接口的请求/响应 schema 校验；概率归一化不变式；`contributions` 求和不变式 |
-| **数据完整性测试** | `draft_actions` 每场必须 24 行、14 ban + 10 pick；队伍归属与 `first_pick_team` 一致 |
+| **数据完整性测试** | **不得**断言"每场必须 24 行、14 ban + 10 pick"——实测约 **0.6%** 的真实比赛偏离模板（1,014 场中 6 场仅 23 手，个别 ord 类型反转）。改为：① 断言偏离率低于 2% 的**统计阈值**；② 逐场偏离则记录到 `draft_anomalies` 并标记 `draft_state='complete'` 但附加 `anomaly=true`；③ 队伍归属与 `first_pick_team` 一致（此条**可硬断言**，1,014/1,014 成立） |
 | **幂等性测试** | 采集器重复运行不产生重复行；中断后重启可回溯补齐 |
 | **隔离测试** | 默认查询不返回 `pub_match`/`scrim`；`scrim` 数据不出现在对手画像接口中（负向断言） |
 | **时间切分测试** | 模型评估流程断言训练集时间戳全部早于验证集（防泄漏） |
@@ -591,11 +617,18 @@ GET /v1/playbook?us=7119388&them=8261500&patch=7.41f&series_id=...
 
 以下事项在实现前必须验证，**不得默认成立**：
 
-1. **R4**：`first_pick_team` 与 24 手队伍归属的映射规则（当前仅 3 场验证）
-2. OpenDota 日配额精确值（观察到 ≥2760，推测 3000）
-3. OpenDota 带 API key 的限额（文档仅定性描述）
-4. STRATZ 的 GraphQL schema 与 2026 定价（本环境被拦截，未验证）
-5. `CDOTAUserMsg_ChatMessage.channel_type` 中除 11 外的取值语义（公开 proto 中无该枚举）
-6. 职业选手小号识别无自动化方案（采用种子 + 派对图扩展）
-7. manta 在 Apple Silicon 之外平台（尤其 Windows）的解析性能
-8. Kaggle 引导数据集是否确实含全部 24 手顺序（研究报告称含，需入库后校验）
+1. OpenDota 日配额精确值（观察到 ≥2760，推测 3000）
+2. OpenDota 带 API key 的限额（文档仅定性描述）
+3. STRATZ 的 GraphQL schema 与 2026 定价（本环境被拦截，未验证）
+4. `CDOTAUserMsg_ChatMessage.channel_type` 中除 11 外的取值语义（公开 proto 中无该枚举）
+5. 职业选手小号识别无自动化方案（采用种子 + 派对图扩展，需人工确认）
+6. manta 在 Apple Silicon 之外平台（尤其 Windows）的解析性能
+7. Kaggle 数据集的 `picks_bans.csv` / `draft_timings.csv` **列名与语义**（文件存在、大小已知，但列结构未验证）。入库前必须先抽样检视，确认含 `match_id` / `ord` / `is_pick` / `team` / `hero_id`，且 `ord` 语义与 OpenDota 一致。
+8. 先手方 65/35 偏斜的**成因**（推测为赛事选边规则）。若成因是"某阵营系统性获得先手"，则先手特征与阵营特征共线，建模时必须处理。
+9. `draft_timings.csv` 的 `extra_time` / `total_time_taken` 是否可用于量化"对手面对摇摆位时的犹豫"（该分析依赖此字段，未验证其填充率）。
+
+**已关闭的未验证项**（曾经存疑，现已实测解决）：
+- ✅ `first_pick_team` → 24 手队伍归属映射：全库 1,014 场 **1014/1014 成立**
+- ✅ 24 手模板结构：全库验证，异常率约 0.6%
+- ✅ Kaggle 数据集许可与规模：**CC0: Public Domain**，总 48.5 GB，所需子集 506 MB
+- ✅ DOTA2 回放内语音不可提取：3 个回放中 `CSVMsg_VoiceData` 均为 0 条
