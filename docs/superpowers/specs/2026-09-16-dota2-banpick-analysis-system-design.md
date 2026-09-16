@@ -52,7 +52,7 @@
 
 **A（本设计）→ B（自家战队内部平台：训练赛深度解析 + 沟通分析 + 自我复盘）→ D（监控职业选手与小号的天梯录像）**
 
-Phase A 的数据模型为 B 与 D 预留接入点（回放事件表、`player_accounts` 的小号标记字段）。
+Phase A 的数据模型为 B 与 D 预留接入点（回放事件表 `wards`/`teamfights`/`item_timings`/`gold_curves`、`players.is_smurf_candidate` 的小号标记字段）。
 
 ---
 
@@ -78,7 +78,32 @@ Phase A 的数据模型为 B 与 D 预留接入点（回放事件表、`player_a
 |---|---|
 | Valve 官方补丁 JSON API（免密钥）：`https://www.dota2.com/datafeed/patchnoteslist?language=english`，**118 个版本含字母子版本** | 版本表的主来源 |
 | 补丁详情 API：`.../patchnotes?version=7.41f&language=english&game_mode=DOTA_GAMEMODE_ALL`，`version` 必须是**字符串**；**错误也返回 HTTP 200**，必须检查 `success` 字段 | 解析层必须校验 `success` |
-| OpenDota `patch` 字段**丢失子版本**（7.41a–f 全部返回 `patch: 60`） | 必须用 `D2-LRG-Metadata/patchdates.json` 按 `start_time` 还原子版本 |
+| OpenDota `patch` 字段**丢失子版本**（7.41a–f 全部返回 `patch: 60`） | 必须用 `D2-LRG-Metadata/patchdates.json` 按 `start_time` 还原子版本。**字母映射规则必须在代码里固化**（见下） |
+
+**子版本还原规则（已实测校准 —— 用错规则会让约 20 个版本序列整体错位一个字母，最大偏差 47 天）**
+
+`patchdates.json` 的每条记录形如 `{code, main, add?, dates[]}`。正确映射是：
+
+```
+main          -> <code>              (基础版本，如 '7.41')
+add           -> <code> + 'a'        (若存在)
+dates[0]      -> <code> + 'b'
+dates[1]      -> <code> + 'c'
+...           -> 依次递增（b, c, d, e, f, ...）
+```
+
+**关键**：`dates[]` **从 'b' 起，不是从 'a' 起**。`add` 才是 'a'。
+
+实测校准（对照 Valve `patchnoteslist`）：83 个可核验字母槽中，**34 个日期完全一致**，48 个相差 ±1–2 天（发布与公告的时间差），**仅 1 个异常**（7.22d 差 34 天）。若改用"`dates[]` 从 'a' 起"的读法，**平均误差升至 26.3 天**。另有两处已知例外需在入库时告警：**7.22**（含一个未排序日期）、**7.25**（其 'a' 落在 `dates[0]`）。
+
+**两个来源的分工（不可混用）**：
+
+| 来源 | 覆盖 | 用途 |
+|---|---|---|
+| Valve `patchnoteslist` | **118 个版本，其中 84 个字母版本，从 7.08 起** | **权威版本清单**。`patches` 表的行集以此为准 |
+| `patchdates.json` | **141 个字母槽**（含 Valve 未收录的 6.86–7.07 段），按 OpenDota 的粗粒度 patch id 索引 | **只用于把 OpenDota 的 `patch: 60` 细分到子版本**。其时间戳整体比 Valve 晚约 1 天 |
+
+**入库规则**：以 Valve 的时间戳为准；`patchdates` 的值仅用于填写那些 Valve 列表未覆盖的序列，且**必须与 Valve 交叉校验**，偏差超过 ±2 天则记录告警并以 Valve 为准。M1 的"84 个字母子版本"这一验收数字**来自 Valve**，不可能从 `patchdates` 得出（它有 141 个槽）。
 | 回放头**不含补丁号字符串**。实测解码参考比赛回放头：`demo_version_name = "valve_demo_2b"`（这是 **demo 格式**版本，与游戏补丁无关），`demo_version_guid = "8e9d71ab-…"` | **不要**用 `demo_version_name` 判定版本。导入训练赛的版本须由下行的 build 号映射 |
 | **可用的版本线索是 build 号**：同一回放头含 `CSVCMsg_ServerInfo.game_dir = "/opt/srcds/dota/dota_v6932/dota8"`，正则 `dota_v(\d+)` 提取 **build 6932**。另有 `CDemoFileHeader.patch_version`(int) 与 `build_num`(int) | A9 的版本判定改用 build 号。6932 落在 7.41e，与参考比赛的实际版本一致（见下条）|
 | 补丁改动是**自然语言字符串**（如 `"from 60% to 65%"`），非数值字段 | Phase A 只做结构化存储与展示，不做数值解析 |
@@ -114,7 +139,7 @@ Phase A 的数据模型为 B 与 D 预留接入点（回放事件表、`player_a
            └───────────────┼──────────────────┘
                            ↓
 ┌─ 采集层（常驻进程）─────────────────────────────────────────┐
-│ 调度器（幂等·可回溯）→ 限流器（60/min）→ 回放下载（Zstd）    │
+│ 调度器（幂等·可回溯）→ 限流器（60/min）→ 回放下载（magic 嗅探 zstd/bzip2）    │
 │ → 解析队列（manta）                                          │
 │ BP 状态机：发现 → 取 picks_bans → 未就绪挂起 → 退避重试 → 完成│
 └───────────────────────────┬─────────────────────────────────┘
@@ -183,26 +208,52 @@ CREATE TABLE patches (
 -- 不能直接当 token 用，否则 hero 128 作 pick 会解码成"英雄 1 被 ban"。
 --
 -- 【dense_index 的派生规则 —— 必须固定，否则常量表一刷新 token 就会静默重映射】
---   dense_index := 按 hero_id **升序排序后的下标**（0-based）
---   必须写成断言：dense_index == row_number() OVER (ORDER BY hero_id) - 1
---   新增英雄只会追加到末尾，不改变既有英雄的 dense_index。
-CREATE TABLE heroes_const (
-  dense_index    SMALLINT PRIMARY KEY,
-                 -- 刻意不设 <=126 上界：新英雄上线时须可扩展。token 空间上界由
-                 -- §10.1 的词表常量管理，不由 CHECK 决定。
-  hero_id        SMALLINT NOT NULL UNIQUE,
+--   初次派生：dense_index := 按 hero_id 升序排序后的下标（0-based）
+--            断言：dense_index == row_number() OVER (ORDER BY hero_id) - 1
+--
+--   ⚠ 仅靠"追加"不足以保证稳定：hero_id 在 1..155 中有 28 个空位，
+--     若 Valve 日后用其中一个空位发布新英雄，朴素重排会让**其后所有英雄的
+--     dense_index 整体位移**，而上述断言仍然通过（因为它只校验内部一致性）。
+--   因此稳定性必须靠**冻结快照**而非靠顺序假设：
+--     1) dense_index 是**版本化常量快照**的一部分，快照存于 constants_snapshot 表；
+--     2) 重派生只在**模型重训**时发生，且必须显式提升 snapshot_version；
+--     3) 迁移检查：对快照 N 与 N+1 断言所有**已存在**的 hero_id 其 dense_index 不变，
+--        变化必须报错并强制模型版本号同步提升，禁止静默重映射。
+-- 常量快照版本（dense_index 稳定性的载体，见下）。必须先于引用它的表创建。
+CREATE TABLE constants_snapshot (
+  snapshot_version INT PRIMARY KEY,
+  fetched_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  n_heroes         SMALLINT NOT NULL,      -- M1 断言 = 127
+  n_items          SMALLINT NOT NULL,      -- M1 断言 = 501
+  source           TEXT NOT NULL DEFAULT 'dotaconstants'
+);
+
+-- 英雄/道具的**规范实体**：不随快照变化，是 draft_actions/match_players 的 FK 目标。
+CREATE TABLE heroes (
+  hero_id        SMALLINT PRIMARY KEY,
   name           TEXT NOT NULL,          -- npc_dota_hero_*
   localized_name TEXT NOT NULL,
   primary_attr   TEXT,
-  roles          TEXT[],
+  roles          TEXT[],                 -- 实测 8 项词表，见 §7 维度 6
   cm_enabled     BOOLEAN                 -- 当前是否在 CM 池。**版本化的权威来源是
                                          -- patches.is_cm_pool_snapshot**，此列仅供快速过滤
 );
-CREATE TABLE items_const (
+CREATE TABLE items (
   item_id INT PRIMARY KEY,
   name    TEXT NOT NULL UNIQUE,
   dname   TEXT,                          -- 可空：上游 501 个道具中有 10 个 dname 为 null
   cost    INT
+);
+
+-- 版本化的**token 索引映射**（序列模型 token 的基，§10.1）。
+-- 独立成表而非塞进 heroes，正是为了让 dense_index 可以被冻结、被版本化、
+-- 并在迁移时逐 hero_id 对比——这是防止 token 静默重映射的唯一手段。
+CREATE TABLE hero_token_index (
+  snapshot_version SMALLINT NOT NULL REFERENCES constants_snapshot(snapshot_version),
+  hero_id          SMALLINT NOT NULL REFERENCES heroes(hero_id),
+  dense_index      SMALLINT NOT NULL,
+  PRIMARY KEY (snapshot_version, dense_index),
+  UNIQUE (snapshot_version, hero_id)
 );
 
 -- ===== 实体（必须先于所有引用它们的表创建）=====
@@ -239,6 +290,20 @@ CREATE TABLE app_config (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 可调参数的键值存储。§6.6/§7/§9.1 引用的三个键都落在这里——原设计只说
+-- "存于 app_config" 但那张单行表没有放键值的地方，实现者无处可写。
+CREATE TABLE app_config_kv (
+  key         TEXT PRIMARY KEY,
+  value       JSONB NOT NULL,
+  note        TEXT,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- M1 必须种入的键（缺任一个则相关功能不可用）：
+--   'archetype_role_map'   §7   维度6 的 roles→原型 映射表
+--   'robustness_lambda'    §6.6 penalized_score 的 λ，默认 1.0
+--   'op_decision_min_delta' §9.1 三选一判定的最小差异阈值，默认 0.02
+--   'min_sample_n'         §7.3/§9.1 的样本量门槛，默认 30
+
 -- ===== 比赛 =====
 CREATE TABLE matches (
   match_id        BIGINT PRIMARY KEY,
@@ -256,11 +321,14 @@ CREATE TABLE matches (
   dire_team_id    BIGINT REFERENCES teams(team_id),
   radiant_win     BOOLEAN,
   lobby_type      SMALLINT,
-  first_blood_time INT,                     -- 秒；§7 维度 5 与 §7.1「节奏」的输入
-  first_tower_time INT,                     -- 秒；首个防御塔被摧毁的时间（§7.1 节奏）
-  first_roshan_time INT,                    -- 秒；可空，无肉山则为 NULL
-  -- 以上三个节奏字段均来自 OpenDota /matches/{id} 的同一份 payload，
-  -- 但仅在 stats_available 为真时有效（未 parse 的场次为 NULL）
+  first_blood_time INT,                     -- 秒；**这是 /matches/{id} 的直接字段**（实测值 35）
+  first_tower_time INT,                     -- 秒；**派生值**，见下方说明
+  first_roshan_time INT,                    -- 秒；**派生值**，可空（无肉山则 NULL）
+  -- ⚠ 只有 first_blood_time 是 OpenDota 的直接字段。first_tower_time 与
+  --   first_roshan_time **必须从 /matches/{id} 的 objectives[] 数组推导**：
+  --   取 type='CHAT_MESSAGE_FIRSTBLOOD' 之外，type 为建筑/肉山相关的事件，
+  --   按 time 升序取首个。推导逻辑须写单元测试（§15 节奏字段测试）。
+  -- 三个字段均仅在对应数据存在时有效；未 parse 的场次为 NULL。
   draft_state     TEXT NOT NULL DEFAULT 'pending'
                   CHECK (draft_state IN ('pending','complete','unavailable')),
   n_draft_actions SMALLINT,                 -- 实际手数，正常 24
@@ -286,7 +354,7 @@ CREATE TABLE draft_actions (
   ord        SMALLINT NOT NULL CHECK (ord BETWEEN 0 AND 23),
   is_pick    BOOLEAN NOT NULL,
   team       SMALLINT NOT NULL CHECK (team IN (0,1)),   -- 0=Radiant 1=Dire
-  hero_id    SMALLINT NOT NULL REFERENCES heroes_const(hero_id),
+  hero_id    SMALLINT NOT NULL REFERENCES heroes(hero_id),
   PRIMARY KEY (match_id, ord)
 );
 
@@ -313,16 +381,21 @@ CREATE TABLE match_players (
               --   塌缩到 Radiant 上，并被 slot_team_agree 拒绝或主键冲突。
   account_id  BIGINT REFERENCES players(account_id),   -- 可空：匿名选手
   team        SMALLINT NOT NULL CHECK (team IN (0,1)), -- 侧别的唯一权威字段
-  hero_id     SMALLINT NOT NULL REFERENCES heroes_const(hero_id),
+  hero_id     SMALLINT NOT NULL REFERENCES heroes(hero_id),
   position    SMALLINT CHECK (position BETWEEN 1 AND 5),
   kills SMALLINT, deaths SMALLINT, assists SMALLINT,
   gpm SMALLINT, xpm SMALLINT,
   last_hits SMALLINT, denies SMALLINT,
   hero_damage INT, hero_healing INT, tower_damage INT,
-  damage_taken INT,                         -- §7 维度 3「承伤占比」的输入
+  damage_taken JSONB,                       -- 上游为**按来源分组的字典**（如 {"npc_dota_hero_x": 12345, ...}），
+                                            -- 不是整数。原样存储以保留可追溯性。
+  damage_taken_total INT,                   -- = sum(damage_taken 的各值)。§7 维度 3「承伤占比」用此列，
+                                            -- 聚合规则显式定义，避免各处自行求和得出不同结果。
   net_worth INT,                            -- §7 维度 3「经济转化率」的分母
   obs_placed SMALLINT, sen_placed SMALLINT,
-  camps_stacked SMALLINT, runes_pickups SMALLINT,
+  observer_kills SMALLINT,                  -- §7 维度 4「反眼数」的输入（上游字段名为 observer_kills）
+  sentry_kills SMALLINT,                    -- §7 维度 4「反眼数」（真眼被反）
+  camps_stacked SMALLINT, rune_pickups SMALLINT,   -- 注意：上游字段名是 rune_pickups（无 s）
   lane_role   SMALLINT,
   is_roaming  BOOLEAN,
   firstblood_claimed BOOLEAN,               -- §7 维度 5「首杀参与率」的输入
@@ -404,7 +477,7 @@ CREATE TABLE teamfights (
 CREATE TABLE item_timings (
   match_id BIGINT NOT NULL,
   player_slot SMALLINT NOT NULL,          -- 与 match_players 的归一化 slot 一致
-  item_id INT NOT NULL REFERENCES items_const(item_id),
+  item_id INT NOT NULL REFERENCES items(item_id),
   purchased_at_s INT NOT NULL,
   PRIMARY KEY (match_id, player_slot, item_id, purchased_at_s),
   FOREIGN KEY (match_id, player_slot)
@@ -513,6 +586,17 @@ def resolve(ord, first_pick_team):
 | `unavailable_reason` | `needs_replay` \| `insufficient_samples` \| `source_not_allowed` \| `stat_unavailable` | 见下 |
 | `error.code` | `insufficient_data` \| `invalid_request` \| `source_not_allowed` \| `not_found` \| `upstream_unavailable` | — |
 
+**`unavailable_reason` 的产生条件（每个取值都必须有明确的生产者，否则枚举形同虚设）**
+
+| reason | 何时产生 | `needs` |
+|---|---|---|
+| `needs_replay` | 该指标只能从回放解析得到（眼位坐标、10 分钟补刀差、团战、装备时间线） | **必填**，值 `"Phase B"` |
+| `insufficient_samples` | 数据存在但样本量低于门槛（同侪 < 30、或 §9.1 的逐量 `n < 30`） | 必须省略 |
+| `source_not_allowed` | 请求的来源不含该指标所需的数据（如对手画像路径被拒用 `scrim`） | 必须省略 |
+| `stat_unavailable` | **该场比赛 `stats_available = false`**（OpenDota 未 parse），或上游 payload 缺该字段（如 `first_roshan_time` 无肉山、上游 10 个道具 `dname` 为 null）。**判定规则**：`matches.parse_state <> 'full'` 时，一切依赖 OpenDota parse 的统计列（§7 维度 1–5 中标注"需 `stats_available`"的行）必须返回本 reason，**不得返回 0 或 NULL 冒充有值** | 必须省略 |
+
+**优先级**（一条数据可能同时满足多个）：`source_not_allowed` > `stat_unavailable` > `insufficient_samples` > `needs_replay`。
+
 **可选性标记**：本节所有字段默认**必填**。可选字段一律显式标注 `// optional`，且其缺省语义为"该维度无数据"，不得与"值为 0"混淆。
 
 **降级契约（两种层级，勿混用）**
@@ -610,7 +694,8 @@ POST /v1/policy/next
     {"ord":10,"is_pick":false, "team":0, "hero_id":9},
     {"ord":11,"is_pick":false, "team":1, "hero_id":106}
   ],
-  "sources": ["pro_match"]
+  "sources": ["pro_match"],
+  "top_n": 10
 }
 
 → 200
@@ -623,7 +708,7 @@ POST /v1/policy/next
      "reasons": ["该队在此阶段的历史首选", "克制对方已选核心"],
      "evidence_match_ids": [8996973546, 8988636430]}
   ],
-  "top_n": 1,
+  "top_n": 10,
   "other_prob": 0.820,
   "model": "sequence-v1",
   "baseline": {"frequency_top1": 0.041, "model_top1": null},
@@ -635,7 +720,7 @@ POST /v1/policy/next
 
 **不变式（可测）**：
 - `sum(candidates[].prob) + other_prob == 1.0`，容差 ±0.001。`candidates` 是 **top-N 截断**（`top_n` 声明 N），`other_prob` 承载未列出的尾部概率。上例：`0.180 + 0.820 = 1.0` ✓
-- `len(candidates) <= top_n`；`other_prob >= 0`
+- `len(candidates) <= top_n`；`other_prob >= 0`。`top_n` 是**请求参数**（`// optional`，默认 10，上限 127）；响应回显实际使用的值。示例中 `len(candidates)=1 <= top_n=10` 是合法的——示例刻意只列一条以避免文档过长，**不变式约束的是上界而非等于**
 - `(next_ord, team, is_pick) == resolve(max_ord(draft)+1, first_pick_team)`，即 §6.0 的 `resolve()`
 - `candidates[].hero_id` 不得与 `draft` 中已出现的 hero 重复
 - `baseline.model_top1` 在模型未就绪时为 `null`（`// optional`，语义为"无模型"），前端须能渲染此态
@@ -685,7 +770,7 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
   "branches": [
     {
       "branch_id": "A",
-      "condition": {"first_pick": "them", "their_opening": "teamfight"},
+      "condition": {"first_pick": "us", "their_opening": "teamfight"},
       "plans": [{
         "label": "A1",
         "goal": "拖到中后期，靠分推拉扯",
@@ -695,6 +780,11 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
         "robustness_delta": 0.04,
         "penalized_score": 0.52
       }]
+    },
+    {
+      "branch_id": "B",
+      "condition": {"first_pick": "them", "their_opening": "push"},
+      "plans": [ /* 同形 */ ]
     }
   ],
   "series": {
@@ -712,13 +802,15 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
 
 **不变式（可测）**：
 - 每个 `plans[]` 必须有**非空** `fallback`（首选被 ban 的路径）。**无 fallback 的 plan 不得产出**——这是产品硬要求（§13 补充事项 2），不是建议。
-- `branches[].condition.first_pick` ∈ {`"us"`,`"them"`}，且所有 2×系统类型 的组合必须被覆盖或有显式 `unknown` 分支。
+- `branches[].condition.first_pick` ∈ {`"us"`,`"them"`}，且所有（2 先手 × 7 体系）组合必须被覆盖或有显式 `unknown` 分支。
+- **先手方与 side_map 的自洽规则（可判定）**：定义 `us_has_first_pick := (side_map["us"] == first_pick_team)`。则任一分支必须满足 `condition.first_pick == ("us" if us_has_first_pick else "them")`。**示例验算**：`side_map.us = 0`、`first_pick_team = 0` → `us_has_first_pick = true` → 分支只能是 `first_pick: "us"`。（上一版示例标成 `"them"`，违反此规则，已修。）
+- **`by_ord` 是绝对手数（0–23），不是分支内的相对序号。** 其归属方由 §6.0 的 `resolve(by_ord, first_pick_team)` 确定性决定，且**必须与所属分支自洽**：`first_pick: "us"` 的分支里，每个 `by_ord` 按 `resolve()` 都必须落在我方手上。示例验算：`first_pick_team = 0` 时 `resolve(13) = (pick, team 0)` = 我方 ✓（真实数据里 ord 13 正是 team 0 选 Techies）。不自洽则该 plan 为 `invalid_request`。
 - `op_hero_decision[].recommendation` ∈ §6.0 枚举；`n` 不足以支撑时必须是 `insufficient_data` 而非猜测。
 - `if_we_leave` 中 `our_wr + their_wr == 1.0`（±0.001）——这是**同一批比赛的两个视角**，我方赢了就是对方输了。`n` 为此批比赛的场次数，两个比率共用。示例：`0.58 + 0.42 = 1.0` ✓
 - `if_we_pick`/`if_we_ban`/`if_we_leave` 中的**每个胜率各有一个 `n`**；**§9.1 的 `n >= 30` 门槛逐量判定**，不是逐条目判定。任一量不足即该量降级，且 `recommendation` 必须为 `insufficient_data`。
 - **示例一致性验算**（§9.1 规则）：`n` 全部 ≥ 30 ✓；`max(0.44, 0.50, 0.58) = 0.58`（`if_we_leave`）→ 取 `leave` 分支；`0.58 − 0.50 = 0.08 > 0.02` ✓；`wr_counter 0.61 > wr_leave 0.58` ✓ → `recommendation = "leave_and_counter"` ✓。本例的业务含义是：该 OP 英雄在我方手里只得 0.44，但放给对手后我方有反制手段、胜率反升至 0.58——**放比抢更好**
 - `consider[].if_we_leave_it_open` 与 `op_hero_decision[]` **同形**（`OpHeroOption`），不得各写一套。
-- `matchup.side_map` 必须与 `first_pick_team` 自洽：`side_map[us] == first_pick_team` 当且仅当 `first_pick` 为 `"us"`。
+- `matchup.side_map` 必须含 `us`/`them` 两个键且取值互异（0 与 1 各一），并与 `first_pick_team` 一起用于上一条的自洽判定。
 - `series_id` 为 `// optional`；缺省时不返回 `series` 对象（而非返回 null 字段）。
 - 所有依赖回放的指标使用 §6.0 的统一降级形态，**不得**静默省略字段。
 
@@ -746,7 +838,7 @@ M3 与 A8 的对手画像卡依赖此资源。这是 Value 与 Playbook 的共�
 | `dimensions.*.percentile` | 该选手在 §7.3 定义的**同侪集合**中的百分位（0–100，整数） |
 | `dimensions.hero_archetype` | 六类原型权重（含 `initiate`），各项之和为 1.0（±0.001） |
 
-**百分位的分子与分母是**有意**不同的population**：分子用**请求的字母子版本**（如 `7.41f`，因为版本强度必须精确），分母用 **`base_version`**（如 `7.41`，因为同侪样本量必须足够）。这是刻意的取舍，不是 bug——实现时不得"修正"为同一个版本。
+**百分位的分子与分母是**有意**不同的population**：分子用**请求的字母子版本**（本示例中是 `7.41e`，因为版本强度必须精确），分母用 **`base_version`**（如 `7.41`，因为同侪样本量必须足够）。这是刻意的取舍，不是 bug——实现时不得"修正"为同一个版本。
 
 ```
 GET /v1/profile?team_id=10232231&patch=7.41e&as_of=2026-09-16&sources=pro_match,pub_match
@@ -776,7 +868,7 @@ GET /v1/profile?team_id=10232231&patch=7.41e&as_of=2026-09-16&sources=pro_match,
       "hero_pool":     {"percentile": 88, "n": 120},
       "laning":        {"percentile": 71, "n": 120},
       "combat":        {"percentile": 64, "n": 120},
-      "map_vision":    {"value": null, "reason": "needs_replay", "needs": "Phase B"},
+      "map_vision":    {"percentile": 47, "n": 120},
       "tempo":         {"percentile": 55, "n": 120},
       "hero_archetype":{"initiate": 0.24, "protect": 0.18, "push": 0.17,
                         "teamfight": 0.19, "pickoff": 0.13, "splitpush": 0.09}
@@ -802,7 +894,7 @@ GET /v1/profile?team_id=10232231&patch=7.41e&as_of=2026-09-16&sources=pro_match,
 
 | 缺失内容 | 原因 | 替代 |
 |---|---|---|
-| 眼位坐标、热力图 | 需回放解析（Phase B） | `map_vision` 返回 `needs_replay` |
+| 眼位**坐标**、热力图 | 需回放解析（Phase B） | `positions[].notes[kind=ward]` 返回 `needs_replay`。**注意 `map_vision` 指标本身在 Phase A 可用**（数量口径，见 §7 维度 4），不要误降级它 |
 | 10 分钟补刀差/经验差 | 需回放解析 | 用 GPM/XPM 分位替代（`laning` 维度） |
 | 开雾次数/时机 | 需回放解析 | 不提供 |
 | 团战切分与胜负 | 需回放解析（A9 只解头信息与 BP） | 不提供 |
@@ -833,7 +925,11 @@ POST /v1/advise
 | `"realtime"` | 赛时 BP，当前手建议 | `options[]`（下述形状）+ `next_ord`/`team`/`is_pick` |
 | `"offline"` | 赛前，产出 Playbook 的 `branches[].plans[]` | **`branches[]`**，每项为 `{branch_id, condition, plans[]}`——`plans[]` 元素形状与 §6.3 完全相同。**离线结果必须带 `branch_id` 与 `condition`**，否则多分支结果无法归属（§6.3 的 `plans[]` 因已嵌在 `branches[]` 内故不需要） |
 
-`mode="offline"` 时请求必须带 `branches` 参数：字符串数组，元素取值同 §6.0 的 `their_opening`，另可加前缀 `first_pick:` 或 `second_pick:` 以限定先手分支（例：`["first_pick:teamfight", "second_pick:push"]`）。缺省 `mode` 为 `realtime`，缺省 `branches` 为**全部先手×体系组合**（2 × 7 = 14 个分支，含 `unknown`）。
+`mode="offline"` 时请求必须带 `branches` 参数：字符串数组，元素为 `"<先手>:<体系>"`，其中 **`<先手>` ∈ {`us`, `them`}**（对应 `condition.first_pick`），**`<体系>` ∈ §6.0 的 `their_opening` 取值**。例：`["us:teamfight", "them:push"]`。
+
+**前缀到 `condition` 的映射是恒等的**：`"us:teamfight"` → `condition = {"first_pick": "us", "their_opening": "teamfight"}`。响应中每个 `branches[].condition` 必须能反解回请求里的某个字符串，**该双射是"每个请求值都必须出现"这条不变式的判定依据**。
+
+缺省 `mode` 为 `realtime`；缺省 `branches` 为**全部先手×体系组合**（2 × 7 = 14 个分支，含 `unknown`）。
 
 **稳健性降权必须显式化（否则与"按 expected_wr 降序"冲突）**：`options[]` 与 `plans[]` 的元素都须带两个分数：
 
@@ -899,29 +995,35 @@ POST /v1/advise
 | | 承伤占比 | API | 仅 3 号位口径 |
 | | 治疗量 | API | 仅 4/5 号位口径 |
 | | 经济转化率 | API | 英雄伤害 / 净经济 |
-| **4 地图与视野** | 真假眼数量、反眼数、堆野数、神符 | API（需 `stats_available`） | 数量口径：`obs_placed`/`sen_placed`/`camps_stacked`/`runes_pickups`。**这些在 Phase A 可用**，故 `map_vision` 指标的权重非零（见 §7.2） |
+| **4 地图与视野** | 真假眼数量、反眼数、堆野数、神符 | API（需 `stats_available`） | 数量口径，**字段名以上游为准**：`obs_placed` / `sen_placed`（插眼数）、`observer_kills` / `sentry_kills`（反眼数）、`camps_stacked`、**`rune_pickups`**（无 s）。**这些在 Phase A 可用**，故 `map_vision` 指标的权重非零（见 §7.2） |
 | | 眼位坐标与热力图 | 回放（Phase B） | 坐标需回放。**这是 `map_vision` 之下的一个子能力，不是整个指标**——§7.2 的权重针对的是上行的数量口径 |
 | **5 节奏与稳定性** | 近期状态滑动窗口 | API | 近 20 场加权胜率，指数衰减 |
 | | 胜负方差 | API | 窗口内胜率的二项方差 |
 | | 首杀参与率 | API | `firstblood_claimed` 归属 |
 | **6 英雄类型偏好** | 六类原型权重 | 常量 + API | 基于 dotaconstants `heroes.roles` 打标 + 选手英雄池加权。六类即 §6.0 的 `hero_archetype` 词表：`initiate`(先手) / `protect`(反手) / `push`(推进) / `teamfight`(团战) / `pickoff`(抓单) / `splitpush`(分推)。**中文名与枚举值的对应是规范性的**，实现不得另立第三套命名 |
 
-**英雄原型映射（§7 维度 6 的实现规则 —— 此前缺失，导致 `hero_archetype` 与 `their_opening` 无法实现）**
+**英雄原型映射（§7 维度 6 的实现规则）**
 
-dotaconstants 的 `heroes.roles` 词表是 `{Carry, Support, Nuker, Disabler, Initiator, Durable, Escape, Pusher, Jungler}`——**其中没有任何一个等于 §6.0 的六类原型**。必须显式映射：
+dotaconstants 的 `heroes.roles` 词表实测只有 **8 项**：`{Carry, Disabler, Durable, Escape, Initiator, Nuker, Pusher, Support}`——**没有 `Jungler`，也没有任何一项等于 §6.0 的六类原型**。必须显式映射。
 
-| 原型 | 命中条件（`roles` 上的布尔表达式） |
+**映射规则（按序求值，命中即计，一个英雄可命中多个）**：
+
+| 原型 | 命中条件 |
 |---|---|
 | `initiate`（先手） | `Initiator` |
-| `protect`（反手） | `Support` AND (`Nuker` OR `Durable`) |
 | `push`（推进） | `Pusher` |
-| `teamfight`（团战） | `Durable` AND (`Nuker` OR `Disabler`) |
 | `pickoff`（抓单） | `Escape` AND `Nuker` |
 | `splitpush`（分推） | `Carry` AND `Escape` AND NOT `Pusher` |
+| `protect`（反手） | `Support` AND (`Nuker` OR `Durable`) |
+| `teamfight`（团战） | `Durable` OR `Disabler` OR (`Carry` AND `Nuker`) |
 
-**计分与归一化**：`hero_archetype[a] = Σ_h(该选手英雄池中 h 的出场占比 × I[h 命中 a])`，六项再归一化到和为 1.0。一个英雄可同时命中多个原型。
+**完备性保证**：上表**按构造是完备的**——任何未命中前五项的英雄，其 `roles` 必然落在 `Carry`/`Nuker`/`Disabler`/`Durable`/`Escape`/`Support` 之中；其中 `Carry`+`Nuker`、`Disabler`、`Durable` 三者至少居其一（否则该英雄无任何输出或控制定位，不存在），故必然命中 `teamfight`。**实测 127 个英雄零遗漏**，命中分布：`teamfight` 117、`initiate` 55、`protect` 44、`pickoff` 34、`push` 29、`splitpush` 23。
 
-**已知局限**：`Jungler` 无独立原型位，其影响通过组合条件体现。该映射存于 `app_config`（键 `archetype_role_map`），可调而不改代码。**测试要求**：断言 127 个英雄中每一个至少命中一个原型（不允许出现六项全零的英雄）。
+> 上一版规则（`teamfight` = `Durable` AND (`Nuker` OR `Disabler`)）会让 **8 个英雄零命中**：Shadow Fiend(11)、Zeus(22)、Sniper(35)、Gyrocopter(72)、Outworld Devourer(76)、**Techies(105)**、**Dawnbreaker(135)**、Muerta(138)。其中 105 出现在 §6.3/§6.6 示例里、135 出现在参考比赛里，且 `Σ=0` 会导致归一化除零。放宽为析取式后全部归入 `teamfight`（语义正确：均为远程法核/团战输出）。
+
+**计分与归一化**：`hero_archetype[a] = Σ_h(该选手英雄池中 h 的出场占比 × I[h 命中 a])`，六项再归一化到和为 1.0。归一化前先断言 `Σ > 0`（映射完备性由上述构造保证，该断言是运行时兜底）。
+
+该映射存于 **`app_config_kv`**（键 `archetype_role_map`），可调而不改代码。**测试要求**：断言 127 个英雄每一个至少命中一个原型，且断言那 8 个历史零命中英雄现在命中 `teamfight`。
 
 **位置推断**：优先用 OpenDota `/matches/{id}` 中已有的 `player_slot` 与位置推断字段（上游对已 parse 的场次直接给出 1–5 的位置），仅在缺失时退化为启发式（按 `lane_role` 与经济结构判定）。**不依赖 STRATZ**（§12 R2）。
 
@@ -1092,7 +1194,7 @@ else:                                   -> leave_and_counter
 
 24 手 CM 序列 → token 序列。位置 token 由 §8① 确定性给定，**模型只预测英雄**。
 
-- **词表 = 258 个 token**。**token 基于 `heroes_const.dense_index`（0..126 稠密），不是 `hero_id`。** `hero_id` 稀疏（1..155，其中 9 个 > 126：128,129,131,135,136,137,138,145,155），直接用原始 id 会把 hero 128 的 pick 解码成"英雄 1 被 ban"，把 hero 128 的 ban 映射到 255（与 `BOS` 冲突），hero 155 的 ban 溢出到 282（越界）。**示例比赛 8996973546 本身就含 hero_id 135。** 映射由 `heroes_const` 表提供，入库时即固化。
+- **词表 = 258 个 token**。**token 基于 `hero_token_index.dense_index`（0..126 稠密），不是 `hero_id`。** `hero_id` 稀疏（1..155，其中 9 个 > 126：128,129,131,135,136,137,138,145,155），直接用原始 id 会把 hero 128 的 pick 解码成"英雄 1 被 ban"，把 hero 128 的 ban 映射到 255（与 `BOS` 冲突），hero 155 的 ban 溢出到 282（越界）。**示例比赛 8996973546 本身就含 hero_id 135。** 映射由 `hero_token_index` 表提供（按 `snapshot_version` 冻结），入库时即固化。
 
   | 范围 | 含义 |
   |---|---|
@@ -1100,7 +1202,7 @@ else:                                   -> leave_and_counter
   | `127..253` | `dense_index` 0..126 作为 **ban** 出现 |
   | `254` | `PAD` —— 序列短于 24 手时右侧填充 |
   | `255` | `BOS` —— 序列起始标记 |
-  | `256` | `UNK_HERO` —— `hero_id` 不在 `heroes_const` 中（新英雄上线而常量表未更新） |
+  | `256` | `UNK_HERO` —— `hero_id` 不在 `heroes` 中（新英雄上线而常量表未更新） |
   | `257` | `MASK` —— **仅用于掩码语言建模（MLM）式预训练目标**：随机遮蔽序列中的若干位置，被遮蔽处替换为 `MASK`，loss 只在该位置回传。因果（自回归）训练目标下不使用此 token |
 
 - **`MASK` 的应用点**：仅在可选的自监督预训练阶段使用；§10.3 的评估协议只涉及自回归的下一手预测，不含 `MASK`。若不做预训练，`MASK` 在数据中永不出现，但仍在词表内以保持 token id 稳定。
@@ -1154,8 +1256,8 @@ else:                                   -> leave_and_counter
 | fixture | 覆盖的契约字段 |
 |---|---|
 | `value__low_confidence.json` | `confidence: "low"`、`n_samples < 30` |
-| `profile__map_vision_degraded.json` | `dimensions.map_vision = {value: null, reason: "needs_replay", needs: "Phase B"}` |
-| `profile__position_unknown.json` | `coverage.n_position_unknown > 0`、全部 `dimensions` 为 `insufficient_samples` |
+| `profile__map_vision_counts_only.json` | `map_vision` **在 Phase A 返回真实数量口径的百分位**（非降级），同时 `notes[].kind="ward"` 的坐标条目返回 `needs_replay` 降级——两者并存，用于证明"指标可用、坐标待 Phase B"这一区分 |
+| `profile__position_unknown.json` | `coverage.n_position_unknown > 0`；**五个位置相关维度**为 `insufficient_samples`，而 **`hero_archetype` 仍返回六项且和为 1.0**（§7.3：该维度不依赖位置）。此 fixture 专门锁住这个区分，防止实现者把六维一起降级 |
 | `playbook__draft_incomplete.json` | `data_quality.n_pending_draft > 0` 与 `n_unavailable_draft > 0`（这是 §12 R1 承诺的"UI 标注数据不完整"的载体） |
 | `playbook__anomalous.json` | `data_quality.n_anomalous_draft > 0` |
 | `playbook__positions_phase_b.json` | `positions[].notes[].value = null` + `reason = "needs_replay"` |
@@ -1178,7 +1280,7 @@ fixture 必须通过契约 schema 校验（否则前端会对着非法数据开�
 |---|---|---|---|
 | R1 | OpenDota `picks_bans` 滞后扩大或字段变更 | 数据断流 | 状态机 + 监控告警；`unavailable` 状态显式暴露给 UI |
 | R2 | STRATZ 不可用（已确认本环境被拦截） | 损失位置与 lane 数据 | **不依赖**。位置判定退化为启发式（§7.3 的 `position IS NULL` 路径）；**10 分钟补刀/经验差**留待回放层。注意 `lane_role`/`is_roaming` 来自 OpenDota 的解析管道，Phase A **可用**（见 §7 维度 2 的说明），不属本风险 |
-| R3 | 训练赛回放可能来自**旧版本**或非标准 lobby 设置 | 污染统计 | 导入时读 `demo_version_name` 强制校验；非标准设置需人工确认 |
+| R3 | 训练赛回放可能来自**旧版本**或非标准 lobby 设置 | 污染统计 | 导入时**从 `CSVCMsg_ServerInfo.game_dir` 提取 build 号**（`dota_v(\d+)`）映射到版本——**不要用 `demo_version_name`，它是 demo 格式版本**（§3.2）；非标准 lobby 设置需人工确认 |
 | R4 | ~~"先 ban 的队伍 = 先 pick 的队伍" 仅验证 3 场~~ **已关闭** | — | 全库 1,014 场验证 **1014/1014 成立，零反例**。规则可硬编码。见 §8① |
 | R5 | Liquipedia 限流严格（`action=parse` 1 次/30 秒） | 阵容历史采集慢 | 只采集目标战队（数十支），一次采完缓存；不追求全量 |
 | R6 | 序列模型可能无法超过频率基线 | 线 C 无产出 | 先交付基线（本身可用）；模型不达标则如实报告为负结果，**这本身也是内容**（该领域公开代码极少，负结果有参考价值） |
@@ -1248,7 +1350,7 @@ fixture 必须通过契约 schema 校验（否则前端会对着非法数据开�
 | **token 映射测试** | 取一个 `dense_index` 与 `hero_id` 不相等的英雄（如 hero_id 135 → dense_index 索引），断言序列 token 用的是 `dense_index` 而非 `hero_id`；断言 hero_id 128/155 不再产生越界或与 `BOS` 冲突的 token。这是 §10.1 修正的唯一验证 |
 | **模板实例化测试** | 对 §6.0 `resolve()` 的 24 项断言 ban/pick 计数为 14/10、F 与 O 各 7 ban 各 5 pick；对两种 `first_pick_team` 各跑一遍 |
 | **条件化对位测试** | 断言 `counter_matchup` 使用的是**减去选手自身基线后的 delta**，而非全局对位胜率；断言项目里不存在 127×127 的全局克制矩阵；`n < 30` 时该项取 0 且标注，不回退填充 |
-| **版本归属测试** | 造两场 `start_time` 分别落在 7.41e 与 7.41f 边界两侧的比赛，断言 `patch_id` 不同——这是 `patchdates.json` 还原逻辑（含 `add` 不在 `dates[]` 内的陷阱）的唯一验证 |
+| **版本归属测试** | 三类用例，缺一不可：① **边界**——造两场 `start_time` 分别落在 7.41e 与 7.41f 边界两侧的比赛，断言 `patch_id` 不同；② **字母映射正确性**——对一个 **`add` 存在**的序列（7.41）与一个 **`add` 缺失**的序列各跑一遍，断言 `dates[0]` 映射到 **`'b'`** 而非 `'a'`。**这是唯一能抓住"整体错位一个字母"的用例**，第 ① 类抓不到（它是 `add` 存在的序列，两种读法都能通过边界断言）；③ **交叉校验**——断言 `patches` 的行集来自 Valve（118 个版本 / 84 个字母版本），而非 `patchdates`（141 个槽位） |
 | **阵容归属测试** | 造一场跨阵容变更的比赛，断言历史胜率按**当场出场阵容**归属而非当前阵容；断言 `rosters` 可插入 `joined_at IS NULL` 的行 |
 | **匿名选手测试** | 造一场含两个 `account_id IS NULL` 的天梯局，断言 `match_players` 正确入库 10 行（验证主键用 `player_slot` 而非 `account_id`） |
 | **指标口径测试** | 对 §7.3 的每个阈值（签名英雄 ≥5 场/≥60%/≥10%、有效英雄 ≥3 场/≥50%、近期状态半衰期 7）造边界样本断言取舍；断言同侪 < 30 时返回 `insufficient_samples` |
@@ -1257,6 +1359,13 @@ fixture 必须通过契约 schema 校验（否则前端会对着非法数据开�
 | **决策稳健性测试** | `advise` 的每个 option 必含 `robustness_delta`；构造一个 `robustness_delta > 0.10` 的用例断言其带 `risk_note` 且排序被降权 |
 | **错误信封测试** | 断言 `insufficient_data` 返回 200 系（业务结果）而非 5xx；断言 `source_not_allowed` 在请求未授权的来源时触发 |
 | **采集配额测试** | 断言限流器在 60 请求/分钟内不触发 429；断言日配额计数与 `collector_attempts` 一致 |
+| **原型完备性测试** | 对 127 个英雄断言每个至少命中一个原型（`Σ > 0`，防归一化除零）；**并把 8 个历史零命中英雄（11/22/35/72/76/105/135/138）作为回归用例**，断言它们命中 `teamfight` |
+| **Phase A 缺席测试** | 扫描 §6.5「不返回的内容」清单中的每一项，断言其在**任何**接口响应中都不存在对应字段。这条使 §6.5 从文档承诺变成机器可检的规则 |
+| **§9.1 判定复算测试** | 以 §6.3 的 `op_hero_decision` 为输入，独立复算 `recommendation`，断言结果等于 `leave_and_counter`。防止示例与规则再次漂移 |
+| **空 draft 测试** | `POST /v1/policy/next` 传 `draft: []`，断言 `next_ord == 0` 且不报错；传满 24 手时断言返回 `invalid_request` |
+| **错误码覆盖测试** | 逐个断言 `invalid_request`(400) / `not_found`(404) / `upstream_unavailable`(503) / `source_not_allowed`(403) / `insufficient_data`(200) 都能被真实触发，且响应体符合 §6.0 的错误信封 |
+| **同侪过滤测试** | 断言百分位的分母**只**包含满足 §7.3 全部六个条件的行：位置相同、同 `base_version`、同 tier、同窗口、`stats_available=true`、同 `sources`。特别断言 `position IS NULL` 的行与跨 tier 的行**不进入**分母 |
+| **reason 生产者测试** | 对 §6.0 的四个 `unavailable_reason` 各构造一个触发条件，断言都真的会产出该 reason（防止定义了却永不产生的枚举） |
 
 ---
 
