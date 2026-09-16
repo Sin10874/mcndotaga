@@ -707,9 +707,10 @@ M3 与 A8 的对手画像卡依赖此资源。这是 Value 与 Playbook 的共�
 
 | 字段 | 定义 |
 |---|---|
-| `hero_pool.signature[].pct` | 该英雄占该选手**同窗口总出场**的百分比（整数 0–100）。例中 12 场 / 总出场 → `pct`。与 `effective_count` 无直接关系 |
-| `hero_pool.comfortable` | 场次 ≥ 3 且胜率 ≥ 0.50，但**不满足** signature 三条阈值（场次 ≥ 5、胜率 ≥ 0.60、占比 ≥ 10%）的英雄 |
-| `hero_pool.effective_count` | 满足"场次 ≥ 3 且胜率 ≥ 0.50"的英雄个数（§7.3） |
+| `hero_pool.signature[].pct` | 该英雄场次占该选手**同窗口总出场**（`window_games`）的百分比（整数 0–100）。**示例验算**：`window_games=48`，hero 55 出场 12 → `12/48 = 25%` ✓ |
+| `hero_pool.comfortable` | 场次 ≥ 3 且胜率 ≥ 0.50，但**不满足** signature 三条阈值（场次 ≥ 5、胜率 ≥ 0.60、占比 ≥ 10%）的英雄。**示例验算**：hero 77（8 场 / 50% / 17%）胜率低于 0.60 故不属 signature ✓。**注意**：hero 55（12 场 / 75% / 25%）三条全满足，必须落在 `signature` 而非 `comfortable` |
+| `hero_pool.window_games` | 该选手在该窗口内的总出场数。它是 `pct` 的分母，也是 `effective_count` 的上界校验依据（`effective_count <= window_games / 3`） |
+| `hero_pool.effective_count` | 满足"场次 ≥ 3 且胜率 ≥ 0.50"的英雄个数（§7.3）。**示例验算**：`14 <= 48/3 = 16` ✓ |
 | `hero_pool.presence_pick_rate` | 该选手的英雄被放出（未被对手 ban）时他选中其中之一的比率。分母＝该选手参与且其英雄池中至少一个英雄未被 ban 的场次数；分子＝其中他选了池内英雄的场次数 |
 | `dimensions.*.percentile` | 该选手在 §7.3 定义的**同侪集合**中的百分位（0–100，整数） |
 | `dimensions.hero_archetype` | 六类原型权重（含 `initiate`），各项之和为 1.0（±0.001） |
@@ -729,11 +730,12 @@ GET /v1/profile?team_id=10232231&patch=7.41f&as_of=2026-09-16&sources=pro_match,
                "pub_match": {"n_matches": 310, "n_stat_available": 298}},
   "players": [{
     "account_id": 123456,
-    "name": "...",
+    "name": "示例选手",
     "role": 4,
     "hero_pool": {
-      "signature":   [{"hero_id": 55, "games": 12, "wr": 0.75, "pct": 92}],
-      "comfortable": [{"hero_id": 77, "games": 8,  "wr": 0.62, "pct": 78}],
+      "window_games": 48,
+      "signature":   [{"hero_id": 55, "games": 12, "wr": 0.75, "pct": 25}],
+      "comfortable": [{"hero_id": 77, "games": 8,  "wr": 0.50, "pct": 17}],
       "effective_count": 14,
       "presence_pick_rate": 0.81
     },
@@ -1176,6 +1178,7 @@ fixture 必须通过契约 schema 校验（否则前端会对着非法数据开�
 | **阵容归属测试** | 造一场跨阵容变更的比赛，断言历史胜率按**当场出场阵容**归属而非当前阵容；断言 `rosters` 可插入 `joined_at IS NULL` 的行 |
 | **匿名选手测试** | 造一场含两个 `account_id IS NULL` 的天梯局，断言 `match_players` 正确入库 10 行（验证主键用 `player_slot` 而非 `account_id`） |
 | **指标口径测试** | 对 §7.3 的每个阈值（签名英雄 ≥5 场/≥60%/≥10%、有效英雄 ≥3 场/≥50%、近期状态半衰期 7）造边界样本断言取舍；断言同侪 < 30 时返回 `insufficient_samples` |
+| **画像算术测试** | 断言 `pct == round(games / window_games * 100)`；断言 `effective_count <= window_games / 3`；断言 `signature` 与 `comfortable` **互斥**且 `signature` 条目满足全部三条阈值。**§6.4 的 hero 55 与 hero 77 是这两个方向的边界用例，必须原样作为测试输入** |
 | **权重聚合测试** | 断言 §7.2 的 `value = Σ(wᵢvᵢnᵢ)/Σ(wᵢnᵢ)` 结果；断言 `map_vision` 权重为 0 时不参与 |
 | **决策稳健性测试** | `advise` 的每个 option 必含 `robustness_delta`；构造一个 `robustness_delta > 0.10` 的用例断言其带 `risk_note` 且排序被降权 |
 | **错误信封测试** | 断言 `insufficient_data` 返回 200 系（业务结果）而非 5xx；断言 `source_not_allowed` 在请求未授权的来源时触发 |
