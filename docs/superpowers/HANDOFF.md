@@ -2,38 +2,82 @@
 
 **更新于**：2026-09-17
 **当前分支**：`plan-1-contract-and-data-foundation`（在 `.worktrees/plan-1-contract-and-data-foundation`）
-**已完成**：Task 1–2 / 共 13
-**下一步**：Task 3
+**已完成**：Task 1–8 / 共 13 —— **M0（契约冻结）已达成**
+**下一步**：Task 9（常量层）；或按下面的基点提交开三条并行 worktree
+**M0 冻结提交**：`64c89a9`（代码与计划都在这个提交上）。本文件自身的最后更新在它**之后**——开 worktree 一律用 `64c89a9`（见开头三条线的命令）
 
 ---
 
 ## 一句话恢复
 
-打开新会话，说：
+继续做计划里的任务（M1 数据地基）：
 
-> 按 `docs/superpowers/plans/2026-09-16-contract-freeze-and-data-foundation.md` 从 Task 3 继续。在 `.worktrees/plan-1-contract-and-data-foundation` 里干活（`.venv` 已装好，`main` 也已同步到同一提交）。用 subagent-driven-development：每个任务派实施者子代理，然后规格评审 + 质量评审。
+> 按 `docs/superpowers/plans/2026-09-16-contract-freeze-and-data-foundation.md` 从 Task 9 继续。在 `.worktrees/plan-1-contract-and-data-foundation` 里干活（`.venv` 已装好）。用 subagent-driven-development：每个任务派实施者子代理，然后规格评审 + 质量评审。
+
+开三条并行 worktree（线 A / 线 C / 前端）：
+
+> 从 M0 冻结提交开分支，**不要从 `main` 开**——`main` 停在 `c486c0d`，距离 M0 冻结提交 `64c89a9` 有 **24 个提交**（`git rev-list --count main..64c89a9`），**不含任何 M0 产出**：`contracts/openapi.yaml`、`contracts/fixtures/`、`contracts/tools/gen_ts_types.py`、`web/src/types/contract.ts`、`shared/` 全都不在 `main` 上。默认方式（从 `main`）建的 worktree 拿到的是一个空壳：目录在、文件不在，而且**不会报错**。
 
 ## 目录情况
 
 | 位置 | 状态 |
 |---|---|
-| `/Users/xinzechao/MCNDOTAGA`（`main`） | 已含 Task 1–2 的全部产出（快进合并） |
-| `.worktrees/plan-1-contract-and-data-foundation`（同名分支） | **在这里继续**。`.venv/` 已装好、依赖齐全 |
+| `.worktrees/plan-1-contract-and-data-foundation`（同名分支） | **在这里继续**。`.venv/` 已装好、依赖齐全；HEAD 含 Task 1–8 全部产出 |
+| `/Users/xinzechao/MCNDOTAGA`（`main`） | **只有 Task 1–2**（`c486c0d`）。**没有 M0 的任何东西**，也没有 `.venv`。别从这里开 worktree、别在这里跑 pytest |
 | `/tmp/taskN.md` | 上一会话抽取的任务文本，**新会话不存在，需重新抽取** |
 
-**在主目录（`main`）里没有 `.venv`**，直接跑 pytest 会找不到 psycopg。所以要么在 worktree 里干活，要么先在主目录建 venv。
+**先做一件事（可选但推荐）**：把 `main` 快进到 M0 冻结提交，之后从 `main` 开 worktree 就安全了：
 
-抽取任务文本的方式（新会话用）：
+```bash
+cd /Users/xinzechao/MCNDOTAGA
+git checkout main && git merge --ff-only plan-1-contract-and-data-foundation
+```
+
+**没快进就按基点开**（三条线各自的分支名按计划里的边界取）：
+
+```bash
+cd /Users/xinzechao/MCNDOTAGA
+git worktree add -b plan-2-analysis .worktrees/plan-2-analysis 64c89a9
+git worktree add -b plan-5-models   .worktrees/plan-5-models   64c89a9
+git worktree add -b plan-4-frontend .worktrees/plan-4-frontend 64c89a9
+```
+
+（`64c89a9` = M0 冻结提交；用 `git log --oneline -1 plan-1-contract-and-data-foundation` 随时复核。
+新 worktree 里**没有 `.venv`**——要么从本 worktree 复制，要么在新 worktree 里重新
+`python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"`。）
+
+抽取任务文本的方式（新会话用，以 Task 9 为例）：
 
 ```bash
 python3 -c "
 import pathlib
 s = pathlib.Path('docs/superpowers/plans/2026-09-16-contract-freeze-and-data-foundation.md').read_text(encoding='utf-8')
-a = s.index('### Task 3:'); b = s.index('### Task 4:')
-pathlib.Path('/tmp/task3.md').write_text(s[a:b], encoding='utf-8')
-print(f'Task 3 = {len(s[a:b].splitlines())} 行')
+a = s.index('### Task 9:'); b = s.index('### Task 10:')
+pathlib.Path('/tmp/task9.md').write_text(s[a:b], encoding='utf-8')
+print(f'Task 9 = {len(s[a:b].splitlines())} 行')
 "
 ```
+
+---
+
+## M0 验收证据（复核修复后重跑，全部可复现）
+
+| 项 | 结果 | 命令 |
+|---|---|---|
+| 契约测试 | **87 passed** | `.venv/bin/pytest tests/contracts -q` |
+| 全量测试 | **120 passed** | 见下面 DB 环境变量 + `.venv/bin/pytest -q` |
+| fixtures | **17 个，0 失败** | `.venv/bin/python -m contracts.tools.validate_fixtures` |
+| OpenAPI 文档 | `contracts/openapi.yaml: OK`（exit 0） | `.venv/bin/python -m openapi_spec_validator contracts/openapi.yaml` |
+| TS 严格编译 | exit 0（无输出） | `/Users/xinzechao/node_modules/.bin/tsc --noEmit --strict --target es2020 --typeRoots /tmp/ts-empty-types web/src/types/contract.ts` |
+| 生成物新鲜度 | `--check` exit 0（**只读**，不写盘） | `.venv/bin/python -m contracts.tools.gen_ts_types --check` |
+| 生成物 sha256 | `56e840e7f0d15369b3b1166fcc9b3556edcebc666988e2445b82dc1b41d01fca`（18 行） | `shasum -a 256 web/src/types/contract.ts` |
+
+契约测试 87 的分解：common_schema 5 + openapi_fresh 1 + invariants 45 + schema_shape 31
++ fixtures 2 + ts_types 3。全量 120 = 契约 87 + db 22（16 约束 + 6 隔离）+ shared 11。
+
+**生成物变了要一起改的三处**（改契约 → 重生成 → 改冻结基线 → 一起提交）：`contracts/openapi.yaml`、
+`tests/contracts/test_ts_types_fresh.py`（`ENUM_MEMBERS` / `RESOURCE_MEMBERS`）、
+`web/src/types/contract.ts`。
 
 ---
 
@@ -42,7 +86,7 @@ print(f'Task 3 = {len(s[a:b].splitlines())} 行')
 | 文档 | 作用 |
 |---|---|
 | `docs/superpowers/specs/2026-09-16-dota2-banpick-analysis-system-design.md` | **设计规格**（17 节）。产品与技术决策的唯一权威。经 4 轮独立评审 + 在真实 PostgreSQL 16 上执行验证（§16 记录了实证结果） |
-| `docs/superpowers/plans/2026-09-16-contract-freeze-and-data-foundation.md` | **实施计划**（3 chunk / 13 任务 / 2036 行）。每个任务带完整代码、精确命令、预期输出，按"实施者零上下文也能照做"的标准写 |
+| `docs/superpowers/plans/2026-09-16-contract-freeze-and-data-foundation.md` | **实施计划**（3 chunk / 13 任务）。每个任务带完整代码、精确命令、预期输出，按"实施者零上下文也能照做"的标准写 |
 
 **规格优先于计划**。计划是"怎么做"，规格是"做什么"。冲突时以规格为准，并回头修计划。
 
@@ -75,7 +119,7 @@ export DATABASE_URL="postgresql://dota@localhost:55432/dota"
 
 ### 3. 虚拟环境不在 PATH 上
 
-用 `.venv/bin/python` / `.venv/bin/pytest`，或先 `source .venv/bin/activate`。
+用 `.venv/bin/python` / `.venv/bin/pytest`，或先 `source .venv/bin/activate`。顺带：`make contract` / `make contract-ts` / `make lint-spec` 直接跑会以 `make: python: No such file or directory` 失败（Makefile 里写的是 `python`），本机改用 `.venv/bin/python -m ...`。
 
 ### 4. `TEST_DATABASE_URL` 有护栏（别绕过它）
 
@@ -85,7 +129,7 @@ export DATABASE_URL="postgresql://dota@localhost:55432/dota"
 
 ---
 
-## 已完成的两个任务
+## 已完成的八个任务
 
 ### Task 1 · 仓库骨架（commit `62d95fd` + `9972bd9`）
 
@@ -115,29 +159,52 @@ export DATABASE_URL="postgresql://dota@localhost:55432/dota"
 - 注意 PG 对 `CREATE UNIQUE INDEX` 报的是**索引名**而非约束名
 - 改完任何约束后，**实际破坏一次**确认目标测试变红
 
+### Task 3–7 · 隔离视图 / 共享模板 / 契约公共组件 / 五资源 schema / 17 fixtures
+
+产出：`db/sources.py` + `tests/db/test_isolation.py`（6）、`shared/draft_template.py` +
+`tests/shared/test_draft_template.py`（11）、`contracts/schemas/common.yaml`、
+`contracts/schemas/{value,policy,playbook,profile,advise}.yaml`、`contracts/tools/invariants.py`、
+`contracts/fixtures/`（17 个）、`contracts/tools/validate_fixtures.py`。
+
+跨任务复用的两条经验：
+
+- **`shared/draft_template.py` 里的 24 手模板是规格 §6.0 / §8① 的唯一定义处**，分析引擎、序列模型、契约校验器全部 import 它。规格 §16 已实测确认它与真实比赛 1,014 场逐手一致。**两份副本必然漂移——不要复制它。**
+- 契约的字段级语义（可空、可选）写在 schema 里而不是散文里：`required` 是唯一权威，
+  `x-optional` 表示"key 可缺席但值不可为 null"。
+
+### Task 8 · TS 类型生成 + OpenAPI 校验（M0 收尾）
+
+产出：`contracts/tools/gen_ts_types.py`、`web/src/types/contract.ts`（生成物，18 行）、
+`tests/contracts/test_ts_types_fresh.py`（3 条）。
+
+复核修复（生成器硬化在 `371fa1a`，计划/HANDOFF 的更正随之；本文件上一版交接时还没有）：
+
+- 枚举值走 `json.dumps`——含 `"` / 反斜杠 / 换行的值此前产出非法 TS（`TS1002`），
+  或**静默变形**（`back\slash` 编译成 `backslash`）
+- 生成器对"带 `enum` 但渲染不出来"的 schema **报错**，且必需枚举的 guard 校验的是
+  **生成物真的发射了**它，不是"契约里有这个名字"；失败发生在任何写盘之前
+- 新增冻结 `RESOURCE_MEMBERS` 基线：`Resource` 联合此前是唯一无人看守的导出
+- 新增 `--check` 只读模式，新鲜度测试改用它——旧写法会把受版本控制的
+  `contract.ts` 当草稿纸，本地手改被测试静默抹掉
+- `schema.description` 发射为 JSDoc：`Team = 0 | 1` 现在带
+  `/** 0=Radiant, 1=Dire；仅数值字段 */`，`Side` 带 `/** 仅 Playbook 语义字段 */`
+
+**范围（重要）**：TS 侧只生成**枚举联合 + `Resource` 联合**，53 个 schema 的
+**对象接口没有生成**。前端 worktree 不要以为 `Value` / `Policy` / `Playbook` 有对应接口——
+这些名字目前只出现在 `Resource` 联合里。补齐它们是 Plan 4 开工第一件事，
+做法与规则见计划 Task 8 的「范围说明」。
+
 ---
 
-## 剩余 11 个任务
+## 剩余 5 个任务（M1）
 
 | Task | 内容 | 依赖 |
 |---|---|---|
-| 3 | 对手侧隔离视图 + `db/sources.py` + 负向测试 | Task 2 |
-| 4 | `shared/draft_template.py`（24 手模板唯一定义处） | 无 |
-| 5 | 契约公共组件（枚举 / 降级形态 / 错误信封） | Task 1 |
-| 6 | 五资源 schema + 可执行不变式 | Task 5 |
-| 7 | 17 个边界 fixtures + 校验工具 | Task 6 |
-| 8 | TS 类型生成 + OpenAPI 校验（**M0 完成**） | Task 7 |
 | 9 | 常量层（英雄/道具/原型映射） | Task 1 |
 | 10 | 版本表（Valve 权威 + 子版本还原） | Task 9 |
 | 11 | 常量入库（六张表） | Task 10 |
 | 12 | Kaggle 引导数据集（506 MB 子集） | Task 11 |
 | 13 | M1 验收 | Task 12 |
-
-**Task 3 的两个提示**（来自 Task 2 实施者）：
-- `dsn` 现在每 session 重建，改了 migration 直接重跑就生效，不需要 `make db-reset`
-- Task 3 的负向测试如果也用 `expect_violation`，**从一开始就钉 SQLSTATE**
-
-**Task 4 特别注意**：`shared/draft_template.py` 里的 24 手模板是**规格 §6.0 / §8① 的唯一定义处**，分析引擎、序列模型、契约校验器全部 import 它。规格 §16 已实测确认它与真实比赛 1,014 场逐手一致。两份副本必然漂移——不要复制它。
 
 **Task 12 的前置**：需要 Kaggle 凭证（`KAGGLE_USERNAME` / `KAGGLE_KEY`）。凭证缺失时相关测试应 `skip` 而非变红。另需先 `python -m pip install -e ".[dev,ingest]"`（`ingest` extra 含 `python-dotenv` 与 `kaggle`）。
 
@@ -149,19 +216,19 @@ export DATABASE_URL="postgresql://dota@localhost:55432/dota"
 
 1. **派实施者子代理**（`subagent`）——给它任务的**完整文本**（从计划里抽取到 `/tmp/taskN.md` 再让它读，等价于粘贴）、场景上下文、环境约束、预期结果。明确告诉它：**做完要自查，发现问题自己修**。
 2. **派规格符合性评审**——独立验证实现是否匹配规格，不多不少。**要求它执行验证而非只读代码**（本项目最有价值的发现全部来自"真的跑一遍"）。
-3. **派代码质量评审**——判断是否经得起后续 11 个任务的使用。
+3. **派代码质量评审**——判断是否经得起后续任务的使用。
 4. 评审发现问题 → **同一个实施者子代理**修（`send_message`），修完重新评审。
 5. 任务完成才进下一个。
 
-**三个 worktree 的边界**（规格 §11）：线 A → `db/` + `analysis/`，线 C → `models/`，前端 → `web/`。`shared/` 不属于任何一条线。契约冻结（Task 8）之后三条线才能真正并行——**M0 之前不要开并行 worktree**。
+**三个 worktree 的边界**（规格 §11）：线 A → `db/` + `analysis/`，线 C → `models/`，前端 → `web/`。`shared/` 不属于任何一条线。契约冻结（Task 8）已完成——**三条线现在可以真正并行**，但三条都必须从 M0 冻结提交开（见开头）。
 
 ---
 
 ## 计划文档被实施者改过，这是有意的
 
-Task 2 的实施者按控制者要求把计划里的代码块同步成了实现的样子，并改对了三处**实测证明写错的**预期数字（例如"只删主键会得到 syntax error"实际是 16 errors）。
+Task 2 的实施者按控制者要求把计划里的代码块同步成了实现的样子，并改对了三处**实测证明写错的**预期数字（例如"只删主键会得到 syntax error"实际是 16 errors）。Task 8 的复核又在计划里改了三类：分解算式里的"公共 6"更正为 5（重复计数）、worktree 基点声明、TS 生成范围说明（含两条可复现性备注），并同步了实测哈希。
 
-**这意味着计划文档在 Task 2 那一段已经不是"原始要求"的记录了**——它是当前实现的镜像。评估后续任务时若需要区分"原本要求什么"和"实际做成了什么"，要看 commit 历史，不要只看计划。
+**这意味着计划文档在已实现任务那几段已经不是"原始要求"的记录了**——它是当前实现的镜像。评估后续任务时若需要区分"原本要求什么"和"实际做成了什么"，要看 commit 历史，不要只看计划。
 
 同时请注意：**实施者可能把实现写进计划文档来自圆其说**。Task 2 的三次文档改动都经评审确认"改对了"，但这个模式需要保持警惕。
 
@@ -169,6 +236,8 @@ Task 2 的实施者按控制者要求把计划里的代码块同步成了实现�
 
 ## 完成后的状态
 
-Task 8 完成后（M0 达成），三条 worktree 即可并行：线 A 做画像与剧本引擎（计划 3）、线 C 做序列模型（计划 5）、前端做可视化（计划 4）。
+M0（Task 1–8）已达成，契约冻结：`contracts/openapi.yaml` 通过 schema 校验、17 个 fixtures 全部通过契约校验、三条线的目录边界已建立。
+
+三条 worktree 从此可并行（基点提交 `64c89a9`；本说明文档的最后更新在它之后，只补充说明、不改产出）：线 A 做画像与剧本引擎（计划 3）、线 C 做序列模型（计划 5）、前端做可视化（计划 4）。M5 之前不建议动 `contracts/openapi.yaml`；确需变更时按上面的"三处一起改"流程走，并回头同步冻结基线。
 
 计划 2/3/4/5/6 尚未编写。
