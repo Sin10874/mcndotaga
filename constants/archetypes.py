@@ -5,8 +5,9 @@ Nuker/Pusher/Support）——没有 Jungler，也没有任何一项等于六类�
 teamfight 必须是**析取式**：上一版的合取式会让 8 个英雄零命中。
 """
 from __future__ import annotations
+from collections.abc import Callable
 
-RULES: list[tuple[str, callable]] = [
+RULES: list[tuple[str, Callable[[set[str]], bool]]] = [
     ("initiate",   lambda r: "Initiator" in r),
     ("push",       lambda r: "Pusher" in r),
     ("pickoff",    lambda r: "Escape" in r and "Nuker" in r),

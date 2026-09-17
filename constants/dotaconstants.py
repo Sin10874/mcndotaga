@@ -9,7 +9,8 @@ def fetch_heroes() -> list[dict]:
 
 def fetch_items() -> list[dict]:
     raw = fetch_json(f"{OPENDOTA}/constants/items", "opendota_items.json")
-    return list(raw.values())
+    # 短名（blink 等）只是字典键，payload 里没有 key/name 字段
+    return [{**v, "key": k} for k, v in raw.items()]
 
 def derive_token_index(heroes: list[dict]) -> dict[int, int]:
     """规格 §5.1：dense_index = 按 hero_id 升序排序后的 0-based 下标。
