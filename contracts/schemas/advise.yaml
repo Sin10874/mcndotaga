@@ -1,0 +1,54 @@
+openapi: 3.1.0
+info: {title: MCNDOTAGA Contract, version: "1.0.0"}
+components:
+  schemas:
+    # §6.6 Advise —— 整手建议。mode 决定返回哪个形状（§6.6 表格）：
+    #   realtime → options[] + next_ord/team/is_pick
+    #   offline  → branches[]（元素与 §6.3 同形，复用 Branch）
+    # 两种形状互斥，故用 oneOf 判别；sources_used 是两种模式共有的字段，
+    # 也是本资源 schema 自身的 required（空 schema 会让任何 fixture 通过）。
+    Advise:
+      type: object
+      additionalProperties: false
+      required: [sources_used]
+      properties:
+        next_ord: {type: integer, minimum: 0, maximum: 23}
+        team:     {$ref: "#/components/schemas/Team"}
+        is_pick:  {type: boolean}
+        options:  {type: array, minItems: 1, items: {$ref: "#/components/schemas/AdviseOption"}}
+        assumptions: {$ref: "#/components/schemas/Assumptions"}
+        branches: {type: array, minItems: 1, items: {$ref: "#/components/schemas/Branch"}}
+        sources_used: {type: array, items: {type: string}}
+      oneOf:
+        - required: [next_ord, team, is_pick, options, assumptions]
+          not: {required: [branches]}
+        - required: [branches]
+          not: {required: [options]}
+
+    AdviseOption:
+      type: object
+      additionalProperties: false
+      required: [hero_id, expected_wr, robustness_delta, penalized_score,
+                 why, fallback, counterparty_plan]
+      properties:
+        hero_id: {type: integer, minimum: 1}
+        expected_wr:  {type: number, minimum: 0, maximum: 1}   # 原始值，不降权
+        robustness_delta: {type: number, minimum: 0, maximum: 1}
+        # 排序依据：expected_wr - λ × max(0, robustness_delta - 0.10)，λ 默认 1.0。
+        # λ 可配置，故降权后可低于 0 —— 不设下界（由 check_advise 复算等式）
+        penalized_score: {type: number, maximum: 1}
+        why: {type: string}
+        fallback: {type: array, minItems: 1, items: {type: integer, minimum: 1}}
+        counterparty_plan: {type: string}
+        risk_note: {type: string}
+      allOf:   # §6.6：robustness_delta > 0.10 的项必须带 risk_note
+        - if:   {properties: {robustness_delta: {exclusiveMinimum: 0.10}}, required: [robustness_delta]}
+          then: {required: [risk_note]}
+
+    Assumptions:
+      type: object
+      additionalProperties: false
+      required: [opponent_model, value_model]
+      properties:
+        opponent_model: {type: string}
+        value_model:    {type: string}

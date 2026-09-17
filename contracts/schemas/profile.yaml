@@ -1,0 +1,151 @@
+openapi: 3.1.0
+info: {title: MCNDOTAGA Contract, version: "1.0.0"}
+components:
+  schemas:
+    # §6.4 Profile —— 战队与选手画像（M3 与 A8 的对手画像卡底座）。
+    Profile:
+      type: object
+      additionalProperties: false
+      required: [team_id, patch, as_of, sources_used, coverage, players, team_bp_tendency]
+      properties:
+        team_id: {type: integer, minimum: 1}
+        patch:   {type: string}
+        as_of:   {type: string, format: date}   # 所有窗口型指标相对它计算（§6.4 约定）
+        sources_used: {type: array, items: {type: string}}
+        coverage:
+          allOf:
+            - $ref: "#/components/schemas/Coverage"
+            # §7.3：position IS NULL 的场次不进入同侪集合，为防止它们无声消失，
+            # /v1/profile 的 coverage 必须额外返回该计数（Playbook 的 coverage 无此要求）
+            - properties:
+                pro_match: {required: [n_position_unknown]}
+                pub_match: {required: [n_position_unknown]}
+        players: {type: array, items: {$ref: "#/components/schemas/ProfilePlayer"}}
+        team_bp_tendency: {$ref: "#/components/schemas/TeamBPTendency"}
+
+    # §6.4 的精简引用（§6.3 的 matchup.us / matchup.them 用它）。
+    # 不含 sources_used/coverage/dimensions —— additionalProperties:false 把这一点钉死。
+    ProfileRef:
+      type: object
+      additionalProperties: false
+      required: [team_id, name, tag]
+      properties:
+        team_id: {type: integer, minimum: 1}
+        name:    {type: string}
+        tag:     {type: string}
+        logo_url: {type: ["string", "null"]}   # // optional
+
+    Coverage:
+      type: object
+      additionalProperties: false   # §4.1：五个接口都是对手侧路径，scrim 不得出现在 coverage
+      required: [pro_match, pub_match]
+      properties:
+        pro_match: {$ref: "#/components/schemas/CoverageEntry"}
+        pub_match: {$ref: "#/components/schemas/CoverageEntry"}
+
+    CoverageEntry:
+      type: object
+      additionalProperties: false
+      required: [n_matches, n_stat_available]
+      properties:
+        n_matches:          {type: integer, minimum: 0}
+        n_stat_available:   {type: integer, minimum: 0}   # stats_available=true 的场次
+        n_position_unknown: {type: integer, minimum: 0}   # §7.3；Profile 强制返回，见上
+
+    ProfilePlayer:
+      type: object
+      additionalProperties: false
+      required: [account_id, name, hero_pool, dimensions]
+      properties:
+        account_id: {type: integer, minimum: 0}
+        name:       {type: string}
+        # // optional（§6.4）：推断不出时为 null；此时五个依赖位置的维度降级为
+        # insufficient_samples，而 hero_archetype 仍必须返回（§7.3）
+        role:       {type: ["integer", "null"], minimum: 1, maximum: 5}
+        hero_pool:  {$ref: "#/components/schemas/HeroPool"}
+        dimensions: {$ref: "#/components/schemas/Dimensions"}
+
+    HeroPool:
+      type: object
+      additionalProperties: false
+      required: [window_games, signature, comfortable, effective_count, presence_pick_rate]
+      properties:
+        window_games: {type: integer, minimum: 0}   # pct 的分母，也是 effective_count 的上界依据
+        signature:    {type: array, items: {$ref: "#/components/schemas/HeroPoolEntry"}}
+        comfortable:  {type: array, items: {$ref: "#/components/schemas/HeroPoolEntry"}}
+        effective_count:     {type: integer, minimum: 0}
+        presence_pick_rate:  {type: number, minimum: 0, maximum: 1}
+
+    HeroPoolEntry:
+      type: object
+      additionalProperties: false
+      required: [hero_id, games, wr, pct]
+      properties:
+        hero_id: {type: integer, minimum: 1}
+        games:   {type: integer, minimum: 0}
+        wr:      {type: number, minimum: 0, maximum: 1}
+        pct:     {type: integer, minimum: 0, maximum: 100}   # 占 window_games 的百分比
+
+    Dimensions:
+      type: object
+      additionalProperties: false
+      required: [hero_pool, laning, combat, map_vision, tempo, hero_archetype]
+      properties:
+        hero_pool:  {$ref: "#/components/schemas/PercentileDimension"}
+        laning:     {$ref: "#/components/schemas/PercentileDimension"}
+        combat:     {$ref: "#/components/schemas/PercentileDimension"}
+        map_vision: {$ref: "#/components/schemas/PercentileDimension"}
+        tempo:      {$ref: "#/components/schemas/PercentileDimension"}
+        hero_archetype: {$ref: "#/components/schemas/HeroArchetype"}   # 不依赖位置，不降级
+
+    # §7.3：同侪集合 < 30 时该指标返回 §6.0 降级形态，不返回百分位。
+    PercentileDimension:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [percentile, n]
+          properties:
+            percentile: {type: integer, minimum: 0, maximum: 100}
+            n:          {type: integer, minimum: 0}
+        - $ref: "#/components/schemas/Degraded"
+
+    HeroArchetype:
+      description: §6.4：六类原型权重（含 initiate），各项之和为 1.0（由 check_profile 守护）。
+      type: object
+      additionalProperties: false
+      required: [initiate, protect, push, teamfight, pickoff, splitpush]
+      properties:
+        initiate:  {type: number, minimum: 0, maximum: 1}
+        protect:   {type: number, minimum: 0, maximum: 1}
+        push:      {type: number, minimum: 0, maximum: 1}
+        teamfight: {type: number, minimum: 0, maximum: 1}
+        pickoff:   {type: number, minimum: 0, maximum: 1}
+        splitpush: {type: number, minimum: 0, maximum: 1}
+
+    TeamBPTendency:
+      type: object
+      additionalProperties: false
+      required: [first_phase_ban_freq, first_pick_freq, ban_by_phase]
+      properties:
+        first_phase_ban_freq: {type: array, items: {$ref: "#/components/schemas/HeroFreqEntry"}}
+        first_pick_freq:      {type: array, items: {$ref: "#/components/schemas/HeroFreqEntry"}}
+        ban_by_phase:         {type: array, items: {$ref: "#/components/schemas/BanByPhaseEntry"}}
+
+    HeroFreqEntry:
+      type: object
+      additionalProperties: false
+      required: [hero_id, freq, n]
+      properties:
+        hero_id: {type: integer, minimum: 1}
+        freq:    {type: number, minimum: 0, maximum: 1}
+        n:       {type: integer, minimum: 0}
+
+    BanByPhaseEntry:
+      type: object
+      additionalProperties: false
+      required: [ord, hero_id, freq, n]
+      properties:
+        ord:     {type: integer, minimum: 0, maximum: 23}   # 绝对手数，同 §6.0 resolve()
+        hero_id: {type: integer, minimum: 1}
+        freq:    {type: number, minimum: 0, maximum: 1}
+        n:       {type: integer, minimum: 0}

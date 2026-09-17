@@ -5,6 +5,110 @@ info:
 paths: {}
 components:
   schemas:
+    Advise:
+      type: object
+      additionalProperties: false
+      required:
+      - sources_used
+      properties:
+        next_ord:
+          type: integer
+          minimum: 0
+          maximum: 23
+        team:
+          $ref: '#/components/schemas/Team'
+        is_pick:
+          type: boolean
+        options:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/AdviseOption'
+        assumptions:
+          $ref: '#/components/schemas/Assumptions'
+        branches:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Branch'
+        sources_used:
+          type: array
+          items:
+            type: string
+      oneOf:
+      - required:
+        - next_ord
+        - team
+        - is_pick
+        - options
+        - assumptions
+        not:
+          required:
+          - branches
+      - required:
+        - branches
+        not:
+          required:
+          - options
+    AdviseOption:
+      type: object
+      additionalProperties: false
+      required:
+      - hero_id
+      - expected_wr
+      - robustness_delta
+      - penalized_score
+      - why
+      - fallback
+      - counterparty_plan
+      properties:
+        hero_id:
+          type: integer
+          minimum: 1
+        expected_wr:
+          type: number
+          minimum: 0
+          maximum: 1
+        robustness_delta:
+          type: number
+          minimum: 0
+          maximum: 1
+        penalized_score:
+          type: number
+          maximum: 1
+        why:
+          type: string
+        fallback:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+            minimum: 1
+        counterparty_plan:
+          type: string
+        risk_note:
+          type: string
+      allOf:
+      - if:
+          properties:
+            robustness_delta:
+              exclusiveMinimum: 0.1
+          required:
+          - robustness_delta
+        then:
+          required:
+          - risk_note
+    Assumptions:
+      type: object
+      additionalProperties: false
+      required:
+      - opponent_model
+      - value_model
+      properties:
+        opponent_model:
+          type: string
+        value_model:
+          type: string
     Team:
       type: integer
       enum:
@@ -124,3 +228,977 @@ components:
               type: string
             detail:
               type: object
+    Playbook:
+      type: object
+      additionalProperties: false
+      required:
+      - matchup
+      - sources_used
+      - coverage
+      - data_quality
+      - bans
+      - op_hero_decision
+      - branches
+      - positions
+      properties:
+        matchup:
+          $ref: '#/components/schemas/Matchup'
+        sources_used:
+          type: array
+          items:
+            type: string
+        coverage:
+          $ref: '#/components/schemas/Coverage'
+        data_quality:
+          $ref: '#/components/schemas/DataQuality'
+        bans:
+          $ref: '#/components/schemas/Bans'
+        op_hero_decision:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpHeroOption'
+        branches:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Branch'
+        positions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Position'
+        series:
+          $ref: '#/components/schemas/Series'
+    Matchup:
+      type: object
+      additionalProperties: false
+      required:
+      - us
+      - them
+      - patch
+      - first_pick_team
+      - side_map
+      properties:
+        us:
+          $ref: '#/components/schemas/ProfileRef'
+        them:
+          $ref: '#/components/schemas/ProfileRef'
+        patch:
+          type: string
+        first_pick_team:
+          $ref: '#/components/schemas/Team'
+        side_map:
+          $ref: '#/components/schemas/SideMap'
+    SideMap:
+      description: §6.3：必须含 us/them 两个键且取值互异（0 与 1 各一）。
+      type: object
+      additionalProperties: false
+      required:
+      - us
+      - them
+      properties:
+        us:
+          $ref: '#/components/schemas/Team'
+        them:
+          $ref: '#/components/schemas/Team'
+      allOf:
+      - not:
+          properties:
+            us:
+              const: 0
+            them:
+              const: 0
+          required:
+          - us
+          - them
+      - not:
+          properties:
+            us:
+              const: 1
+            them:
+              const: 1
+          required:
+          - us
+          - them
+    DataQuality:
+      type: object
+      additionalProperties: false
+      required:
+      - n_pending_draft
+      - n_unavailable_draft
+      - n_anomalous_draft
+      - oldest_pending_hours
+      - note
+      properties:
+        n_pending_draft:
+          type: integer
+          minimum: 0
+        n_unavailable_draft:
+          type: integer
+          minimum: 0
+        n_anomalous_draft:
+          type: integer
+          minimum: 0
+        oldest_pending_hours:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+        note:
+          type: string
+    Bans:
+      type: object
+      additionalProperties: false
+      required:
+      - must_ban
+      - consider
+      - bait_candidates
+      properties:
+        must_ban:
+          type: array
+          items:
+            $ref: '#/components/schemas/MustBan'
+        consider:
+          type: array
+          items:
+            $ref: '#/components/schemas/BanConsider'
+        bait_candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/BaitCandidate'
+    MustBan:
+      type: object
+      additionalProperties: false
+      required:
+      - hero_id
+      - why
+      - their_wr
+      - our_wr_against
+      - n
+      properties:
+        hero_id:
+          type: integer
+          minimum: 1
+        why:
+          type: string
+        their_wr:
+          type: number
+          minimum: 0
+          maximum: 1
+        our_wr_against:
+          type: number
+          minimum: 0
+          maximum: 1
+        n:
+          type: integer
+          minimum: 0
+    BanConsider:
+      type: object
+      additionalProperties: false
+      required:
+      - hero_id
+      - why
+      - if_we_leave_it_open
+      properties:
+        hero_id:
+          type: integer
+          minimum: 1
+        why:
+          type: string
+        if_we_leave_it_open:
+          $ref: '#/components/schemas/OpHeroOption'
+    BaitCandidate:
+      type: object
+      additionalProperties: false
+      required:
+      - hero_id
+      - why
+      properties:
+        hero_id:
+          type: integer
+          minimum: 1
+        why:
+          type: string
+    OpHeroOption:
+      type: object
+      additionalProperties: false
+      required:
+      - hero_id
+      - if_we_pick
+      - if_we_ban
+      - if_we_leave
+      - recommendation
+      properties:
+        hero_id:
+          type: integer
+          minimum: 1
+        if_we_pick:
+          $ref: '#/components/schemas/WinRateSample'
+        if_we_ban:
+          $ref: '#/components/schemas/WinRateSample'
+        if_we_leave:
+          $ref: '#/components/schemas/LeaveEvaluation'
+        recommendation:
+          $ref: '#/components/schemas/Recommendation'
+    WinRateSample:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - wr
+        - n
+        properties:
+          wr:
+            type: number
+            minimum: 0
+            maximum: 1
+          n:
+            type: integer
+            minimum: 0
+      - $ref: '#/components/schemas/Degraded'
+    LeaveEvaluation:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - our_wr
+        - their_wr
+        - n
+        - our_counter_options
+        properties:
+          our_wr:
+            type: number
+            minimum: 0
+            maximum: 1
+          their_wr:
+            type: number
+            minimum: 0
+            maximum: 1
+          n:
+            type: integer
+            minimum: 0
+          our_counter_options:
+            type: array
+            items:
+              $ref: '#/components/schemas/CounterOption'
+      - $ref: '#/components/schemas/Degraded'
+    CounterOption:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - hero_id
+        - wr
+        - n
+        properties:
+          hero_id:
+            type: integer
+            minimum: 1
+          wr:
+            type: number
+            minimum: 0
+            maximum: 1
+          n:
+            type: integer
+            minimum: 0
+      - $ref: '#/components/schemas/Degraded'
+    Branch:
+      type: object
+      additionalProperties: false
+      required:
+      - branch_id
+      - condition
+      - plans
+      properties:
+        branch_id:
+          type: string
+        condition:
+          $ref: '#/components/schemas/BranchCondition'
+        applies_to_game:
+          type: integer
+          minimum: 1
+        plans:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Plan'
+    BranchCondition:
+      type: object
+      additionalProperties: false
+      required:
+      - first_pick
+      - their_opening
+      properties:
+        first_pick:
+          $ref: '#/components/schemas/Side'
+        their_opening:
+          $ref: '#/components/schemas/TheirOpening'
+    Plan:
+      type: object
+      additionalProperties: false
+      required:
+      - label
+      - goal
+      - key_picks
+      - expected_wr
+      - n
+      - robustness_delta
+      - penalized_score
+      properties:
+        label:
+          type: string
+        goal:
+          type: string
+        key_picks:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/KeyPick'
+        expected_wr:
+          type: number
+          minimum: 0
+          maximum: 1
+        n:
+          type: integer
+          minimum: 0
+        robustness_delta:
+          type: number
+          minimum: 0
+          maximum: 1
+        penalized_score:
+          type: number
+          maximum: 1
+        risk_note:
+          type: string
+      allOf:
+      - if:
+          properties:
+            robustness_delta:
+              exclusiveMinimum: 0.1
+          required:
+          - robustness_delta
+        then:
+          required:
+          - risk_note
+    KeyPick:
+      type: object
+      additionalProperties: false
+      required:
+      - priority
+      - hero_id
+      - by_ord
+      - why
+      - fallback
+      properties:
+        priority:
+          type: integer
+          minimum: 1
+        hero_id:
+          type: integer
+          minimum: 1
+        by_ord:
+          type: integer
+          minimum: 0
+          maximum: 23
+        why:
+          type: string
+        fallback:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+            minimum: 1
+    Position:
+      type: object
+      additionalProperties: false
+      required:
+      - side
+      - notes
+      properties:
+        side:
+          $ref: '#/components/schemas/Side'
+        role:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+          maximum: 5
+        notes:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PositionNote'
+    PositionNote:
+      $ref: '#/components/schemas/Degraded'
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - text
+      - evidence
+      - value
+      - reason
+      properties:
+        value:
+          type: 'null'
+        reason:
+          $ref: '#/components/schemas/UnavailableReason'
+        needs:
+          type: string
+          enum:
+          - Phase B
+        kind:
+          $ref: '#/components/schemas/NoteKind'
+        text:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+    Series:
+      type: object
+      additionalProperties: false
+      required:
+      - series_id
+      - games
+      - game1_plan
+      - adjustment_rules
+      properties:
+        series_id:
+          type: integer
+          minimum: 1
+        games:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/SeriesGame'
+        game1_plan:
+          type: string
+        adjustment_rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdjustmentRule'
+    SeriesGame:
+      type: object
+      additionalProperties: false
+      required:
+      - game_no
+      - first_pick_team
+      properties:
+        game_no:
+          type: integer
+          minimum: 1
+        first_pick_team:
+          type:
+          - integer
+          - 'null'
+          enum:
+          - 0
+          - 1
+          - null
+        note:
+          type: string
+    AdjustmentRule:
+      type: object
+      additionalProperties: false
+      required:
+      - if
+      - then
+      properties:
+        if:
+          type: string
+        then:
+          type: string
+    Policy:
+      type: object
+      additionalProperties: false
+      required:
+      - next_ord
+      - team
+      - is_pick
+      - candidates
+      - top_n
+      - other_prob
+      - model
+      - baseline
+      - sources_used
+      properties:
+        next_ord:
+          type: integer
+          minimum: 0
+          maximum: 23
+        team:
+          $ref: '#/components/schemas/Team'
+        is_pick:
+          type: boolean
+        candidates:
+          description: top-N 截断的候选（len(candidates) <= top_n 与 sum(prob)+other_prob
+            == 1.0 由 check_policy 守护）。candidates[].hero_id 不得与请求 draft 重复 —— 该约束需要请求上下文，由
+            Plan 2+ 的集成测试覆盖。
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyCandidate'
+        top_n:
+          type: integer
+          minimum: 1
+          maximum: 127
+        other_prob:
+          type: number
+          minimum: 0
+          maximum: 1
+        model:
+          type:
+          - string
+          - 'null'
+        baseline:
+          $ref: '#/components/schemas/PolicyBaseline'
+        sources_used:
+          type: array
+          items:
+            type: string
+    PolicyCandidate:
+      type: object
+      additionalProperties: false
+      required:
+      - hero_id
+      - prob
+      - reasons
+      - evidence_match_ids
+      properties:
+        hero_id:
+          type: integer
+          minimum: 1
+        prob:
+          type: number
+          minimum: 0
+          maximum: 1
+        reasons:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        evidence_match_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+    PolicyBaseline:
+      type: object
+      additionalProperties: false
+      required:
+      - frequency_top1
+      properties:
+        frequency_top1:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+        model_top1:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1
+    Profile:
+      type: object
+      additionalProperties: false
+      required:
+      - team_id
+      - patch
+      - as_of
+      - sources_used
+      - coverage
+      - players
+      - team_bp_tendency
+      properties:
+        team_id:
+          type: integer
+          minimum: 1
+        patch:
+          type: string
+        as_of:
+          type: string
+          format: date
+        sources_used:
+          type: array
+          items:
+            type: string
+        coverage:
+          allOf:
+          - $ref: '#/components/schemas/Coverage'
+          - properties:
+              pro_match:
+                required:
+                - n_position_unknown
+              pub_match:
+                required:
+                - n_position_unknown
+        players:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProfilePlayer'
+        team_bp_tendency:
+          $ref: '#/components/schemas/TeamBPTendency'
+    ProfileRef:
+      type: object
+      additionalProperties: false
+      required:
+      - team_id
+      - name
+      - tag
+      properties:
+        team_id:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        tag:
+          type: string
+        logo_url:
+          type:
+          - string
+          - 'null'
+    Coverage:
+      type: object
+      additionalProperties: false
+      required:
+      - pro_match
+      - pub_match
+      properties:
+        pro_match:
+          $ref: '#/components/schemas/CoverageEntry'
+        pub_match:
+          $ref: '#/components/schemas/CoverageEntry'
+    CoverageEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - n_matches
+      - n_stat_available
+      properties:
+        n_matches:
+          type: integer
+          minimum: 0
+        n_stat_available:
+          type: integer
+          minimum: 0
+        n_position_unknown:
+          type: integer
+          minimum: 0
+    ProfilePlayer:
+      type: object
+      additionalProperties: false
+      required:
+      - account_id
+      - name
+      - hero_pool
+      - dimensions
+      properties:
+        account_id:
+          type: integer
+          minimum: 0
+        name:
+          type: string
+        role:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+          maximum: 5
+        hero_pool:
+          $ref: '#/components/schemas/HeroPool'
+        dimensions:
+          $ref: '#/components/schemas/Dimensions'
+    HeroPool:
+      type: object
+      additionalProperties: false
+      required:
+      - window_games
+      - signature
+      - comfortable
+      - effective_count
+      - presence_pick_rate
+      properties:
+        window_games:
+          type: integer
+          minimum: 0
+        signature:
+          type: array
+          items:
+            $ref: '#/components/schemas/HeroPoolEntry'
+        comfortable:
+          type: array
+          items:
+            $ref: '#/components/schemas/HeroPoolEntry'
+        effective_count:
+          type: integer
+          minimum: 0
+        presence_pick_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+    HeroPoolEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - hero_id
+      - games
+      - wr
+      - pct
+      properties:
+        hero_id:
+          type: integer
+          minimum: 1
+        games:
+          type: integer
+          minimum: 0
+        wr:
+          type: number
+          minimum: 0
+          maximum: 1
+        pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+    Dimensions:
+      type: object
+      additionalProperties: false
+      required:
+      - hero_pool
+      - laning
+      - combat
+      - map_vision
+      - tempo
+      - hero_archetype
+      properties:
+        hero_pool:
+          $ref: '#/components/schemas/PercentileDimension'
+        laning:
+          $ref: '#/components/schemas/PercentileDimension'
+        combat:
+          $ref: '#/components/schemas/PercentileDimension'
+        map_vision:
+          $ref: '#/components/schemas/PercentileDimension'
+        tempo:
+          $ref: '#/components/schemas/PercentileDimension'
+        hero_archetype:
+          $ref: '#/components/schemas/HeroArchetype'
+    PercentileDimension:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - percentile
+        - n
+        properties:
+          percentile:
+            type: integer
+            minimum: 0
+            maximum: 100
+          n:
+            type: integer
+            minimum: 0
+      - $ref: '#/components/schemas/Degraded'
+    HeroArchetype:
+      description: §6.4：六类原型权重（含 initiate），各项之和为 1.0（由 check_profile 守护）。
+      type: object
+      additionalProperties: false
+      required:
+      - initiate
+      - protect
+      - push
+      - teamfight
+      - pickoff
+      - splitpush
+      properties:
+        initiate:
+          type: number
+          minimum: 0
+          maximum: 1
+        protect:
+          type: number
+          minimum: 0
+          maximum: 1
+        push:
+          type: number
+          minimum: 0
+          maximum: 1
+        teamfight:
+          type: number
+          minimum: 0
+          maximum: 1
+        pickoff:
+          type: number
+          minimum: 0
+          maximum: 1
+        splitpush:
+          type: number
+          minimum: 0
+          maximum: 1
+    TeamBPTendency:
+      type: object
+      additionalProperties: false
+      required:
+      - first_phase_ban_freq
+      - first_pick_freq
+      - ban_by_phase
+      properties:
+        first_phase_ban_freq:
+          type: array
+          items:
+            $ref: '#/components/schemas/HeroFreqEntry'
+        first_pick_freq:
+          type: array
+          items:
+            $ref: '#/components/schemas/HeroFreqEntry'
+        ban_by_phase:
+          type: array
+          items:
+            $ref: '#/components/schemas/BanByPhaseEntry'
+    HeroFreqEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - hero_id
+      - freq
+      - n
+      properties:
+        hero_id:
+          type: integer
+          minimum: 1
+        freq:
+          type: number
+          minimum: 0
+          maximum: 1
+        n:
+          type: integer
+          minimum: 0
+    BanByPhaseEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - ord
+      - hero_id
+      - freq
+      - n
+      properties:
+        ord:
+          type: integer
+          minimum: 0
+          maximum: 23
+        hero_id:
+          type: integer
+          minimum: 1
+        freq:
+          type: number
+          minimum: 0
+          maximum: 1
+        n:
+          type: integer
+          minimum: 0
+    Value:
+      type: object
+      additionalProperties: false
+      required:
+      - radiant_win_prob
+      - confidence
+      - n_samples
+      - contributions
+      - sources_used
+      properties:
+        radiant_win_prob:
+          type: number
+          minimum: 0
+          maximum: 1
+        confidence:
+          $ref: '#/components/schemas/Confidence'
+        n_samples:
+          type: integer
+          minimum: 0
+        contributions:
+          description: §6.1 的加项分解：四个 Factor 恰好各一项（四项之和 == radiant_win_prob-0.5 由 contracts/tools/invariants.py
+            的 check_value 守护，JSON Schema 无法求和）。
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/ValueContribution'
+          allOf:
+          - contains:
+              properties:
+                factor:
+                  const: patch_strength
+              required:
+              - factor
+          - contains:
+              properties:
+                factor:
+                  const: counter_matchup
+              required:
+              - factor
+          - contains:
+              properties:
+                factor:
+                  const: player_comfort
+              required:
+              - factor
+          - contains:
+              properties:
+                factor:
+                  const: first_pick
+              required:
+              - factor
+        sources_used:
+          type: array
+          items:
+            type: string
+      allOf:
+      - if:
+          properties:
+            n_samples:
+              maximum: 29
+          required:
+          - n_samples
+        then:
+          properties:
+            confidence:
+              const: low
+          required:
+          - confidence
+      - if:
+          properties:
+            n_samples:
+              minimum: 30
+              maximum: 199
+          required:
+          - n_samples
+        then:
+          properties:
+            confidence:
+              const: medium
+          required:
+          - confidence
+      - if:
+          properties:
+            n_samples:
+              minimum: 200
+          required:
+          - n_samples
+        then:
+          properties:
+            confidence:
+              const: high
+          required:
+          - confidence
+    ValueContribution:
+      type: object
+      additionalProperties: false
+      required:
+      - factor
+      - delta
+      properties:
+        factor:
+          $ref: '#/components/schemas/Factor'
+        delta:
+          type: number

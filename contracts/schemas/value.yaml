@@ -1,0 +1,43 @@
+openapi: 3.1.0
+info: {title: MCNDOTAGA Contract, version: "1.0.0"}
+components:
+  schemas:
+    # §6.1 Value —— 局面评估。降级走 §6.0 第二层（整体 insufficient_data 错误信封），
+    # 故本响应内没有字段级降级位。
+    Value:
+      type: object
+      additionalProperties: false
+      required: [radiant_win_prob, confidence, n_samples, contributions, sources_used]
+      properties:
+        radiant_win_prob: {type: number, minimum: 0, maximum: 1}
+        confidence: {$ref: "#/components/schemas/Confidence"}
+        n_samples: {type: integer, minimum: 0}
+        contributions:
+          description: >-
+            §6.1 的加项分解：四个 Factor 恰好各一项（四项之和 == radiant_win_prob-0.5
+            由 contracts/tools/invariants.py 的 check_value 守护，JSON Schema 无法求和）。
+          type: array
+          minItems: 4
+          maxItems: 4
+          items: {$ref: "#/components/schemas/ValueContribution"}
+          allOf:   # 防止用重复的同一 Factor 凑满四项而漏掉另一项
+            - contains: {properties: {factor: {const: patch_strength}}, required: [factor]}
+            - contains: {properties: {factor: {const: counter_matchup}}, required: [factor]}
+            - contains: {properties: {factor: {const: player_comfort}}, required: [factor]}
+            - contains: {properties: {factor: {const: first_pick}}, required: [factor]}
+        sources_used: {type: array, items: {type: string}}
+      allOf:   # §6.0 「confidence 按 n_samples 判定」的唯一定义，落成可执行的闭包
+        - if:   {properties: {n_samples: {maximum: 29}}, required: [n_samples]}
+          then: {properties: {confidence: {const: low}}, required: [confidence]}
+        - if:   {properties: {n_samples: {minimum: 30, maximum: 199}}, required: [n_samples]}
+          then: {properties: {confidence: {const: medium}}, required: [confidence]}
+        - if:   {properties: {n_samples: {minimum: 200}}, required: [n_samples]}
+          then: {properties: {confidence: {const: high}}, required: [confidence]}
+
+    ValueContribution:
+      type: object
+      additionalProperties: false
+      required: [factor, delta]
+      properties:
+        factor: {$ref: "#/components/schemas/Factor"}
+        delta:  {type: number}

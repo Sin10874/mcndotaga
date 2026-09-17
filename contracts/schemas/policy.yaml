@@ -1,0 +1,45 @@
+openapi: 3.1.0
+info: {title: MCNDOTAGA Contract, version: "1.0.0"}
+components:
+  schemas:
+    # §6.2 Policy —— 对手下一手预测。next_ord/team/is_pick 由 §6.0 的 resolve() 确定性推出
+    # （check_resolve 在 Plan 2+ 的集成测试里校验，fixture 层拿不到请求上下文）。
+    Policy:
+      type: object
+      additionalProperties: false
+      required: [next_ord, team, is_pick, candidates, top_n, other_prob, model, baseline, sources_used]
+      properties:
+        next_ord: {type: integer, minimum: 0, maximum: 23}
+        team:     {$ref: "#/components/schemas/Team"}
+        is_pick:  {type: boolean}
+        candidates:
+          description: >-
+            top-N 截断的候选（len(candidates) <= top_n 与 sum(prob)+other_prob == 1.0
+            由 check_policy 守护）。candidates[].hero_id 不得与请求 draft 重复 ——
+            该约束需要请求上下文，由 Plan 2+ 的集成测试覆盖。
+          type: array
+          items: {$ref: "#/components/schemas/PolicyCandidate"}
+        top_n:      {type: integer, minimum: 1, maximum: 127}   # 请求参数，响应回显实际值
+        other_prob: {type: number, minimum: 0, maximum: 1}
+        model:      {type: ["string", "null"]}   # 模型未就绪时为 null（语义=无模型），不得省略
+        baseline:   {$ref: "#/components/schemas/PolicyBaseline"}
+        sources_used: {type: array, items: {type: string}}
+
+    PolicyCandidate:
+      type: object
+      additionalProperties: false
+      required: [hero_id, prob, reasons, evidence_match_ids]
+      properties:
+        hero_id: {type: integer, minimum: 1}
+        prob:    {type: number, minimum: 0, maximum: 1}
+        reasons: {type: array, minItems: 1, items: {type: string}}   # §6.2：reasons 非空
+        evidence_match_ids: {type: array, items: {type: integer, minimum: 1}}
+
+    PolicyBaseline:
+      type: object
+      additionalProperties: false
+      required: [frequency_top1]
+      properties:
+        frequency_top1: {type: ["number", "null"], minimum: 0, maximum: 1}
+        # // optional（§6.2）：模型未就绪时为 null；缺省语义为"无模型"，与"准确率为 0"不同
+        model_top1:     {type: ["number", "null"], minimum: 0, maximum: 1}

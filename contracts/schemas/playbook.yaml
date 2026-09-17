@@ -1,0 +1,253 @@
+openapi: 3.1.0
+info: {title: MCNDOTAGA Contract, version: "1.0.0"}
+components:
+  schemas:
+    # §6.3 Playbook —— 剧本集（主输出）。语义字段一律用 us/them，数值字段用 0/1，
+    # 两者的对齐靠 matchup.side_map（§6.0 队伍编码）。
+    Playbook:
+      type: object
+      additionalProperties: false
+      required: [matchup, sources_used, coverage, data_quality, bans,
+                 op_hero_decision, branches, positions]
+      properties:
+        matchup: {$ref: "#/components/schemas/Matchup"}
+        sources_used: {type: array, items: {type: string}}
+        coverage: {$ref: "#/components/schemas/Coverage"}
+        data_quality: {$ref: "#/components/schemas/DataQuality"}
+        bans: {$ref: "#/components/schemas/Bans"}
+        op_hero_decision: {type: array, items: {$ref: "#/components/schemas/OpHeroOption"}}
+        branches: {type: array, minItems: 1, items: {$ref: "#/components/schemas/Branch"}}
+        positions: {type: array, items: {$ref: "#/components/schemas/Position"}}
+        # series_id 为 // optional（§6.3）：缺省时不返回 series 对象（而非返回 null 字段）
+        series: {$ref: "#/components/schemas/Series"}
+
+    Matchup:
+      type: object
+      additionalProperties: false
+      required: [us, them, patch, first_pick_team, side_map]
+      properties:
+        us:   {$ref: "#/components/schemas/ProfileRef"}
+        them: {$ref: "#/components/schemas/ProfileRef"}
+        patch: {type: string}
+        first_pick_team: {$ref: "#/components/schemas/Team"}
+        side_map: {$ref: "#/components/schemas/SideMap"}
+
+    SideMap:
+      description: §6.3：必须含 us/them 两个键且取值互异（0 与 1 各一）。
+      type: object
+      additionalProperties: false
+      required: [us, them]
+      properties:
+        us:   {$ref: "#/components/schemas/Team"}
+        them: {$ref: "#/components/schemas/Team"}
+      allOf:
+        - not: {properties: {us: {const: 0}, them: {const: 0}}, required: [us, them]}
+        - not: {properties: {us: {const: 1}, them: {const: 1}}, required: [us, them]}
+
+    DataQuality:
+      type: object
+      additionalProperties: false
+      required: [n_pending_draft, n_unavailable_draft, n_anomalous_draft,
+                 oldest_pending_hours, note]
+      properties:
+        n_pending_draft:     {type: integer, minimum: 0}
+        n_unavailable_draft: {type: integer, minimum: 0}
+        n_anomalous_draft:   {type: integer, minimum: 0}
+        # 无 pending 场次时无"最老"可言 —— 用 null，不得填 0 冒充（§6.0）
+        oldest_pending_hours: {type: ["integer", "null"], minimum: 0}
+        note: {type: string}
+
+    Bans:
+      type: object
+      additionalProperties: false
+      required: [must_ban, consider, bait_candidates]
+      properties:
+        must_ban:       {type: array, items: {$ref: "#/components/schemas/MustBan"}}
+        consider:       {type: array, items: {$ref: "#/components/schemas/BanConsider"}}
+        bait_candidates: {type: array, items: {$ref: "#/components/schemas/BaitCandidate"}}
+
+    MustBan:
+      type: object
+      additionalProperties: false
+      required: [hero_id, why, their_wr, our_wr_against, n]
+      properties:
+        hero_id: {type: integer, minimum: 1}
+        why:     {type: string}
+        their_wr: {type: number, minimum: 0, maximum: 1}
+        our_wr_against: {type: number, minimum: 0, maximum: 1}
+        n: {type: integer, minimum: 0}
+
+    BanConsider:
+      type: object
+      additionalProperties: false
+      required: [hero_id, why, if_we_leave_it_open]
+      properties:
+        hero_id: {type: integer, minimum: 1}
+        why:     {type: string}
+        # §6.3：与 op_hero_decision[] 同形（OpHeroOption），不得各写一套
+        if_we_leave_it_open: {$ref: "#/components/schemas/OpHeroOption"}
+
+    BaitCandidate:
+      type: object
+      additionalProperties: false
+      required: [hero_id, why]
+      properties:
+        hero_id: {type: integer, minimum: 1}
+        why:     {type: string}
+
+    OpHeroOption:
+      type: object
+      additionalProperties: false
+      required: [hero_id, if_we_pick, if_we_ban, if_we_leave, recommendation]
+      properties:
+        hero_id:    {type: integer, minimum: 1}
+        if_we_pick: {$ref: "#/components/schemas/WinRateSample"}
+        if_we_ban:  {$ref: "#/components/schemas/WinRateSample"}
+        if_we_leave: {$ref: "#/components/schemas/LeaveEvaluation"}
+        recommendation: {$ref: "#/components/schemas/Recommendation"}
+
+    # §9.1 的 n >= 30 门槛逐量判定：任一量不足即该量降级（§6.0 第一层形态）
+    WinRateSample:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [wr, n]
+          properties:
+            wr: {type: number, minimum: 0, maximum: 1}
+            n:  {type: integer, minimum: 0}
+        - $ref: "#/components/schemas/Degraded"
+
+    LeaveEvaluation:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [our_wr, their_wr, n, our_counter_options]
+          properties:
+            # our_wr + their_wr == 1.0（同一批比赛的两个视角），由 check_playbook 守护
+            our_wr:   {type: number, minimum: 0, maximum: 1}
+            their_wr: {type: number, minimum: 0, maximum: 1}
+            n:        {type: integer, minimum: 0}   # 两个比率共用此场次数
+            our_counter_options: {type: array, items: {$ref: "#/components/schemas/CounterOption"}}
+        - $ref: "#/components/schemas/Degraded"
+
+    CounterOption:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [hero_id, wr, n]
+          properties:
+            hero_id: {type: integer, minimum: 1}
+            wr: {type: number, minimum: 0, maximum: 1}
+            n:  {type: integer, minimum: 0}
+        - $ref: "#/components/schemas/Degraded"
+
+    # §6.6 的 offline 模式复用本形状：响应 branches[].plans[] 与 §6.3 完全相同
+    Branch:
+      type: object
+      additionalProperties: false
+      required: [branch_id, condition, plans]
+      properties:
+        branch_id: {type: string}
+        condition: {$ref: "#/components/schemas/BranchCondition"}
+        # 系列赛剧本里分支覆盖两种先手权时必填（§6.3 自洽规则），
+        # 该条件依赖 series.games[]，故由 check_playbook 守护而非 schema
+        applies_to_game: {type: integer, minimum: 1}
+        plans: {type: array, minItems: 1, items: {$ref: "#/components/schemas/Plan"}}
+
+    BranchCondition:
+      type: object
+      additionalProperties: false
+      required: [first_pick, their_opening]
+      properties:
+        first_pick:    {$ref: "#/components/schemas/Side"}
+        their_opening: {$ref: "#/components/schemas/TheirOpening"}
+
+    Plan:
+      type: object
+      additionalProperties: false
+      required: [label, goal, key_picks, expected_wr, n, robustness_delta, penalized_score]
+      properties:
+        label: {type: string}
+        goal:  {type: string}
+        key_picks: {type: array, minItems: 1, items: {$ref: "#/components/schemas/KeyPick"}}
+        expected_wr:     {type: number, minimum: 0, maximum: 1}
+        n:               {type: integer, minimum: 0}
+        robustness_delta: {type: number, minimum: 0, maximum: 1}
+        # 排序依据：expected_wr - λ × max(0, robustness_delta - 0.10)；λ 可配置，
+        # 降权后可低于 0，故不设下界（等式由 check_advise 复算）
+        penalized_score: {type: number, maximum: 1}
+        risk_note: {type: string}
+      allOf:   # §6.6：robustness_delta > 0.10 的项必须带 risk_note
+        - if:   {properties: {robustness_delta: {exclusiveMinimum: 0.10}}, required: [robustness_delta]}
+          then: {required: [risk_note]}
+
+    KeyPick:
+      type: object
+      additionalProperties: false
+      required: [priority, hero_id, by_ord, why, fallback]
+      properties:
+        priority: {type: integer, minimum: 1}
+        hero_id:  {type: integer, minimum: 1}
+        # 绝对手数（0–23），其归属方由 §6.0 的 resolve(by_ord, first_pick_team) 决定，
+        # 且必须与所属分支自洽 —— 由 check_playbook 守护
+        by_ord:   {type: integer, minimum: 0, maximum: 23}
+        why:      {type: string}
+        # §6.3 产品硬要求：fallback 位于 key_picks[] 内且非空
+        fallback: {type: array, minItems: 1, items: {type: integer, minimum: 1}}
+
+    Position:
+      type: object
+      additionalProperties: false
+      required: [side, notes]
+      properties:
+        side: {$ref: "#/components/schemas/Side"}
+        role: {type: ["integer", "null"], minimum: 1, maximum: 5}   # // optional，同 §6.4
+        notes: {type: array, minItems: 1, items: {$ref: "#/components/schemas/PositionNote"}}
+
+    # §6.5 的 Phase A 边界在这里是结构性的：note 恒为 §6.0 的降级形态
+    # （value 必为 null），且 additionalProperties:false 让眼位坐标一类的
+    # 回放字段无处可放。kind/text/evidence 是 note 的观测元数据，不是指标值。
+    # 注：$ref 与兄弟关键字并存是 JSON Schema 2020-12 的合法写法（OpenAPI 3.1），
+    # 用 allOf 会因 additionalProperties 看不到 Degraded 的字段而误杀。
+    PositionNote:
+      $ref: "#/components/schemas/Degraded"
+      type: object
+      additionalProperties: false
+      required: [kind, text, evidence, value, reason]
+      properties:
+        value:  {type: "null"}
+        reason: {$ref: "#/components/schemas/UnavailableReason"}
+        needs:  {type: string, enum: ["Phase B"]}
+        kind:   {$ref: "#/components/schemas/NoteKind"}
+        text:   {type: string}
+        evidence:   # 与 §6.2 evidence_match_ids 同口径；Phase A 恒为空数组
+          type: array
+          items: {type: integer, minimum: 1}
+
+    Series:
+      type: object
+      additionalProperties: false
+      required: [series_id, games, game1_plan, adjustment_rules]
+      properties:
+        series_id: {type: integer, minimum: 1}
+        games:     {type: array, minItems: 1, items: {$ref: "#/components/schemas/SeriesGame"}}
+        game1_plan: {type: string}
+        adjustment_rules: {type: array, items: {$ref: "#/components/schemas/AdjustmentRule"}}
+
+    SeriesGame:
+      type: object
+      additionalProperties: false
+      required: [game_no, first_pick_team]
+      properties:
+        game_no: {type: integer, minimum: 1}
+        # 赛前未知时为 null（"先手权取决于第 1 局结果"），不得省略该字段
+        first_pick_team: {type: ["integer", "null"], enum: [0, 1, null]}
+        note: {type: string}
+
+    AdjustmentRule:
+      type: object
+      additionalProperties: false
+      required: ["if", "then"]
+      properties:
+        "if":   {type: string}
+        "then": {type: string}
