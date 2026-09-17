@@ -7,12 +7,27 @@ def test_full_ten_player_match_inserts(db, seeded):
                            VALUES (%s,%s,%s,%s,%s)""", rows)
     assert db.execute("SELECT count(*) FROM match_players WHERE match_id=1").fetchone()[0] == 10
 
-def test_anonymous_players_do_not_collide(db, seeded):
-    """规格 §16.1：两个匿名选手同场必须都入库（主键是 player_slot 而非 account_id）。"""
+def test_duplicate_player_slot_is_rejected(db, seeded):
+    """规格 §5.1：主键是 (match_id, player_slot)。同一场同一 slot 不能有两行。
+
+    第二个 account_id 必须先存在于 players，否则这一句会被 FK（23503）拒绝，
+    测试就变成恒绿的空断言——而它声称守护的正是主键选择。故此处同时钉住
+    23505（unique_violation），确保拒绝来自 (match_id, player_slot) 的唯一性。
+    """
+    db.execute("INSERT INTO players(account_id, name) VALUES (111, 'p')")
+    db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
+                  VALUES (1,3,NULL,0,80)""")
+    with expect_violation(db, sqlstate="23505"):
+        db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
+                      VALUES (1,3,111,0,80)""")   # 同 slot，不同 account
+
+def test_two_anonymous_players_coexist(db, seeded):
+    """匿名选手（account_id IS NULL）在不同 slot 上必须都能入库。"""
     db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                   VALUES (1,3,NULL,0,80), (1,8,NULL,1,80)""")
-    n = db.execute("SELECT count(*) FROM match_players WHERE match_id=1 AND account_id IS NULL").fetchone()[0]
-    assert n == 2
+    assert db.execute(
+        "SELECT count(*) FROM match_players WHERE match_id=1 AND account_id IS NULL"
+    ).fetchone()[0] == 2
 
 def test_raw_mod_128_normalization_is_rejected(db, seeded):
     """规格 §16.2：raw%128 把 Dire 的 128..132 塌缩成 0..4。"""

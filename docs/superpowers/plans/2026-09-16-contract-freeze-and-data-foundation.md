@@ -178,7 +178,7 @@ git commit -m "chore: 仓库骨架、依赖、Compose、三条线的目录边界
 
 ### Task 2: §5.1 的 DDL 作为迁移 001 + 约束测试
 
-规格 §16.1 已证明这段 DDL 在 PostgreSQL 16 上可执行（22 张表）。本任务把它变成可重复执行的迁移，并给那 15 条约束探针补上回归保护。
+规格 §16.1 已证明这段 DDL 在 PostgreSQL 16 上可执行（22 张表）。本任务把它变成可重复执行的迁移，并给那 15 条约束探针补上回归保护（实现后为 16 条测试：匿名选手那条按「唯一性」与「可共存」拆为两条）。
 
 **Files:**
 - Create: `db/migrations/001_schema.sql`, `db/migrate.py`, `db/__init__.py`
@@ -251,15 +251,23 @@ def _base_dsn() -> str:
 
 @pytest.fixture(scope="session")
 def dsn() -> str:
-    """建 <db>_test 并跑迁移，使测试不污染开发库（规格 §15）。"""
+    """每 session 重建 <db>_test 并跑迁移，使测试不污染开发库（规格 §15）。
+
+    必须 DROP + CREATE，不能只在库不存在时创建：否则只要 ledger 里已有
+    001_schema.sql，对该迁移的任何后续修改都不会被应用，测试会**静默**跑在
+    旧 schema 上（改了 DDL 却依然全绿）。Task 3 起会频繁改 schema，这个坑
+    必然再踩，故每次 session 都从零重建以换取「schema 永远对应当前迁移」。
+
+    WITH (FORCE) 需要 PG 13+（本机 16.14）。
+    """
     base = os.environ.get("TEST_DATABASE_URL")
     if not base:
         head, dbname = _base_dsn().rsplit("/", 1)
         base = f"{head}/{dbname}_test"
     head, test_name = base.rsplit("/", 1)
     with psycopg.connect(f"{head}/postgres", autocommit=True) as c:
-        if not c.execute("SELECT 1 FROM pg_database WHERE datname=%s", (test_name,)).fetchone():
-            c.execute(f'CREATE DATABASE "{test_name}"')
+        c.execute(f'DROP DATABASE IF EXISTS "{test_name}" WITH (FORCE)')
+        c.execute(f'CREATE DATABASE "{test_name}"')
     from db.migrate import apply
     apply(base)
     return base
@@ -271,17 +279,27 @@ def db(dsn):
         conn.rollback()
 
 @contextmanager
-def expect_violation(conn):
+def expect_violation(conn, sqlstate: str | None = None):
     """断言语句违反约束，并回滚到保存点使事务可继续。
 
     必需：psycopg 在约束违规后事务进入 aborted 状态，
     后续任何语句都会以 'current transaction is aborted' 失败。
+
+    sqlstate：不传则接受任何 psycopg.Error（宽松，仅适用于"被任意约束拒绝
+    即可"的断言）；传入则要求恰好是该 SQLSTATE，否则视为测试失败。
+    **守护唯一性/主键的测试必须显式传入**——psycopg.Error 是个很宽的网，
+    一条被 FK（23503）或 CHECK（23514）拒绝的语句同样能让 with 块通过，
+    于是测试名声称在守护主键、实际什么都没守护。
     """
     conn.execute("SAVEPOINT sp")
     try:
         yield
-    except psycopg.Error:
+    except psycopg.Error as exc:
         conn.execute("ROLLBACK TO SAVEPOINT sp")
+        if sqlstate is not None and exc.sqlstate != sqlstate:
+            pytest.fail(
+                f"期望 SQLSTATE {sqlstate}，实际为 {exc.sqlstate}：{exc}"
+            )
     except BaseException:
         # 非 psycopg 异常（例如测试里调用的辅助函数抛 KeyError）也必须回滚，
         # 否则块内的写入会留在事务里可见，污染后续断言。
@@ -322,12 +340,27 @@ def test_full_ten_player_match_inserts(db, seeded):
                            VALUES (%s,%s,%s,%s,%s)""", rows)
     assert db.execute("SELECT count(*) FROM match_players WHERE match_id=1").fetchone()[0] == 10
 
-def test_anonymous_players_do_not_collide(db, seeded):
-    """规格 §16.1：两个匿名选手同场必须都入库（主键是 player_slot 而非 account_id）。"""
+def test_duplicate_player_slot_is_rejected(db, seeded):
+    """规格 §5.1：主键是 (match_id, player_slot)。同一场同一 slot 不能有两行。
+
+    第二个 account_id 必须先存在于 players，否则这一句会被 FK（23503）拒绝，
+    测试就变成恒绿的空断言——而它声称守护的正是主键选择。故此处同时钉住
+    23505（unique_violation），确保拒绝来自 (match_id, player_slot) 的唯一性。
+    """
+    db.execute("INSERT INTO players(account_id, name) VALUES (111, 'p')")
+    db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
+                  VALUES (1,3,NULL,0,80)""")
+    with expect_violation(db, sqlstate="23505"):
+        db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
+                      VALUES (1,3,111,0,80)""")   # 同 slot，不同 account
+
+def test_two_anonymous_players_coexist(db, seeded):
+    """匿名选手（account_id IS NULL）在不同 slot 上必须都能入库。"""
     db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                   VALUES (1,3,NULL,0,80), (1,8,NULL,1,80)""")
-    n = db.execute("SELECT count(*) FROM match_players WHERE match_id=1 AND account_id IS NULL").fetchone()[0]
-    assert n == 2
+    assert db.execute(
+        "SELECT count(*) FROM match_players WHERE match_id=1 AND account_id IS NULL"
+    ).fetchone()[0] == 2
 
 def test_raw_mod_128_normalization_is_rejected(db, seeded):
     """规格 §16.2：raw%128 把 Dire 的 128..132 塌缩成 0..4。"""
@@ -401,31 +434,66 @@ def test_reinsert_is_idempotent(db, seeded):
 
 真正的红/绿验证方式是**故意破坏再修复**：
 
+**⚠ 原文这条路子已实测推翻，不要再照抄。** 原文说"同时删掉 PRIMARY KEY 与
+slot_team_agree，预期 2 failed, 13 passed"——数字对不上，且理由也不是它说的那个。
+下面三个实验的预期值**全部经过实测**（PG 16.14，`pytest tests/db -q`）：
+
 ```bash
-# 1. 编辑 db/migrations/001_schema.sql，注释掉最后两行中的约束行：
-#       PRIMARY KEY (match_id, player_slot),
-#       CONSTRAINT slot_team_agree CHECK ((player_slot < 5) = (team = 0))
-#    必须同时删掉 PRIMARY KEY 行末尾的逗号，否则 DDL 变成语法错误，
-#    得到的是 15 个 error 而不是 2 个 failure。
-# 2. make db-reset && pytest tests/db/test_constraints.py -q
-#    预期：2 failed, 13 passed —— 失败的正是
-#      test_raw_mod_128_normalization_is_rejected
-#      test_slot_team_mismatch_is_rejected
-# 3. 恢复这两行（含逗号），重跑，预期回到 15 passed
+# 实验 A（验证 slot_team_agree）——链式反应：它同时守护 raw%128 探针。
+#   删掉 `CONSTRAINT slot_team_agree CHECK (...)` 这一行，
+#   并把 `PRIMARY KEY (match_id, player_slot),` 的尾逗号去掉（它成为最后一个约束）。
+#   实测：2 failed, 14 passed
+#     test_raw_mod_128_normalization_is_rejected
+#     test_slot_team_mismatch_is_rejected
+#   注意：raw%128 那条也是靠 slot_team_agree 拒绝的（128%128=0 → slot 0 与 team 1
+#   不自洽），所以删掉该约束会同时打红两条——这是正确的连锁，不是误报。
+
+# 实验 B1（只删主键）——**行不通：得到 16 个 error，不是 failure**。
+#   只删 `PRIMARY KEY (match_id, player_slot),`（尾逗号处理见原文说明）保留其余。
+#   item_timings 有 FK `(match_id, player_slot) REFERENCES match_players(...)`，
+#   主键一没，FK 就失去唯一约束依托，DDL 以
+#     InvalidForeignKey: 没有唯一约束与关联表 "match_players" 给定的键值匹配
+#   失败 → 迁移报错 → **16 errors**（实测确认；原文担心的语法错误路径同理，
+#   都会落到"整批 error"，同样验证不到那条测试）。
+#   这本身就是"pk 在守护 (match_id, player_slot) 唯一性"的实证：没有它，
+#   连这条 FK 都建不起来。**故无法用"只删主键"来验证本测试。**
+
+# 实验 B2（验证 (match_id, player_slot) 唯一性）——把唯一性真正抽走：
+#   删掉 `PRIMARY KEY (match_id, player_slot),`
+#   并删掉 item_timings 的 `FOREIGN KEY (match_id, player_slot) REFERENCES ...` 两行
+#   （该 FK 依赖此唯一性；无任何测试插入 item_timings，故移除它不放松被测断言）
+#   实测：1 failed, 15 passed —— 唯一失败者正是
+#     test_duplicate_player_slot_is_rejected
+#   这条即**真正的回归保护**：唯一性一消失，它立刻变红。
+
+# 实验 C（验证 dsn 不陈旧）——不需要改 DDL 语义：
+#   往 001_schema.sql 末尾追加 `CREATE TABLE staleness_sentinel (id INT PRIMARY KEY);`
+#   直接重跑 pytest（**不手动 drop 库**），然后查 postgres_test 里该表存在 → 证明新
+#   DDL 已被应用；再 git checkout 还原并重跑，该表消失。
+#   实测：0 → 1 →（还原后）0 ✓
+
+# 全部实验结束后：git checkout -- db/migrations/001_schema.sql && pytest tests/db -q
+#   实测：16 passed ✓
 ```
+
+**附加要求（实测教训，别再踩）**：`test_duplicate_player_slot_is_rejected` 里的
+第二个 `account_id` 必须**先存在于 `players`**。否则该语句会被 FK（23503）拒绝，
+`expect_violation` 照样通过，测试就变成恒绿的空断言——第一版正是这么写的，
+实测"删掉主键仍然绿"。因此该测试显式传 `sqlstate="23505"`，把"拒绝来自
+`(match_id, player_slot)` 唯一性"钉死。
 
 **请实际执行一次这个反向验证再继续。**
 
 - [ ] **Step 6: 运行确认通过**
 
 Run: `make db-reset && pytest tests/db/test_constraints.py -q`
-Expected: **15 passed**
+Expected: **16 passed**
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add db/ tests/
-git commit -m "feat(db): §5.1 DDL 作为迁移 001 + 15 条约束测试（含 raw%128 与匿名选手回归保护）"
+git commit -m "feat(db): §5.1 DDL 作为迁移 001 + 16 条约束测试（含 raw%128 与匿名选手回归保护）"
 ```
 
 ---
