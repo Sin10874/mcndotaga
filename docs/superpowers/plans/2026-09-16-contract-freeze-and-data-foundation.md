@@ -1140,6 +1140,7 @@ git commit -m "feat(contracts): §6.0 公共组件 + 根锚定校验器（修 re
 - Create: `contracts/schemas/value.yaml`, `policy.yaml`, `playbook.yaml`, `profile.yaml`, `advise.yaml`
 - Create: `contracts/tools/invariants.py`
 - Test: `tests/contracts/test_invariants.py`
+- Test: `tests/contracts/test_schema_shape.py`
 
 - [ ] **Step 1: 写失败测试 `tests/contracts/test_invariants.py`**
 
@@ -1224,7 +1225,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'contracts.tools.invari
 ```python
 """规格 §6 的每条不变式，作为可执行函数。fixtures 与真实响应都跑这些。"""
 from __future__ import annotations
-from shared.draft_template import TEMPLATE
+from shared.draft_template import resolve
 
 TOL = 1e-3
 
@@ -1233,8 +1234,7 @@ TOL = 1e-3
 # 它由 Plan 2+ 的接口集成测试使用（那里能同时拿到请求与响应）。
 # 推导逻辑本身已在 Task 4 的 shared/draft_template.py 中受测。
 def check_resolve(next_ord: int, team: int, is_pick: bool, first_pick_team: int) -> list[str]:
-    exp_pick, who = TEMPLATE[next_ord]
-    exp_team = first_pick_team if who == "F" else 1 - first_pick_team
+    exp_pick, exp_team = resolve(next_ord, first_pick_team)
     errs = []
     if bool(exp_pick) != bool(is_pick):
         errs.append(f"ord {next_ord} 类型应为 {'pick' if exp_pick else 'ban'}")
@@ -1353,7 +1353,7 @@ def check_profile(body: dict) -> list[str]:
 - [ ] **Step 4: 运行确认通过**
 
 Run: `pytest tests/contracts/test_invariants.py -q`
-Expected: **11 passed**
+Expected: **10 passed**
 
 - [ ] **Step 5: 写五个 schema 文件**
 
@@ -1406,7 +1406,7 @@ def test_every_degraded_field_refs_the_Degraded_component(contract_doc):
 - [ ] **Step 6: 运行确认通过**
 
 Run: `python -m contracts.tools.build_openapi && pytest tests/contracts -q`
-Expected: **23 passed**（6 公共 + 9 不变式 + 8 schema 形状）
+Expected: **23 passed**（6 公共 + 10 不变式 + 7 schema 形状）
 
 - [ ] **Step 7: Commit**
 
@@ -1635,7 +1635,7 @@ Expected: `contracts/openapi.yaml: OK`（openapi-spec-validator 0.9.x 会打印�
 - [ ] **Step 5: 全量测试**
 
 Run: `make db-reset && make test`
-Expected: **55 passed**（29 + 23 + 1 + 2）
+Expected: **59 passed**（33 + 23 + 1 + 2）
 
 - [ ] **Step 6: Commit（M0 完成）**
 
