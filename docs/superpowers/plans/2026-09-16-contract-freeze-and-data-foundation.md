@@ -2056,7 +2056,7 @@ def check_profile(body: dict) -> list[str]:
 - [ ] **Step 4: 运行确认通过**
 
 Run: `pytest tests/contracts/test_invariants.py -q`
-Expected: **43 passed**
+Expected: **45 passed**
 
 - [ ] **Step 5: 写五个 schema 文件**
 
@@ -2207,7 +2207,7 @@ def test_position_note_keeps_needs_conditionality(validator_for):
 - [ ] **Step 6: 运行确认通过**
 
 Run: `python -m contracts.tools.build_openapi && pytest tests/contracts -q`
-Expected: **80 passed**（6 公共 + 43 不变式 + 31 schema 形状）
+Expected: **82 passed**（6 公共 + 45 不变式 + 31 schema 形状）
 
 - [ ] **Step 7: Commit**
 
@@ -2763,7 +2763,7 @@ def test_ts_contains_all_required_enums():
 - [ ] **Step 3: 生成并运行**
 
 Run: `make contract-ts && pytest tests/contracts -q`
-Expected: `wrote .../web/src/types/contract.ts`；**84 passed**（80 既有 + 2 fixtures + 2 TS）
+Expected: `wrote .../web/src/types/contract.ts`；**86 passed**（82 既有 + 2 fixtures + 2 TS）
 
 - [ ] **Step 4: 校验 OpenAPI 文档本身（M0 验收第 1 条）**
 
@@ -2774,8 +2774,11 @@ Expected: `contracts/openapi.yaml: OK`（openapi-spec-validator 0.9.x 会打印�
 - [ ] **Step 5: 全量测试**
 
 Run: `make db-reset && make test`
-Expected: **117 passed**（33 + 80 + 2 + 2：db/shared + 既有契约 + Task 7 fixtures 两条
-+ Task 8 TS 两条；Task 7 由 1 条变 2 条，故比原计划的 116 多 1）
+Expected: **119 passed**（33 + 82 + 2 + 2：db/shared + 既有契约 + Task 7 fixtures 两条
++ Task 8 TS 两条。实测分解：db/shared 33 = db 22（16 约束 + 6 隔离）+ shared 11；
+既有契约 82 = 公共 6 + 不变式 45 + schema 形状 31。相对上一版的 117：Task 7 复核修复
+给 `test_invariants.py` 补了 2 条 §7.3 用例（43 → 45），既有契约由 80 变 82；此前
+「Task 7 由 1 条变 2 条」的 +1 仍计入，故比最初计划的 116 多 3）
 
 - [ ] **Step 6: Commit（M0 完成）**
 
