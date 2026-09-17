@@ -1148,71 +1148,541 @@ git commit -m "feat(contracts): §6.0 公共组件 + 根锚定校验器（修 re
 `ModuleNotFoundError: No module named 'contracts.tools.invariants'`。）
 
 ```python
+"""契约不变式（规格 §6）的回归：阳性示例 + 每条守护的阴性用例。
+
+阳性示例一律取自规格 §6 的代码块（去掉 `//` 注释后 `json.loads`，与
+`/tmp` 的抽取脚本同源），并在测试内先用 `validator_for(<资源>)` 过 schema ——
+规格示例同时在 schema 与不变式两层成立，是本轮的第一条验收线。
+
+阴性用例**全部是 schema 合法的**：先 `validate` 通过，再断言 `check_*` 拒绝。
+这样失败必然来自不变式而非形态，避免"测试其实被 schema 拦住"的假阳性。
+"""
+from __future__ import annotations
+import copy
+import json
+
+import jsonschema
+import pytest
+
 from contracts.tools.invariants import (check_value, check_policy, check_advise,
-                                        check_playbook, check_profile)
+                                        check_playbook, check_profile, check_resolve)
+
+
+def _spec(text: str) -> dict:
+    """规格示例：注释已剥离，其余逐字保留。"""
+    return json.loads(text)
+
 
 SPEC_VALUE = {"radiant_win_prob": 0.530, "contributions": [
-    {"factor":"patch_strength","delta":0.011},{"factor":"counter_matchup","delta":-0.014},
-    {"factor":"player_comfort","delta":0.024},{"factor":"first_pick","delta":0.009}]}
+    {"factor": "patch_strength", "delta": 0.011}, {"factor": "counter_matchup", "delta": -0.014},
+    {"factor": "player_comfort", "delta": 0.024}, {"factor": "first_pick", "delta": 0.009}]}
 
-def test_spec_value_example_passes():
-    assert check_value(SPEC_VALUE) == []
+# 规格 §6.2「→ 200」示例（真实比赛 8996973546 的前 12 手）
+SPEC_POLICY = _spec("""
+{
+  "next_ord": 12,
+  "team": 1,
+  "is_pick": true,
+  "candidates": [
+    {"hero_id": 112, "prob": 0.180,
+     "reasons": ["该队在此阶段的历史首选", "克制对方已选核心"],
+     "evidence_match_ids": [8996973546, 8988636430]}
+  ],
+  "top_n": 10,
+  "other_prob": 0.820,
+  "model": "sequence-v1",
+  "baseline": {"frequency_top1": 0.041, "model_top1": null},
+  "sources_used": ["pro_match"]
+}
+""")
+
+# 规格 §6.3「→ 200」示例（逐字，仅去注释）
+SPEC_PLAYBOOK = _spec("""
+{
+  "matchup": {
+    "us":   {"team_id": 10251056, "name": "Dawn Bulls", "tag": "DB"},
+    "them": {"team_id": 10232231, "name": "Klim Sani4", "tag": "KS"},
+    "patch": "7.41e",
+    "first_pick_team": 0,
+    "side_map": {"us": 0, "them": 1}
+  },
+  "sources_used": ["pro_match"],
+  "coverage": {
+    "pro_match": {"n_matches": 42, "n_stat_available": 38},
+    "pub_match": {"n_matches": 0,  "n_stat_available": 0}
+  },
+  "data_quality": {
+    "n_pending_draft": 1,
+    "n_unavailable_draft": 0,
+    "n_anomalous_draft": 2,
+    "oldest_pending_hours": 31,
+    "note": "1 场 BP 数据尚未就绪（OpenDota 约 2.6 天滞后），未计入统计"
+  },
+  "bans": {
+    "must_ban": [{"hero_id": 55, "why": "对手签名英雄，我方无人擅长应对",
+                  "their_wr": 0.71, "our_wr_against": 0.29, "n": 24}],
+    "consider": [{"hero_id": 77, "why": "...",
+                  "if_we_leave_it_open": {
+                    "hero_id": 77,
+                    "if_we_pick":  {"wr": 0.47, "n": 33},
+                    "if_we_ban":   {"wr": 0.49, "n": 58},
+                    "if_we_leave": {"our_wr": 0.55, "their_wr": 0.45, "n": 40,
+                                    "our_counter_options": [{"hero_id": 36, "wr": 0.61, "n": 31}]},
+                    "recommendation": "leave_and_counter"}}],
+    "bait_candidates": [{"hero_id": 90, "why": "双方都不擅长，浪费对手 ban 位"}]
+  },
+  "op_hero_decision": [{
+    "hero_id": 83,
+    "if_we_pick":  {"wr": 0.44, "n": 34},
+    "if_we_ban":   {"wr": 0.50, "n": 62},
+    "if_we_leave": {"our_wr": 0.58, "their_wr": 0.42, "n": 41,
+                    "our_counter_options": [{"hero_id": 36, "wr": 0.61, "n": 31}]},
+    "recommendation": "leave_and_counter"
+  }],
+  "branches": [
+    {
+      "branch_id": "A",
+      "applies_to_game": 1,
+      "condition": {"first_pick": "us", "their_opening": "teamfight"},
+      "plans": [{
+        "label": "A1",
+        "goal": "拖到中后期，靠分推拉扯",
+        "key_picks": [{"priority": 1, "hero_id": 105, "by_ord": 13,
+                       "why": "...", "fallback": [67, 19]}],
+        "expected_wr": 0.52, "n": 31,
+        "robustness_delta": 0.04,
+        "penalized_score": 0.52
+      }]
+    },
+    {
+      "branch_id": "B",
+      "applies_to_game": 2,
+      "condition": {"first_pick": "them", "their_opening": "push"},
+      "plans": [{
+        "label": "B1",
+        "goal": "对手先手时抢下反制核心",
+        "key_picks": [{"priority": 1, "hero_id": 19, "by_ord": 12,
+                       "why": "...", "fallback": [67]}],
+        "expected_wr": 0.51, "n": 31,
+        "robustness_delta": 0.05,
+        "penalized_score": 0.51
+      }]
+    }
+  ],
+  "series": {
+    "series_id": 1141522,
+    "games": [
+      {"game_no": 1, "first_pick_team": 0},
+      {"game_no": 2, "first_pick_team": 1,
+       "note": "第 1 局的负者获得第 2 局先手权；该值在第 1 局结束后才能确定，未确定时为 null——此时不得产出指向该局的 them 分支"}
+    ],
+    "game1_plan": "...",
+    "adjustment_rules": [{"if": "对手第 1 局暴露推进体系", "then": "..."}]
+  },
+  "positions": [
+    {"side": "them", "role": 4,
+     "notes": [{"kind": "ward", "text": "...", "evidence": [],
+                "value": null, "reason": "needs_replay", "needs": "Phase B"}]}
+  ]
+}
+""")
+
+# 规格 §6.4「→ 200」示例（逐字，仅去注释）
+SPEC_PROFILE = _spec("""
+{
+  "team_id": 10232231,
+  "patch": "7.41e",
+  "as_of": "2026-09-16",
+  "sources_used": ["pro_match", "pub_match"],
+  "coverage": {"pro_match": {"n_matches": 42, "n_stat_available": 38,
+                             "n_position_unknown": 5},
+               "pub_match": {"n_matches": 310, "n_stat_available": 298,
+                             "n_position_unknown": 12}},
+  "players": [{
+    "account_id": 123456,
+    "name": "示例选手",
+    "role": 4,
+    "hero_pool": {
+      "window_games": 48,
+      "signature":   [{"hero_id": 55, "games": 12, "wr": 0.75, "pct": 25}],
+      "comfortable": [{"hero_id": 77, "games": 8,  "wr": 0.50, "pct": 17}],
+      "effective_count": 14,
+      "presence_pick_rate": 0.81
+    },
+    "dimensions": {
+      "hero_pool":     {"percentile": 88, "n": 120},
+      "laning":        {"percentile": 71, "n": 120},
+      "combat":        {"percentile": 64, "n": 120},
+      "map_vision":    {"percentile": 47, "n": 120},
+      "tempo":         {"percentile": 55, "n": 120},
+      "hero_archetype":{"initiate": 0.24, "protect": 0.18, "push": 0.17,
+                        "teamfight": 0.19, "pickoff": 0.13, "splitpush": 0.09}
+    }
+  }],
+  "team_bp_tendency": {
+    "first_phase_ban_freq": [{"hero_id": 55, "freq": 0.42, "n": 31}],
+    "first_pick_freq":      [{"hero_id": 123, "freq": 0.28, "n": 25}],
+    "ban_by_phase":         [{"ord": 9, "hero_id": 53, "freq": 0.31, "n": 29}]
+  }
+}
+""")
+
+# 规格 §6.4 的 ProfileRef 示例
+SPEC_PROFILE_REF = _spec("""
+{"team_id": 10232231, "name": "Klim Sani4", "tag": "KS", "logo_url": null}
+""")
+
+# 规格 §6.6「→ 200 (mode="realtime")」示例（逐字，仅去注释）
+SPEC_ADVISE = _spec("""
+{
+  "next_ord": 13,
+  "team": 0,
+  "is_pick": true,
+  "options": [
+    {"hero_id": 105, "expected_wr": 0.552, "robustness_delta": 0.04,
+     "penalized_score": 0.552,
+     "why": "对手按预测分布应对时最优；换招后仍不劣于 0.51",
+     "fallback": [67, 19],
+     "counterparty_plan": "对手若抢 105，我方案转为 ..."},
+    {"hero_id": 67,  "expected_wr": 0.548, "robustness_delta": 0.03,
+     "penalized_score": 0.548,
+     "why": "...", "fallback": [19, 105], "counterparty_plan": "..."},
+    {"hero_id": 19,  "expected_wr": 0.556, "robustness_delta": 0.22,
+     "penalized_score": 0.436,
+     "risk_note": "原始胜率最高，但对手一旦不按预测出牌，本方案会明显劣化",
+     "why": "...", "fallback": [67, 105], "counterparty_plan": "..."}
+  ],
+  "assumptions": {"opponent_model": "sequence-v1", "value_model": "value-v1"},
+  "sources_used": ["pro_match"]
+}
+""")
+
+
+def _op_hero_decision(pick, ban, leave, counter_wr=None, rec="pick", n=40):
+    """按 §9.1 的三量构造一个 op_hero_decision[0]（n 一律充足，只考验复算）。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    counters = [] if counter_wr is None else [{"hero_id": 36, "wr": counter_wr, "n": 31}]
+    body["op_hero_decision"] = [{
+        "hero_id": 83,
+        "if_we_pick": {"wr": pick, "n": n},
+        "if_we_ban": {"wr": ban, "n": n},
+        "if_we_leave": {"our_wr": leave, "their_wr": round(1.0 - leave, 4), "n": n,
+                        "our_counter_options": counters},
+        "recommendation": rec,
+    }]
+    return body
+
+
+# ── 规格示例：schema + 不变式两层都要通过 ────────────────────────────────
+
+def test_spec_value_example_passes(validator_for):
+    body = copy.deepcopy(SPEC_VALUE)
+    body |= {"confidence": "high", "n_samples": 412, "sources_used": ["pro_match"]}
+    validator_for("Value").validate(body)
+    assert check_value(body) == []
+
+def test_spec_policy_example_passes(validator_for):
+    validator_for("Policy").validate(SPEC_POLICY)
+    assert check_policy(SPEC_POLICY) == []
+
+def test_spec_playbook_example_passes(validator_for):
+    validator_for("Playbook").validate(SPEC_PLAYBOOK)
+    assert check_playbook(SPEC_PLAYBOOK) == []
+
+def test_spec_profile_example_passes(validator_for):
+    validator_for("Profile").validate(SPEC_PROFILE)
+    assert check_profile(SPEC_PROFILE) == []
+
+def test_spec_profile_ref_example_passes(validator_for):
+    validator_for("ProfileRef").validate(SPEC_PROFILE_REF)
+
+def test_spec_advise_example_passes(validator_for):
+    validator_for("Advise").validate(SPEC_ADVISE)
+    assert check_advise(SPEC_ADVISE) == []
+
+
+# ── §6.1 Value ────────────────────────────────────────────────────────────
 
 def test_value_detects_the_original_round1_defect():
     """规格一轮抓到的原始错误：求和 0.054 而 radiant_win_prob-0.5 = 0.030。"""
     bad = {**SPEC_VALUE, "contributions": [
-        {"factor":"patch_strength","delta":0.021},{"factor":"counter_matchup","delta":-0.014},
-        {"factor":"player_comfort","delta":0.038},{"factor":"first_pick","delta":0.009}]}
+        {"factor": "patch_strength", "delta": 0.021}, {"factor": "counter_matchup", "delta": -0.014},
+        {"factor": "player_comfort", "delta": 0.038}, {"factor": "first_pick", "delta": 0.009}]}
     assert check_value(bad) != []
 
 def test_value_detects_unrequested_source():
     body = {**SPEC_VALUE, "sources_used": ["pro_match", "pub_match"]}
     assert check_value(body, requested_sources=["pro_match"]) != []
 
-def test_spec_policy_example_passes():
-    assert check_policy({"candidates":[{"hero_id":112,"prob":0.180,"reasons":["x"]}],
-                         "top_n":10,"other_prob":0.820}) == []
+def test_value_rejects_non_finite_delta(validator_for):
+    """I5：delta 无上下界，NaN 能过 schema；`abs(nan-x) > TOL` 恒 False，
+    不加非有限扫描则求和校验静默通过。"""
+    body = {**SPEC_VALUE, "contributions": [
+        {"factor": "patch_strength", "delta": float("nan")}, {"factor": "counter_matchup", "delta": -0.014},
+        {"factor": "player_comfort", "delta": 0.024}, {"factor": "first_pick", "delta": 0.009}]}
+    validator_for("Value").validate(dict(body, confidence="high", n_samples=412, sources_used=[]))
+    errs = check_value(body)
+    assert any("非有限数值" in e and "contributions[0].delta" in e for e in errs), errs
 
-def test_spec_profile_example_passes():
-    body = {"players":[{"account_id":1,"dimensions":{"hero_archetype":{
-        "initiate":0.24,"protect":0.18,"push":0.17,"teamfight":0.19,"pickoff":0.13,"splitpush":0.09}}}]}
+
+# ── §6.2 Policy ───────────────────────────────────────────────────────────
+
+def test_policy_rejects_non_finite_prob(validator_for):
+    """I5：NaN 会让 `abs(sum - 1.0) > TOL` 静默为 False。
+    注意 NaN 连 schema 的数值上下界都逃得掉（`minimum`/`maximum` 用比较实现，
+    `nan < min` 与 `nan > max` 都是 False）—— 故只有 checker 这一层能拦。"""
+    body = {**SPEC_POLICY,
+            "candidates": [{"hero_id": 112, "prob": float("nan"), "reasons": ["x"],
+                            "evidence_match_ids": []}]}
+    validator_for("Policy").validate(body)          # NaN 过 schema（I5 的前提）
+    errs = check_policy(body)
+    assert any("非有限数值" in e and "candidates[0].prob" in e for e in errs), errs
+
+def test_policy_names_the_reasonless_candidate(validator_for):
+    """§6.2 reasons 非空：schema 有 minItems，checker 作为第二层并点出 hero_id。"""
+    body = {**SPEC_POLICY, "candidates": [{"hero_id": 112, "prob": 0.180, "reasons": [],
+                                           "evidence_match_ids": []}]}
+    with pytest.raises(jsonschema.ValidationError):
+        validator_for("Policy").validate(body)
+    errs = check_policy(body)
+    assert any("hero 112" in e and "reasons" in e for e in errs), errs
+
+
+# ── §6.4 Profile ──────────────────────────────────────────────────────────
+
+def test_profile_rejects_five_category_distribution(validator_for):
+    """规格四轮抓到的原始缺陷：只有 5 类且凑巧和为 1.0。
+    schema 也会拦（HeroArchetype 要求六个键齐备），checker 的第二层要指出缺了哪个键。"""
+    body = {"players": [{
+        "account_id": 1,
+        "name": "甲",
+        "role": 4,                       # role 非 null ⇒ 不触发 §7.3 的降级联动
+        "hero_pool": {"window_games": 20, "signature": [], "comfortable": [],
+                      "effective_count": 6, "presence_pick_rate": 0.5},
+        "dimensions": {
+            "hero_pool": {"percentile": 50, "n": 100}, "laning": {"percentile": 50, "n": 100},
+            "combat": {"percentile": 50, "n": 100}, "map_vision": {"percentile": 50, "n": 100},
+            "tempo": {"percentile": 50, "n": 100},
+            "hero_archetype": {"teamfight": 0.32, "push": 0.18, "pickoff": 0.21,
+                               "splitpush": 0.11, "protect": 0.18}}}]}
+    with pytest.raises(jsonschema.ValidationError):
+        validator_for("Profile").validate(body)
+    errs = check_profile(body)
+    assert any("键集不完整" in e and "initiate" in e for e in errs), errs
+
+def test_profile_rejects_non_finite_archetype_weight(validator_for):
+    """I5：NaN 权重同样让 `abs(sum - 1.0) > TOL` 静默为 False，
+    且 NaN 能过 schema 的 `minimum`/`maximum`（比较对 NaN 恒假）——checker 是唯一防线。"""
+    body = copy.deepcopy(SPEC_PROFILE)
+    body["players"][0]["dimensions"]["hero_archetype"]["initiate"] = float("nan")
+    validator_for("Profile").validate(body)
+    errs = check_profile(body)
+    assert any("非有限数值" in e and "initiate" in e for e in errs), errs
+
+def test_profile_rejects_effective_count_over_window_third(validator_for):
+    """F5/§6.4：effective_count <= window_games / 3（示例 14 <= 48/3 = 16）。"""
+    body = copy.deepcopy(SPEC_PROFILE)
+    body["players"][0]["hero_pool"]["effective_count"] = 20   # 20 > 48/3
+    validator_for("Profile").validate(body)
+    errs = check_profile(body)
+    assert any("effective_count=20" in e and "48/3" in e for e in errs), errs
+
+def test_profile_role_null_requires_degraded_position_dimensions(validator_for):
+    """F5/§6.4+§7.3：role 推断不出时，五个依赖位置的维度必须降级为 insufficient_samples。"""
+    body = copy.deepcopy(SPEC_PROFILE)
+    body["players"][0]["role"] = None
+    validator_for("Profile").validate(body)
+    errs = check_profile(body)
+    for dim in ("hero_pool", "laning", "combat", "map_vision", "tempo"):
+        assert any(dim in e and "insufficient_samples" in e for e in errs), (dim, errs)
+
+def test_profile_role_null_accepts_all_five_degraded_dimensions(validator_for):
+    """阴性用例的对照：五个维度都降级时 role=null 合法（hero_archetype 仍返回）。"""
+    body = copy.deepcopy(SPEC_PROFILE)
+    body["players"][0]["role"] = None
+    degraded = {"value": None, "reason": "insufficient_samples"}
+    for dim in ("hero_pool", "laning", "combat", "map_vision", "tempo"):
+        body["players"][0]["dimensions"][dim] = copy.deepcopy(degraded)
+    validator_for("Profile").validate(body)
     assert check_profile(body) == []
 
-def test_profile_rejects_five_category_distribution():
-    """规格四轮抓到的原始缺陷：只有 5 类且凑巧和为 1.0。"""
-    body = {"players":[{"account_id":1,"dimensions":{"hero_archetype":{
-        "teamfight":0.32,"push":0.18,"pickoff":0.21,"splitpush":0.11,"protect":0.18}}}]}
-    assert check_profile(body) != []
 
-def test_spec_advise_example_passes():
-    opts = [{"hero_id":105,"expected_wr":0.552,"robustness_delta":0.04,"penalized_score":0.552,"fallback":[67]},
-            {"hero_id":67,"expected_wr":0.548,"robustness_delta":0.03,"penalized_score":0.548,"fallback":[19]},
-            {"hero_id":19,"expected_wr":0.556,"robustness_delta":0.22,"penalized_score":0.436,"fallback":[67],"risk_note":"r"}]
-    assert check_advise({"options": opts}) == []
+# ── §6.3 Playbook ─────────────────────────────────────────────────────────
+
+def test_playbook_flags_opponent_by_ord_in_own_branch(validator_for):
+    """规格 §6.3：`by_ord` 的归属必须与所属分支自洽（此处 ord 12 属于后手方）。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    del body["series"]                                # 单局剧本
+    body["branches"] = [body["branches"][0]]           # 只留分支 A（first_pick=us）
+    body["branches"][0]["plans"][0]["key_picks"][0]["by_ord"] = 12
+    validator_for("Playbook").validate(body)
+    errs = check_playbook(body)
+    assert any("by_ord 12 属于对手" in e for e in errs), errs
+
+def test_playbook_requires_key_pick_fallback(validator_for):
+    """规格 §6.3：fallback 在 key_picks[] 内且非空 —— schema 与 check 两层都拦。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    del body["series"]
+    body["branches"] = [body["branches"][0]]
+    kp = body["branches"][0]["plans"][0]["key_picks"][0]
+    del kp["fallback"]                                # 整字段缺失：schema 已拦
+    with pytest.raises(jsonschema.ValidationError):
+        validator_for("Playbook").validate(body)
+    assert any("缺少 fallback" in e for e in check_playbook(body))
+    kp["fallback"] = []                               # 空数组：schema 也拦（minItems:1）
+    with pytest.raises(jsonschema.ValidationError):
+        validator_for("Playbook").validate(body)
+    assert any("缺少 fallback" in e for e in check_playbook(body))
+
+def test_playbook_nested_consider_enforces_leave_wr_pair(validator_for):
+    """F1：`consider[].if_we_leave_it_open` 与 `op_hero_decision[]` 同形（OpHeroOption），
+    our_wr + their_wr == 1.0 必须同样生效（此前只查后者）。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    body["bans"]["consider"][0]["if_we_leave_it_open"]["if_we_leave"]["their_wr"] = 0.50
+    validator_for("Playbook").validate(body)      # schema 不看这条等式
+    errs = check_playbook(body)
+    assert any("bans.consider[0].if_we_leave_it_open" in e and "their_wr" in e for e in errs), errs
+
+def test_playbook_series_branch_requires_applies_to_game(validator_for):
+    """F2/§6.3：系列赛剧本（响应含 series）**每个**分支都必须带 applies_to_game；
+    且失败信息不得再误称"单局剧本"。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    del body["branches"][1]["applies_to_game"]
+    validator_for("Playbook").validate(body)      # applies_to_game 是可选字段
+    errs = check_playbook(body)
+    assert any("分支 B 缺少 applies_to_game" in e for e in errs), errs
+    assert not any("单局剧本" in e for e in errs), errs
+
+def test_playbook_single_game_branch_keeps_single_game_message(validator_for):
+    """对照：响应不含 series 时，先手权不一致仍报"单局剧本"（该措辞只在此时正确）。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    del body["series"]
+    body["branches"] = [body["branches"][0]]        # 只留分支 A（"us" 与 expected 一致）
+    validator_for("Playbook").validate(body)
+    assert check_playbook(body) == []
+    body["branches"][0]["condition"]["first_pick"] = "them"   # 单局剧本里不允许
+    errs = check_playbook(body)
+    assert any("单局剧本" in e for e in errs), errs
+
+def test_playbook_rejects_applies_to_game_pointing_at_null_first_pick():
+    """§6.3：该局 first_pick_team 为 null 时无法推导 expected，不得作为 applies_to_game 的目标。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    body["series"]["games"][1]["first_pick_team"] = None
+    errs = check_playbook(body)
+    assert any("分支 B" in e and "null" in e for e in errs), errs
+
+def test_playbook_n_below_threshold_must_degrade(validator_for):
+    """F3/§9.1：逐量 n >= 30。n=4 的量必须降级，且 recommendation 必须是 insufficient_data。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    body["op_hero_decision"][0]["if_we_pick"] = {"wr": 0.44, "n": 4}
+    validator_for("Playbook").validate(body)      # n 无下界，schema 放行
+    errs = check_playbook(body)
+    assert any("if_we_pick 的 n=4 < 30 却未降级" in e for e in errs), errs
+    assert any("应为 insufficient_data" in e for e in errs), errs
+
+def test_playbook_degraded_quantity_forces_insufficient_data(validator_for):
+    """F3/§6.3：任一量降级 ⇒ recommendation 必须是 insufficient_data。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    body["op_hero_decision"][0]["if_we_ban"] = {"value": None, "reason": "insufficient_samples"}
+    validator_for("Playbook").validate(body)
+    errs = check_playbook(body)
+    assert any("if_we_ban(已降级)" in e and "insufficient_data" in e for e in errs), errs
+
+def test_playbook_rejects_recommendation_contradicting_9_1(validator_for):
+    """F3：三量都充分时必须按 §9.1 复算 —— 下面这组应为 pick, 却写 leave_and_counter。"""
+    body = _op_hero_decision(0.60, 0.50, 0.45, counter_wr=0.61, rec="leave_and_counter")
+    validator_for("Playbook").validate(body)
+    errs = check_playbook(body)
+    assert any("与 §9.1 复算的 pick 不符" in e for e in errs), errs
+
+@pytest.mark.parametrize("pick,ban,leave,counter,expected,why", [
+    (0.60, 0.50, 0.45, None, "pick", "wr_pick 最大且领先 0.10"),
+    (0.45, 0.60, 0.50, None, "ban", "wr_ban 最大"),
+    (0.44, 0.50, 0.58, 0.61, "leave_and_counter", "规格 §6.3 示例验算"),
+    (0.45, 0.48, 0.58, 0.55, "ban", "leave 最大但 wr_counter 未超过 wr_leave → 退化 ban"),
+    (0.45, 0.48, 0.58, None, "ban", "leave 最大但无反制选项可取 wr_counter → 退化 ban"),
+    (0.55, 0.54, 0.50, None, "insufficient_data", "最大-次大 = 0.01 < 0.02 噪声窗"),
+    (0.50, 0.50, 0.45, None, "insufficient_data", "并列最大（差 0 < 0.02）"),
+])
+def test_spec_9_1_recompute_matches_recommendation(validator_for, pick, ban, leave, counter,
+                                                   expected, why):
+    """§9.1 复算的七种出口都必须被接受（否则守护会退化成"一律报错"）。"""
+    body = _op_hero_decision(pick, ban, leave, counter_wr=counter, rec=expected)
+    validator_for("Playbook").validate(body)
+    assert check_playbook(body) == [], (why, check_playbook(body))
+
+@pytest.mark.parametrize("wrong", ["pick", "ban", "leave_and_counter"])
+def test_spec_9_1_noise_window_rejects_any_confident_recommendation(validator_for, wrong):
+    """§9.1：0.01 的噪声窗内只能给 insufficient_data（F3 的第三个变体）。"""
+    body = _op_hero_decision(0.55, 0.54, 0.50, counter_wr=None, rec=wrong)
+    validator_for("Playbook").validate(body)
+    errs = check_playbook(body)
+    assert any(f"recommendation={wrong} 与 §9.1 复算的 insufficient_data 不符" in e
+               for e in errs), errs
+
+def test_playbook_reports_all_offenders_with_location(validator_for):
+    """报错必须点名位置（两处 OpHeroOption 同形，只有位置能区分）。"""
+    body = copy.deepcopy(SPEC_PLAYBOOK)
+    body["bans"]["consider"][0]["if_we_leave_it_open"]["recommendation"] = "pick"
+    body["op_hero_decision"][0]["if_we_leave"]["their_wr"] = 0.50
+    validator_for("Playbook").validate(body)
+    errs = check_playbook(body)
+    assert any(e.startswith("bans.consider[0].if_we_leave_it_open hero 77") for e in errs), errs
+    assert any(e.startswith("op_hero_decision[0] hero 83") for e in errs), errs
+
+
+# ── §6.6 Advise ───────────────────────────────────────────────────────────
 
 def test_advise_handles_offline_branches_shape():
     """offline 模式返回 branches[].plans[]，不含 options —— 不得 KeyError。"""
-    body = {"branches": [{"branch_id":"A","condition":{"first_pick":"us","their_opening":"teamfight"},
-                          "plans":[{"label":"A1","expected_wr":0.52,"robustness_delta":0.04,
-                                    "penalized_score":0.52,
-                                    "key_picks":[{"hero_id":105,"fallback":[67]}]}]}]}
+    body = {"branches": [{"branch_id": "A", "condition": {"first_pick": "us", "their_opening": "teamfight"},
+                          "plans": [{"label": "A1", "expected_wr": 0.52, "robustness_delta": 0.04,
+                                     "penalized_score": 0.52,
+                                     "key_picks": [{"hero_id": 105, "fallback": [67]}]}]}]}
     assert check_advise(body) == []
 
-def test_playbook_flags_opponent_by_ord_in_own_branch():
-    body = {"matchup":{"first_pick_team":0,"side_map":{"us":0,"them":1}},
-            "branches":[{"branch_id":"A","condition":{"first_pick":"us","their_opening":"teamfight"},
-                         "plans":[{"label":"A1",
-                                   "key_picks":[{"by_ord":12,"fallback":[1]}]}]}],
-            "op_hero_decision":[]}
-    assert check_playbook(body) != []   # ord 12 属于后手方
+def test_advise_rejects_empty_counterparty_plan(validator_for):
+    """F6/§6.6：每项必须有非空 counterparty_plan —— schema（minLength）与 check 两层都拦。"""
+    body = copy.deepcopy(SPEC_ADVISE)
+    body["options"][0]["counterparty_plan"] = ""
+    with pytest.raises(jsonschema.ValidationError):
+        validator_for("Advise").validate(body)
+    errs = check_advise(body)
+    assert any("counterparty_plan 为空" in e for e in errs), errs
 
-def test_playbook_requires_key_pick_fallback():
-    """规格 §6.3：fallback 在 key_picks[] 内，不是 plan 级字段。"""
-    body = {"matchup":{"first_pick_team":0,"side_map":{"us":0,"them":1}},
-            "branches":[{"branch_id":"A","condition":{"first_pick":"us","their_opening":"teamfight"},
-                         "plans":[{"label":"A1","key_picks":[{"by_ord":13}]}]}],
-            "op_hero_decision":[]}
-    assert check_playbook(body) != []
+def test_advise_rejects_non_finite_score(validator_for):
+    """I5：NaN 的 expected_wr 会让降权等式静默通过；NaN 也能过 schema 的数值界，
+    故 checker 的非有限扫描是这条不变式的唯一防线。"""
+    body = copy.deepcopy(SPEC_ADVISE)
+    body["options"][0]["expected_wr"] = float("nan")
+    validator_for("Advise").validate(body)
+    errs = check_advise(body)
+    assert any("非有限数值" in e and "options[0].expected_wr" in e for e in errs), errs
+
+def test_advise_lam_follows_app_config_robustness_lambda():
+    """§6.6：λ 取自 app_config.robustness_lambda（默认 1.0），可配置。"""
+    body = copy.deepcopy(SPEC_ADVISE)
+    assert check_advise(body) == []
+    body["options"][2]["penalized_score"] = 0.556 - 2.0 * (0.22 - 0.10)   # λ=2 下的正确值
+    assert check_advise(body, lam=2.0) == []
+    assert check_advise(body) != []
+
+
+# ── §6.0 resolve()：check_resolve 的单测（此前零执行覆盖） ────────────────
+
+def test_check_resolve_accepts_spec_6_2_example():
+    """§6.2 示例：first_pick_team=0，第 12 手由后手方 pick → team=1。"""
+    assert check_resolve(next_ord=12, team=1, is_pick=True, first_pick_team=0) == []
+
+def test_check_resolve_rejects_wrong_team_and_type():
+    errs = check_resolve(next_ord=12, team=0, is_pick=False, first_pick_team=0)
+    assert any("归属应为 team 1" in e for e in errs), errs
+    assert any("应为 pick" in e for e in errs), errs
+
+def test_check_resolve_rejects_non_finite_argument():
+    """I5 同族：NaN 会让 resolve() 抛 TypeError，必须在入口拦下。"""
+    errs = check_resolve(next_ord=float("nan"), team=1, is_pick=True, first_pick_team=0)
+    assert any("非有限数值" in e for e in errs), errs
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -1223,27 +1693,72 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'contracts.tools.invari
 - [ ] **Step 3: 写 `contracts/tools/invariants.py`**
 
 ```python
-"""规格 §6 的每条不变式，作为可执行函数。fixtures 与真实响应都跑这些。"""
+"""规格 §6 的每条不变式，作为可执行函数。fixtures 与真实响应都跑这些。
+
+**前置条件**：传入的 `body` 必须**已通过 schema 校验**（`contracts/openapi.yaml`
+里对应的资源组件）。本模块只负责 JSON Schema 表达不了的那一半：
+
+- 求和/等式——§6.1 的 delta 求和、§6.2 的概率求和、§6.3 的 `our_wr + their_wr`、
+  §6.6 的降权等式（JSON Schema 没有算术）。
+- 跨字段条件——§6.3 的先手权/`by_ord` 自洽、§9.1 的逐量门槛与 `recommendation`
+  复算、§6.4 的 `role` 与降级联动（需要先算再判）。
+- 跨条目一致性——有序性、非空列表、键集完整性、`applies_to_game` 的指向。
+- 值的来源——`sources_used` ⊆ 请求的 `sources`。
+- 非有限数值——`NaN`/`Infinity` 会让一切算术静默通过（见 `_nonfinite_errors`）。
+
+形态类约束（required/enum/range/降级形态/对象封闭性/oneOf 判别）由 schema 负责。
+本模块里少数与 schema 重复的形态判断是**防御性的**：把 live 响应直接喂进来时
+也能得到一条可读错误，而不是 KeyError——不构成第二套定义。
+"""
 from __future__ import annotations
+import math
 from shared.draft_template import resolve
 
+# 容差：规格 §6.1「容差 ±0.001」、§6.2「容差 ±0.001」、§6.3「±0.001」、
+# §6.6「（±0.001）」——四处一致，故只此一个常量，不得各写各的。
 TOL = 1e-3
+
+
+def _nonfinite_errors(node, path: str = "$") -> list[str]:
+    """递归找出 NaN/±Infinity（I5）。
+
+    JSON 标准不允许裸 `NaN`/`Infinity`，但 `json.loads` 默认接受它们，而
+    `abs(nan - x) > TOL` 恒为 False —— 所有求和/等式校验都会被**静默绕过**。
+    故每个 `check_*` 都在最前面扫一遍；发现非有限数值即提前返回：
+    此时一切算术都无意义（`resolve(by_ord=nan)` 还会直接抛 TypeError）。
+    """
+    if isinstance(node, float) and not math.isfinite(node):
+        return [f"{path}: 非有限数值 {node}（NaN/Infinity 会让求和校验静默通过）"]
+    errs: list[str] = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            errs += _nonfinite_errors(v, f"{path}.{k}")
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            errs += _nonfinite_errors(v, f"{path}[{i}]")
+    return errs
+
 
 # check_resolve 校验 §6.2/§6.6 的 next_ord/team/is_pick 推导。
 # **本 chunk 的 fixtures 是纯响应体，不含请求上下文**，故无法在 fixture 层调用它；
 # 它由 Plan 2+ 的接口集成测试使用（那里能同时拿到请求与响应）。
 # 推导逻辑本身已在 Task 4 的 shared/draft_template.py 中受测。
 def check_resolve(next_ord: int, team: int, is_pick: bool, first_pick_team: int) -> list[str]:
+    errs = _nonfinite_errors([next_ord, team, is_pick, first_pick_team], "resolve 参数")
+    if errs:
+        return errs
     exp_pick, exp_team = resolve(next_ord, first_pick_team)
-    errs = []
     if bool(exp_pick) != bool(is_pick):
         errs.append(f"ord {next_ord} 类型应为 {'pick' if exp_pick else 'ban'}")
     if exp_team != team:
         errs.append(f"ord {next_ord} 归属应为 team {exp_team}，实际 {team}")
     return errs
 
+
 def check_value(body: dict, requested_sources: list[str] | None = None) -> list[str]:
-    errs = []
+    errs = _nonfinite_errors(body)
+    if errs:
+        return errs
     total = sum(c["delta"] for c in body["contributions"])
     want = body["radiant_win_prob"] - 0.5
     if abs(total - want) > TOL:
@@ -1254,35 +1769,53 @@ def check_value(body: dict, requested_sources: list[str] | None = None) -> list[
             errs.append(f"sources_used 含未请求的来源: {sorted(extra)}")
     return errs
 
+
 def check_policy(body: dict) -> list[str]:
-    errs = []
+    errs = _nonfinite_errors(body)
+    if errs:
+        return errs
     s = sum(c["prob"] for c in body["candidates"]) + body["other_prob"]
     if abs(s - 1.0) > TOL:
         errs.append(f"sum(candidates.prob)+other_prob = {s:.4f} != 1.0")
     if len(body["candidates"]) > body["top_n"]:
         errs.append(f"len(candidates)={len(body['candidates'])} > top_n={body['top_n']}")
-    if any(not c.get("reasons") for c in body["candidates"]):
-        errs.append("存在 reasons 为空的候选")
+    for c in body["candidates"]:
+        # schema 有 minItems:1，这里是防御性重复（live 响应可直接喂入）
+        if not c.get("reasons"):
+            errs.append(f"candidate hero {c.get('hero_id')}: reasons 为空（§6.2：不得返回无依据的候选）")
     return errs
 
+
 def check_playbook(body: dict) -> list[str]:
-    errs = []
+    errs = _nonfinite_errors(body)
+    if errs:
+        return errs
     mu = body["matchup"]
     us_team = mu["side_map"]["us"]
     want_first = "us" if us_team == mu["first_pick_team"] else "them"
-    # 系列赛剧本允许分支覆盖两种先手权（规格 §6.3）：
-    # 此时分支必须带 applies_to_game 指向 series.games[] 中某一局。
+    # 先手权自洽（§6.3）：单局剧本所有分支必须等于 expected；
+    # 系列赛剧本（响应含 series）允许两种先手权，但**每个**分支都必须带
+    # applies_to_game 指向 series.games[] 中的某一局。
+    series = body.get("series")
     games = {g["game_no"]: g.get("first_pick_team")
-             for g in (body.get("series") or {}).get("games", [])}
+             for g in (series or {}).get("games") or []}
     for br in body["branches"]:
         fp = br["condition"]["first_pick"]
         game_no = br.get("applies_to_game")
-        if games and game_no is not None:
-            g_fpt = games.get(game_no)
-            if g_fpt is None:
+        if series is not None:
+            if game_no is None:
+                errs.append(f"分支 {br['branch_id']} 缺少 applies_to_game："
+                            f"系列赛剧本的每个分支都必须指向 series.games[] 中的某一局（§6.3）")
+                br_fpt = mu["first_pick_team"]
+            elif game_no not in games:
                 errs.append(f"分支 {br['branch_id']} 的 applies_to_game={game_no} 不在 series.games 中")
                 br_fpt = mu["first_pick_team"]
+            elif games[game_no] is None:
+                errs.append(f"分支 {br['branch_id']} 的 applies_to_game={game_no} 指向的"
+                            f"first_pick_team 为 null，无法推导 expected，不得作为目标（§6.3）")
+                br_fpt = mu["first_pick_team"]
             else:
+                g_fpt = games[game_no]
                 exp = "us" if us_team == g_fpt else "them"
                 if fp != exp:
                     errs.append(f"分支 {br['branch_id']} 在第 {game_no} 局的 first_pick 应为 {exp}")
@@ -1290,7 +1823,8 @@ def check_playbook(body: dict) -> list[str]:
         else:
             if fp != want_first:
                 errs.append(f"分支 {br['branch_id']} 的 first_pick 应为 {want_first}"
-                            f"（单局剧本；若要覆盖另一先手权，需带 series 与 applies_to_game）")
+                            f"（单局剧本：响应不含 series；若要覆盖另一先手权，"
+                            f"需带 series 与 applies_to_game）")
             br_fpt = mu["first_pick_team"]
         for pl in br["plans"]:
             kps = pl.get("key_picks") or []
@@ -1304,15 +1838,119 @@ def check_playbook(body: dict) -> list[str]:
                 if owner_team != us_team:
                     errs.append(f"plan {pl['label']}: by_ord {kp['by_ord']} 属于对手，"
                                 f"与分支 first_pick={fp} 不符")
-    for oh in body.get("op_hero_decision", []):
-        lv = oh["if_we_leave"]
-        if "our_wr" in lv and "their_wr" in lv and abs(lv["our_wr"] + lv["their_wr"] - 1.0) > TOL:
-            errs.append(f"hero {oh['hero_id']}: our_wr + their_wr != 1.0")
+    # consider[].if_we_leave_it_open 与 op_hero_decision[] 同形（§6.3），共用一份检查
+    for i, bc in enumerate((body.get("bans") or {}).get("consider") or []):
+        _check_op_hero_option(bc["if_we_leave_it_open"],
+                              f"bans.consider[{i}].if_we_leave_it_open", errs)
+    for i, oh in enumerate(body.get("op_hero_decision") or []):
+        _check_op_hero_option(oh, f"op_hero_decision[{i}]", errs)
     return errs
 
+
+# ── §9.1 的逐量门槛与 recommendation 复算 ────────────────────────────────
+_N_MIN = 30        # §9.1：三个胜率量各自的 n >= 30（§6.3：「逐量判定，不是逐条目判定」）
+_OP_DELTA = 0.02   # §9.1：最大与次大之差 < 0.02 → 噪声内（app_config.op_decision_min_delta 默认值）
+
+
+def _wr_n(q: dict) -> tuple[float | None, int | None]:
+    """取一个胜率量的 (胜率, n)。
+
+    `if_we_pick`/`if_we_ban` 是 `WinRateSample`（`wr`），`if_we_leave` 是
+    `LeaveEvaluation`（`our_wr`）——**两者形状不同**（§6.3），故分开取。
+    降级形态（§6.0 第一层，只有 value/reason/needs）没有胜率 → (None, None)。
+    """
+    if "wr" in q:
+        return q["wr"], q.get("n")
+    if "our_wr" in q:
+        return q["our_wr"], q.get("n")
+    return None, None
+
+
+def _max_counter_wr(leave: dict) -> float | None:
+    """`wr_counter` = 我方反制选项的最高胜率（§9.1）。全部降级时无值 → None。"""
+    wrs = [c["wr"] for c in leave.get("our_counter_options") or [] if "wr" in c]
+    return max(wrs) if wrs else None
+
+
+def _check_op_hero_option(oh: dict, where: str, errs: list[str]) -> None:
+    """OpHeroOption 的两处使用共用（§6.3：`consider[].if_we_leave_it_open` 与
+    `op_hero_decision[]` **同形**，不得各写一套）——一处修好，两处生效。"""
+    tag = f"{where} hero {oh['hero_id']}"
+    lv = oh["if_we_leave"]
+    if "our_wr" in lv and "their_wr" in lv and abs(lv["our_wr"] + lv["their_wr"] - 1.0) > TOL:
+        errs.append(f"{tag}: our_wr + their_wr != 1.0（同一批比赛的两个视角，§6.3）")
+    errs.extend(_recommendation_errors(oh, tag))
+
+
+def _recommendation_errors(oh: dict, tag: str) -> list[str]:
+    """§9.1 的数值判定规则，逐字对应规格伪代码（规格 §9.1 原文）：
+
+        if 任一项 n < 30:                      -> insufficient_data
+        elif max(wr_pick, wr_ban, wr_leave) - second_max < 0.02: -> insufficient_data
+        elif wr_pick 为最大:                    -> pick
+        elif wr_ban  为最大:                    -> ban
+        else:                                   -> leave_and_counter
+                                                （并要求 wr_counter > wr_leave，否则退化为 ban）
+
+    `wr_pick`/`wr_ban`/`wr_leave` 是三个量各自的胜率（`if_we_leave` 取 `our_wr`；
+    `their_wr` 是"对手拿的胜率"，只用于 `our_wr + their_wr == 1.0`，不参与比较）。
+    规格未写明的一处（本实现取保守解并在此声明）：三个量**全部或部分降级**时
+    无法取 max，按第一条判为 `insufficient_data`；`if_we_leave` 为最大但
+    `our_counter_options[]` 全部降级时取不到 `wr_counter`，按"否则退化为 ban"处理。
+    """
+    errs: list[str] = []
+    wr: dict[str, float] = {}
+    short: list[str] = []
+    for qname in ("if_we_pick", "if_we_ban", "if_we_leave"):
+        w, n = _wr_n(oh[qname])
+        if w is None:            # 已是降级形态：n 不可得 ⇒ §9.1 视作 n < 30
+            short.append(f"{qname}(已降级)")
+        elif n is None or n < _N_MIN:
+            errs.append(f"{tag}: {qname} 的 n={n} < {_N_MIN} 却未降级"
+                        f"（§9.1 的门槛逐量判定，不是逐条目判定）")
+            short.append(f"{qname}(n={n})")
+        else:
+            wr[qname] = w
+    rec = oh["recommendation"]
+    if short:
+        if rec != "insufficient_data":
+            errs.append(f"{tag}: {'、'.join(short)} 样本不足，"
+                        f"recommendation={rec} 应为 insufficient_data（§9.1）")
+        return errs
+    ranked = sorted(wr.items(), key=lambda kv: kv[1], reverse=True)
+    top_name, top = ranked[0]
+    second_name, second = ranked[1]
+    if top - second < _OP_DELTA:
+        expected = "insufficient_data"
+        why = (f"最大 {top_name}={top:.4f} 与次大 {second_name}={second:.4f} 之差 "
+               f"{top - second:.4f} < {_OP_DELTA}（噪声内）")
+    elif top_name == "if_we_pick":
+        expected, why = "pick", f"最大 {top_name}={top:.4f}"
+    elif top_name == "if_we_ban":
+        expected, why = "ban", f"最大 {top_name}={top:.4f}"
+    else:
+        counter = _max_counter_wr(oh["if_we_leave"])
+        if counter is not None and counter > top:
+            expected = "leave_and_counter"
+            why = f"最大 if_we_leave={top:.4f} 且 wr_counter={counter:.4f} > wr_leave"
+        else:
+            expected = "ban"
+            why = (f"最大 if_we_leave={top:.4f} 但 wr_counter={counter} 未超过 wr_leave"
+                   f"（§9.1：要求 wr_counter > wr_leave，否则退化为 ban）")
+    if rec != expected:
+        errs.append(f"{tag}: recommendation={rec} 与 §9.1 复算的 {expected} 不符（{why}）")
+    return errs
+
+
 def check_advise(body: dict, lam: float = 1.0) -> list[str]:
-    """支持两种 mode：realtime 返回 options[]，offline 返回 branches[].plans[]。"""
-    errs = []
+    """支持两种 mode：realtime 返回 options[]，offline 返回 branches[].plans[]。
+
+    `lam` 即 §6.6 的 λ，取自 `app_config.robustness_lambda`（默认 1.0）：
+    排序依据是 `expected_wr − λ × max(0, robustness_delta − 0.10)`，不是 `expected_wr`。
+    """
+    errs = _nonfinite_errors(body)
+    if errs:
+        return errs
     if "options" in body:
         groups = [("options", body["options"])]
     elif "branches" in body:
@@ -1330,30 +1968,95 @@ def check_advise(body: dict, lam: float = 1.0) -> list[str]:
             exp = o["expected_wr"] - lam * max(0.0, o["robustness_delta"] - 0.10)
             if abs(exp - o["penalized_score"]) > TOL:
                 errs.append(f"{gname}/{key}: penalized_score {o['penalized_score']} != {exp:.4f}")
+            # 以下几项 schema 已能表达（robustness_delta>0.10 ⇒ risk_note、
+            # fallback/counterparty_plan 非空）——这里是**防御性重复**：
+            # 未过 schema 的 live 响应直接喂进来时仍得到可读错误，而不是静默通过。
             if o["robustness_delta"] > 0.10 and not o.get("risk_note"):
                 errs.append(f"{gname}/{key}: robustness_delta > 0.10 但缺 risk_note")
             # realtime 的 fallback 在 option 级；offline 的在 key_picks[] 内
             if "fallback" in o and not o["fallback"]:
                 errs.append(f"{gname}/{key}: fallback 为空")
+            # §6.6：options[] 每项必须有非空 counterparty_plan（与 fallback 同级的硬要求）
+            if "counterparty_plan" in o and not o["counterparty_plan"]:
+                errs.append(f"{gname}/{key}: counterparty_plan 为空")
     return errs
 
-_ARCHETYPES = {"initiate","protect","push","teamfight","pickoff","splitpush"}
+
+_ARCHETYPES = {"initiate", "protect", "push", "teamfight", "pickoff", "splitpush"}
+
+# §7.3：这五项是**依赖位置**的维度；role 推断不出时必须整体降级为 insufficient_samples。
+# hero_archetype 不依赖位置，仍必须返回。
+_POSITION_DIMENSIONS = ("hero_pool", "laning", "combat", "map_vision", "tempo")
+
 
 def check_profile(body: dict) -> list[str]:
-    errs = []
+    errs = _nonfinite_errors(body)
+    if errs:
+        return errs
     for p in body["players"]:
-        ha = p["dimensions"]["hero_archetype"]
+        dims = p["dimensions"]
+        ha = dims["hero_archetype"]
         if set(ha) != _ARCHETYPES:
-            errs.append(f"player {p['account_id']}: hero_archetype 键集不完整")
+            missing = sorted(_ARCHETYPES - set(ha))
+            extra = sorted(set(ha) - _ARCHETYPES)
+            errs.append(f"player {p['account_id']}: hero_archetype 键集不完整"
+                        f"（缺 {missing}，多 {extra}）")
         elif abs(sum(ha.values()) - 1.0) > TOL:
             errs.append(f"player {p['account_id']}: hero_archetype 和 != 1.0")
+        # §6.4：effective_count 的上界依据 —— effective_count <= window_games / 3。
+        # 用整数乘法避免浮点边界（3 × effective_count <= window_games 与规格等价）。
+        hp = p["hero_pool"]
+        if 3 * hp["effective_count"] > hp["window_games"]:
+            errs.append(f"player {p['account_id']}: effective_count={hp['effective_count']} > "
+                        f"window_games/3 = {hp['window_games']}/3（§6.4）")
+        # §6.4 + §7.3：role 推断不出（null 或缺省）时，五个依赖位置的维度
+        # 必须都是 §6.0 的降级形态且 reason == insufficient_samples
+        if p.get("role") is None:
+            for dname in _POSITION_DIMENSIONS:
+                d = dims.get(dname)
+                if not (isinstance(d, dict) and d.get("value", 0) is None
+                        and d.get("reason") == "insufficient_samples"):
+                    errs.append(f"player {p['account_id']}: role 为 null 时 {dname} 必须降级为 "
+                                f"insufficient_samples（§6.4/§7.3），实际 {d!r}")
     return errs
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 尚未落成可执行守护的规则清单（**有意留白，不是遗忘**）——免得下一轮重新发现：
+#
+# 需要请求上下文（fixtures 是纯响应体，拿不到请求；归 Plan 2+ 的接口集成测试）：
+#   1. `sources_used` ⊆ 请求的 `sources`：check_value(..., requested_sources=...) 已就绪，
+#      Policy/Playbook/Profile/Advise 的对应参数待接口层接入。
+#   2. `check_resolve`：§6.2/§6.6 的 next_ord/team/is_pick 由 §6.0 resolve() 推出，
+#      需要请求的 draft/first_pick_team —— 本模块已实现并有单测，fixture 层无法调用。
+#   3. §6.2：`candidates[].hero_id` 不得与请求 draft 重复。
+#   4. §6.6：mode=offline 时请求的 `branches` 参数与响应 `branches[].condition` 的双射
+#      （「每个请求值都必须出现」）。
+#   5. §6.6：`options[].hero_id` 必须已被 resolve() 判定为可行动作（不与 draft 重复）。
+#
+# 与规格示例直接冲突、需先做规格决策（F4）：
+#   6. §6.3「所有（2 先手 × 7 体系）组合必须被覆盖或有显式 unknown 分支」——
+#      §6.3 自身的示例只有 2 个分支，与该条冲突；示例同时是 §15 模板推导测试的输入，
+#      故不实现，等规格决策。
+#
+# 已知留白 / 待规格澄清（不加固，避免把猜测冻结进契约）：
+#   7. §9.1 原文说五个量（含 wr_counter）都要 n >= 30；本轮按控制器决定只对
+#      OpHeroOption 内的三个量强制，故 `our_counter_options[].n < 30` **不要求降级**，
+#      `wr_counter` 直接取可用项的最大值（见 _max_counter_wr）。
+#   8. §6.3：`applies_to_game` 出现在不带 series 的响应里（且 first_pick 恰好等于
+#      单局 expected）不会被拒 —— 无害，但语义未定义。
+#   9. §6.3：`bans.consider[].hero_id` 与 `if_we_leave_it_open.hero_id` 未校验一致。
+#  10. §6.3：`data_quality.oldest_pending_hours` 为 null **当且仅当**
+#      `n_pending_draft == 0` —— 已在规格显式规定（本轮只做文档化），未落成守护。
+#  11. 明确跳过的两项：`Assumptions` 组件改名（M6，纯外观）、`pct` 的取整模式
+#      （M8，Plan 3 territory）。
+# ─────────────────────────────────────────────────────────────────────────
 ```
 
 - [ ] **Step 4: 运行确认通过**
 
 Run: `pytest tests/contracts/test_invariants.py -q`
-Expected: **10 passed**
+Expected: **43 passed**
 
 - [ ] **Step 5: 写五个 schema 文件**
 
@@ -1361,17 +2064,23 @@ Expected: **10 passed**
 
 1. **组件名必须恰好是** `Value` / `Policy` / `Playbook` / `Profile` / `Advise`——`validate_fixtures.py` 用 `resource.capitalize()` 查找。
 2. **所有降级字段必须 `$ref` 到 `Degraded`**，不得内联同形对象。否则规格 §15 的「降级契约测试」对它们不生效，`playbook__op_insufficient.json` 的反向保护（`needs` 必须缺席）也失去约束。
-3. 规格标 `// optional` 的字段不进 `required`。
+3. 规格标 `// optional` 的字段不进 `required`，并在 properties 里标 `x-optional: true`（约定写在 `contracts/schemas/common.yaml` 头部；`test_schema_shape.py` 逐组件锚定「`required` == 未标 x-optional 的属性集」，删 required 或漏标注都会变红）。
 4. **每个资源 schema 必须有非空的 `required` 与 `properties`**——空 schema `{}` 会让所有 fixture 通过，使 M0 验收第 2 条形同虚设。
+5. **降级位必须封闭**：`oneOf: [X, {$ref: Degraded}]` 一律加 `unevaluatedProperties: false`（只有校验成功的分支贡献已求值属性，故降级形态不得夹带 `percentile`/`wr`/`n` 等绝对值）；`PositionNote` 用 `$ref Degraded + unevaluatedProperties: false + 自己的 properties`，不重列 `value`/`reason`。**不得**给 `Degraded` 加 `additionalProperties: false`（会把 `$ref` 复用它再添字段的位置误杀）。
 
 **同时写 `tests/contracts/test_schema_shape.py`**，把上述要求变成机器可检的断言：
 
 ```python
-import pathlib
-import yaml, pytest
+"""契约形态的机器可检断言：空 schema / 降级字段必须 $ref / required 锚定 / 降级位封闭。
 
-ROOT = pathlib.Path(__file__).parents[2] / "contracts"
+这些是**结构性**约束——它们不校验某个 fixture，而是防止契约本身退化
+（例如把 required 删空、把降级对象内联、让降级位夹带绝对值）。
+"""
+import jsonschema
+import pytest
+
 RESOURCES = ["Value", "Policy", "Playbook", "Profile", "Advise"]
+
 
 def test_all_five_resources_are_defined(common):
     missing = [r for r in RESOURCES if r not in common]
@@ -1383,8 +2092,19 @@ def test_resource_schema_is_not_empty(common, name):
     assert schema.get("required"), f"{name} 没有 required 字段——空 schema 会让任何 fixture 通过"
     assert schema.get("properties"), f"{name} 没有 properties"
 
+@pytest.mark.parametrize("name", RESOURCES)
+def test_resource_rejects_empty_body(validator_for, name):
+    """F8 反向：五个资源都不得接受 `{}`（证明 schema 不是空壳、required 真在生效）。"""
+    with pytest.raises(jsonschema.ValidationError):
+        validator_for(name).validate({})
+
 def test_every_degraded_field_refs_the_Degraded_component(contract_doc):
-    """规格 §15 的降级契约依赖此约束：降级字段必须 $ref，不得内联同形对象。"""
+    """规格 §15 的降级契约依赖此约束：降级字段必须 $ref，不得内联同形对象。
+
+    **遍历 components.schemas 的每一个组件**（跳过 `Degraded` 自身——它是合法定义）。
+    只从五个资源节点出发的旧写法走不进被 `$ref` 的组件内部：在
+    `LeaveEvaluation` 之类的组件里内联一个 `{value, reason}` 可以完全逃逸（F7）。
+    """
     schemas = contract_doc["components"]["schemas"]
     offenders = []
     def walk(node, path):
@@ -1398,15 +2118,96 @@ def test_every_degraded_field_refs_the_Degraded_component(contract_doc):
         elif isinstance(node, list):
             for i, v in enumerate(node):
                 walk(v, f"{path}[{i}]")
-    for name in RESOURCES:
-        walk(schemas[name], name)
+    for name, schema in schemas.items():
+        if name == "Degraded":
+            continue
+        walk(schema, name)
     assert offenders == [], f"以下位置内联了降级对象而非 $ref Degraded: {offenders}"
+
+def test_required_matches_declared_optionality(common):
+    """F8：`required` 必须恰好等于「未标 `x-optional` 的属性集」（约定见 common.yaml 头部）。
+
+    删掉 `Playbook.required` 里的一项、或让某个属性悄悄变成必填，都会在此变红。
+    注：本断言按**组件**锚定（约定所在层级）；内联子对象的 required 不在本断言范围内。
+    """
+    offenders = []
+    for name, schema in common.items():
+        props = schema.get("properties")
+        if not isinstance(props, dict) or not props:
+            continue
+        expected = {p for p, sub in props.items()
+                    if not (isinstance(sub, dict) and sub.get("x-optional"))}
+        actual = set(schema.get("required") or [])
+        if actual != expected:
+            offenders.append(f"{name}: required={sorted(actual)} 应为 {sorted(expected)}")
+    assert offenders == [], ("required 与 x-optional 标注不一致（新增可选字段请标 x-optional）: "
+                             + "；".join(offenders))
+
+@pytest.mark.parametrize("name, body", [
+    ("ProfileRef", {"team_id": 1, "name": "A", "tag": "A"}),                       # logo_url
+    ("SeriesGame", {"game_no": 1, "first_pick_team": None}),                       # note
+    ("PolicyBaseline", {"frequency_top1": None}),                                  # model_top1
+    ("CoverageEntry", {"n_matches": 0, "n_stat_available": 0}),                    # n_position_unknown
+    ("AdviseOption", {"hero_id": 1, "expected_wr": 0.5, "robustness_delta": 0.04,
+                      "penalized_score": 0.5, "why": "x", "fallback": [2],
+                      "counterparty_plan": "y"}),                                  # risk_note
+])
+def test_x_optional_properties_may_be_omitted(validator_for, name, body):
+    """`x-optional` 不只是标注：省略这些属性必须仍然合法（否则标注是假的）。"""
+    validator_for(name).validate(body)
+
+# ── I4：四个 oneOf 降级位必须封闭 ─────────────────────────────────────────
+# 规格 §6.4/§6.5：降级形态只含 value/reason(/needs)。若 oneOf 不封闭，
+# `{"value": null, "reason": ..., "percentile": 72}` 这类"降级但仍带绝对值"
+# 的响应会通过——Phase A 边界（§6.5）与 §7.3 的门槛同时失效。
+
+@pytest.mark.parametrize("name, body", [
+    ("PercentileDimension", {"value": None, "reason": "insufficient_samples", "percentile": 72}),
+    ("PercentileDimension", {"value": None, "reason": "needs_replay", "needs": "Phase B",
+                             "percentile": 72, "n": 120}),
+    ("WinRateSample", {"value": None, "reason": "stat_unavailable", "wr": 0.44, "n": 4}),
+    ("LeaveEvaluation", {"value": None, "reason": "insufficient_samples", "our_wr": 0.55}),
+    ("CounterOption", {"value": None, "reason": "insufficient_samples",
+                       "hero_id": 36, "wr": 0.61, "n": 31}),
+    ("PositionNote", {"kind": "ward", "text": "x", "evidence": [], "value": None,
+                      "reason": "needs_replay", "needs": "Phase B", "percentile": 72}),
+])
+def test_degraded_branches_are_closed(validator_for, name, body):
+    with pytest.raises(jsonschema.ValidationError):
+        validator_for(name).validate(body)
+
+@pytest.mark.parametrize("name, body", [
+    ("PercentileDimension", {"value": None, "reason": "insufficient_samples"}),
+    ("PercentileDimension", {"percentile": 72, "n": 120}),
+    ("WinRateSample", {"value": None, "reason": "stat_unavailable"}),
+    ("LeaveEvaluation", {"value": None, "reason": "insufficient_samples"}),
+    ("CounterOption", {"value": None, "reason": "insufficient_samples"}),
+    ("PositionNote", {"kind": "ward", "text": "x", "evidence": [], "value": None,
+                      "reason": "needs_replay", "needs": "Phase B"}),
+])
+def test_degraded_branches_accept_the_legal_forms(validator_for, name, body):
+    """封闭不等于误杀：合法的降级形态与合法有值形态都必须继续通过。"""
+    validator_for(name).validate(body)
+
+def test_position_note_keeps_needs_conditionality(validator_for):
+    """PositionNote 改成 `$ref Degraded` + `unevaluatedProperties:false` 后，
+    §6.0 的 needs 条件规则（仅 needs_replay 必填、其余必须省略）必须原样生效。"""
+    v = validator_for("PositionNote")
+    base = {"kind": "ward", "text": "x", "evidence": []}
+    v.validate({**base, "value": None, "reason": "needs_replay", "needs": "Phase B"})
+    v.validate({**base, "value": None, "reason": "insufficient_samples"})
+    with pytest.raises(jsonschema.ValidationError):
+        v.validate({**base, "value": None, "reason": "needs_replay"})
+    with pytest.raises(jsonschema.ValidationError):
+        v.validate({**base, "value": None, "reason": "insufficient_samples", "needs": "Phase B"})
+    with pytest.raises(jsonschema.ValidationError):
+        v.validate({**base, "hero_id": 1, "value": None, "reason": "insufficient_samples"})
 ```
 
 - [ ] **Step 6: 运行确认通过**
 
 Run: `python -m contracts.tools.build_openapi && pytest tests/contracts -q`
-Expected: **23 passed**（6 公共 + 10 不变式 + 7 schema 形状）
+Expected: **80 passed**（6 公共 + 43 不变式 + 31 schema 形状）
 
 - [ ] **Step 7: Commit**
 
@@ -1624,7 +2425,7 @@ def test_ts_contains_all_required_enums():
 - [ ] **Step 3: 生成并运行**
 
 Run: `make contract-ts && pytest tests/contracts -q`
-Expected: `wrote .../web/src/types/contract.ts`；**26 passed**
+Expected: `wrote .../web/src/types/contract.ts`；**83 passed**
 
 - [ ] **Step 4: 校验 OpenAPI 文档本身（M0 验收第 1 条）**
 
@@ -1635,7 +2436,7 @@ Expected: `contracts/openapi.yaml: OK`（openapi-spec-validator 0.9.x 会打印�
 - [ ] **Step 5: 全量测试**
 
 Run: `make db-reset && make test`
-Expected: **59 passed**（33 + 23 + 1 + 2）
+Expected: **116 passed**（33 + 80 + 1 + 2）
 
 - [ ] **Step 6: Commit（M0 完成）**
 
