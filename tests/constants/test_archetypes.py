@@ -1,3 +1,4 @@
+import collections
 from constants.archetypes import archetypes_for
 from constants.dotaconstants import fetch_heroes
 
@@ -18,3 +19,16 @@ def test_eight_historical_heroes_hit_teamfight():
 def test_only_produces_known_archetypes():
     for h in fetch_heroes():
         assert set(archetypes_for(h["roles"])) <= SIX
+
+def test_population_matches_the_spec_table():
+    """规格 §7 的命中分布。逐规则计数：删任何一条规则、改任何一个条件都会改数。"""
+    counts = collections.Counter(a for h in fetch_heroes() for a in archetypes_for(h["roles"]))
+    assert dict(counts) == {"teamfight":117, "initiate":55, "protect":44,
+                            "pickoff":34, "push":29, "splitpush":23}, f"分布漂移: {dict(counts)}"
+    assert sum(counts.values()) == 302   # Σ=302 是 §7:1047 六项之和
+
+def test_archetypes_for_tolerates_missing_or_unknown_roles():
+    """`heroes.roles` 是可空列：None 不得抛异常，未知角色不得命中任何原型。"""
+    assert archetypes_for(None) == []
+    assert archetypes_for([]) == []
+    assert archetypes_for(["Unknown"]) == []
