@@ -46,3 +46,12 @@ def test_resolve_rejects_out_of_range():
 def test_first_pick_team_from_actions_requires_ord_zero():
     with pytest.raises(ValueError):
         first_pick_team_from_actions([{"ord": 1, "team": 0}])
+
+def test_resolve_mirrors_when_first_pick_team_is_one():
+    """规格 §8①：两种情形精确互为镜像；队首为 1 时对手侧取 1-fpt=0。"""
+    assert resolve(12, 1) == (True, 0)
+    assert resolve(6, 1) == (False, 0)
+
+def test_resolve_rejects_bad_first_pick_team():
+    with pytest.raises(ValueError):
+        resolve(0, 2)

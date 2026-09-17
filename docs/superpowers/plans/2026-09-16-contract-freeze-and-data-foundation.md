@@ -834,6 +834,15 @@ def test_resolve_rejects_out_of_range():
 def test_first_pick_team_from_actions_requires_ord_zero():
     with pytest.raises(ValueError):
         first_pick_team_from_actions([{"ord": 1, "team": 0}])
+
+def test_resolve_mirrors_when_first_pick_team_is_one():
+    """规格 §8①：两种情形精确互为镜像；队首为 1 时对手侧取 1-fpt=0。"""
+    assert resolve(12, 1) == (True, 0)
+    assert resolve(6, 1) == (False, 0)
+
+def test_resolve_rejects_bad_first_pick_team():
+    with pytest.raises(ValueError):
+        resolve(0, 2)
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -878,7 +887,12 @@ def resolve(ord_: int, first_pick_team: int) -> tuple[bool, int]:
     return is_pick, team
 
 def first_pick_team_from_actions(actions: list[dict]) -> int:
-    """由 ord=0 的 team 推出先手方（规格 §8①）。"""
+    """由 ord=0 的 team 推出先手方（规格 §8①）。
+
+    输入为项目内形状 {"ord": int, "team": int}。OpenDota 原始 payload 与
+    Kaggle CSV 的字段名是 `order`（且可能为 1-based 字符串），必须在入库边界
+    先归一化为 `ord = int(order) - 1`（计划 Task 12 Step 2），本函数不做类型转换。
+    """
     for a in actions:
         if a["ord"] == 0:
             return int(a["team"])
@@ -888,7 +902,7 @@ def first_pick_team_from_actions(actions: list[dict]) -> int:
 - [ ] **Step 4: 运行确认通过**
 
 Run: `pytest tests/shared -q`
-Expected: **9 passed**
+Expected: **11 passed**
 
 - [ ] **Step 5: Commit**
 

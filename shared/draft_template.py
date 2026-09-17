@@ -32,7 +32,12 @@ def resolve(ord_: int, first_pick_team: int) -> tuple[bool, int]:
     return is_pick, team
 
 def first_pick_team_from_actions(actions: list[dict]) -> int:
-    """由 ord=0 的 team 推出先手方（规格 §8①）。"""
+    """由 ord=0 的 team 推出先手方（规格 §8①）。
+
+    输入为项目内形状 {"ord": int, "team": int}。OpenDota 原始 payload 与
+    Kaggle CSV 的字段名是 `order`（且可能为 1-based 字符串），必须在入库边界
+    先归一化为 `ord = int(order) - 1`（计划 Task 12 Step 2），本函数不做类型转换。
+    """
     for a in actions:
         if a["ord"] == 0:
             return int(a["team"])
