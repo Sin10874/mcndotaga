@@ -1,0 +1,25 @@
+[project]
+name = "mcndotaga"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "psycopg[binary]>=3.2",
+  "httpx>=0.27",
+  "jsonschema>=4.23",
+  "referencing>=0.35",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "openapi-spec-validator>=0.7"]
+
+# 必需：仓库是扁平布局（db/ web/ shared/ models/ analysis/ contracts/ 全在顶层），
+# 不声明包发现规则时 setuptools 会以
+#   error: Multiple top-level packages discovered in a flat-layout
+# 中止，`pip install -e ".[dev]"` 直接失败，后续所有 import 无从谈起。
+[tool.setuptools.packages.find]
+include = ["db*", "shared*", "contracts*", "analysis*", "models*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
