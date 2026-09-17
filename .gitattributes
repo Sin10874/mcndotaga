@@ -1,3 +1,7 @@
 * text=auto eol=lf
 *.png binary
 *.dem binary
+
+# 冻结的上游响应必须逐字节入库：`D2-LRG-Metadata/patchdates.json` 上游本身是 CRLF，
+# 一旦被 `text=auto` 归一化成 LF，"缓存 == 上游字节"就不再成立（README 里的 sha256 会对不上）。
+tests/fixtures/network/*.json -text
