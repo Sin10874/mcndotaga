@@ -47,7 +47,7 @@ fixture 文件体只承载**响应体**——JSON 里没有地方表达状态码
 | `playbook__positions_phase_b.json` | 眼位 note 降级 `needs_replay`+`needs:"Phase B"`；非 `needs_replay` 的降级 note 不带 `needs` |
 | `playbook__op_insufficient.json` | `if_we_ban` 降级（`insufficient_samples`，无 `needs`）⇒ `recommendation:"insufficient_data"` |
 | `profile__spec_example.json` | 规格 §6.4 示例：`window_games=48`、signature `12/48=25%` |
-| `profile__map_vision_counts_only.json` | `n_position_unknown>0` 与**非降级**的 `map_vision` 百分位并存（§6.5：不得误降级数量口径指标） |
+| `profile__map_vision_counts_only.json` | `n_position_unknown>0` 与**非降级**的 `map_vision` 百分位（`n=120 >= 30`，§7.3）并存：降级的只有需要位置同侪集合的 `laning`，其余维度仍是 live 百分位（§6.5：不得误降级数量口径指标） |
 | `profile__position_unknown.json` | `role:null` ⇒ 五个位置维度降级，`hero_archetype` 仍返回六项且和为 1.0 |
 | `advise__realtime.json` | 规格 §6.6 示例：`options[]` 形状 + `assumptions` |
 | `advise__offline.json` | offline 形状：`branches[].plans[]`（带 `branch_id`/`condition`），无 `options[]` |
@@ -55,12 +55,32 @@ fixture 文件体只承载**响应体**——JSON 里没有地方表达状态码
 | `error__insufficient_data.json` | §6.0 第二层错误信封：`error.code="insufficient_data"`，`detail` 给出 `n_samples`/`required` |
 | `error__source_not_allowed.json` | §6.0 错误码表：`error.code="source_not_allowed"`，`detail.source="scrim"` |
 
+## 命名与可选字段
+
+- 文件名格式恒为 `<resource>__<boundary>.json`（两个下划线）。`<resource>` 必须是
+  `value` / `policy` / `playbook` / `profile` / `advise` / `error` 之一：校验工具用它
+  选 schema 组件（`resource.capitalize()`）与不变式函数（`contracts/tools/validate_fixtures.py`
+  的 `ROUTES`）。前缀拼错的后果是 `KeyError`——那不是 schema 问题，是文件名的资源名
+  不在上表里。（`error__*` 固定用 `ErrorEnvelope`。）
+- **可选字段**（规格 §6.0「可选字段一律显式标注 `// optional`」）在契约里的机器可检
+  形式是 `x-optional: true`（定义见 `contracts/schemas/common.yaml` 头部；`required`
+  恰好等于「未标 `x-optional` 的属性集」，由 `tests/contracts/test_schema_shape.py`
+  锚定）。前端必须按**可缺省**处理：`ProfilePlayer.role`、`Degraded.needs`、
+  `Playbook.series`、`Branch.applies_to_game`、`AdviseOption.risk_note`、
+  `Plan.risk_note`、`SeriesGame.note`、`PolicyBaseline.model_top1`、
+  `CoverageEntry.n_position_unknown` 等。
+- 字段**存在但为 `null`** 与**字段缺省**语义不同，也都不等于 `0`：前者是「该维度无数据」
+  （§6.0），后者才是「值为零」。fixtures 同时给了两种形态：
+  `playbook__draft_incomplete.json` 无 `series`，`playbook__anomalous.json` 有 `series`
+  且 `games[1].first_pick_team: null`。
+
 ## 两条使用约定
 
 - **响应体里没有 `mode` 字段**：`mode` 是 `/v1/advise` 的**请求**参数，`Advise` schema
   是封闭的（`additionalProperties: false`）且没有该属性——realtime 与 offline 靠
   **形状**判别（`options[]` vs `branches[]`，见 schema 的 `oneOf`）。前端不得读取
-  响应里的 `mode`。
+  响应里的 `mode`。`advise__offline.json` 的文件名正是按**请求**的 `mode: "offline"`
+  命名的——响应体里没有 `mode` 可供判别，只能靠 `branches[]` 形状。
 - **fixture 只证明"契约定成什么样"**：它证明不了实现不写 Phase A 禁止的字段。
   规格 §6.5「必须不存在」清单的机器校验归 Plan 3 的接口集成测试（那里能对真实
   响应做全字段扫描）——这是一处**显式延迟，不是遗漏**。

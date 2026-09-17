@@ -356,6 +356,25 @@ def test_profile_role_null_accepts_all_five_degraded_dimensions(validator_for):
     validator_for("Profile").validate(body)
     assert check_profile(body) == []
 
+def test_profile_rejects_non_degraded_dimension_below_peer_minimum(validator_for):
+    """§7.3：同侪集合 < 30 时必须降级，不得返回百分位。
+
+    形态合法（schema 里 n 的下界是 0），故只能由 check_profile 抓——本用例先过
+    schema 再断言 checker 拒绝，正是为了证明防线在不变式这一层。
+    """
+    body = copy.deepcopy(SPEC_PROFILE)
+    body["players"][0]["dimensions"]["map_vision"] = {"percentile": 0, "n": 0}
+    validator_for("Profile").validate(body)          # 形态合法
+    errs = check_profile(body)
+    assert any("map_vision" in e and "n=0" in e and "30" in e for e in errs), errs
+
+def test_profile_accepts_dimension_at_peer_minimum(validator_for):
+    """边界值 n == 30 合法：门槛是「< 30」，恰好 30 不算不足。"""
+    body = copy.deepcopy(SPEC_PROFILE)
+    body["players"][0]["dimensions"]["map_vision"] = {"percentile": 47, "n": 30}
+    validator_for("Profile").validate(body)
+    assert check_profile(body) == []
+
 
 # ── §6.3 Playbook ─────────────────────────────────────────────────────────
 

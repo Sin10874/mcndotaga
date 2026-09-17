@@ -185,15 +185,19 @@ def _profile_spec_example(b: dict) -> bool:
 
 
 def _profile_map_vision_counts_only(b: dict) -> bool:
-    """规格 §11 表（profile__map_vision_counts_only 行）/ §6.5。
+    """规格 §11 表（profile__map_vision_counts_only 行）/ §6.5 + §7.3。
 
     位置未知（`coverage.*.n_position_unknown > 0`）**不得**降级数量口径的
     `map_vision`——它返回真实 percentile；§6.5 明文提醒"不要误降级它"。
-    本 fixture 里降级的是需要位置同侪集合的其他维度。
+    本 fixture 里降级的只有 `laning`（需要位置同侪集合的那一项），
+    `hero_pool`/`combat`/`map_vision`/`tempo` 都仍是 live 百分位。
+    非降级形态还须满足 §7.3 的同侪下限（`n >= 30`）——否则"没降级"本身就是
+    违规：`{"percentile": 0, "n": 0}` 同样满足只有形态的谓词。
     """
     mv = b["players"][0]["dimensions"]["map_vision"]
     return (b["coverage"]["pro_match"]["n_position_unknown"] > 0
-            and "percentile" in mv and "n" in mv and "reason" not in mv)
+            and "percentile" in mv and "n" in mv and "reason" not in mv
+            and mv["n"] >= 30)
 
 
 def _profile_position_unknown(b: dict) -> bool:
@@ -228,31 +232,31 @@ def _advise_realtime(b: dict) -> bool:
 def _advise_offline(b: dict) -> bool:
     """规格 §11 表（advise__offline 行）/ §6.6 mode 表：offline 返回
     `branches[].plans[]`，不返回 `options[]`；每支必须带 `branch_id` 与
-    `condition`（否则多分支结果无法归属）。同上：响应里没有 `mode` 字段。
+    `plans`。两个 `condition` 必须**逐字**等于这两个互不相同的取值——
+    只断言"condition 存在"的话，把两支改成同一个 condition（多分支结果
+    无法归属）也照样通过。同上：响应里没有 `mode` 字段。
     """
-    return ("branches" in b and "options" not in b and len(b["branches"]) >= 1
-            and all(br.get("branch_id") and br.get("condition") and br.get("plans")
-                    for br in b["branches"]))
+    return ("branches" in b and "options" not in b
+            and all(br.get("branch_id") and br.get("plans") for br in b["branches"])
+            and [br["condition"] for br in b["branches"]]
+            == [{"first_pick": "us", "their_opening": "teamfight"},
+                {"first_pick": "them", "their_opening": "push"}])
 
 
 def _advise_robustness_penalized(b: dict) -> bool:
     """规格 §11 表（advise__robustness_penalized 行）/ §6.6 稳健性降权。
 
-    三件事缺一不可：
-    - `robustness_delta > 0.10` 的项带 `risk_note` 且 `penalized_score < expected_wr`
-      （降权真的发生了）；
-    - 该项的 `expected_wr` 是全体最高——否则"排序被降"没有证据；
-    - 它不在首位——原始胜率最高却被排到后面，正是这条边界的可见形态
-      （排序依据是 penalized_score，不是 expected_wr）。
+    这条边界的可见形态是「原始胜率最高的选项被降权后不再排第一」，故谓词从
+    **expected_wr 的领先者**出发（而不是"某个 risky 项恰好不在首位"）：
+    - 领先者必须就是那个高风险项（`robustness_delta > 0.10`）；
+    - 它必须带 `risk_note` 且 `penalized_score < expected_wr`（降权真的发生了）；
+    - 它不得落在首位——排序依据是 penalized_score，不是 expected_wr。
     """
     options = b["options"]
-    risky = [i for i, o in enumerate(options) if o["robustness_delta"] > 0.10]
-    if not risky:
-        return False
-    i = risky[0]
-    o = options[i]
-    return (bool(o.get("risk_note")) and o["penalized_score"] < o["expected_wr"]
-            and o["expected_wr"] == max(x["expected_wr"] for x in options) and i > 0)
+    leader = max(range(len(options)), key=lambda i: options[i]["expected_wr"])
+    o = options[leader]
+    return (o["robustness_delta"] > 0.10 and bool(o.get("risk_note"))
+            and o["penalized_score"] < o["expected_wr"] and leader != 0)
 
 
 def _error_insufficient_data(b: dict) -> bool:

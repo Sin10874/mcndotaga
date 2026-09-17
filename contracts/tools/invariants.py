@@ -301,6 +301,11 @@ def check_profile(body: dict) -> list[str]:
     for p in body["players"]:
         dims = p["dimensions"]
         ha = dims["hero_archetype"]
+        # §7.3：非降级的百分位维度，其同侪集合必须 >= 30；n < 30 时必须返回降级形态。
+        for dname, d in dims.items():
+            if isinstance(d, dict) and "percentile" in d and (d.get("n") or 0) < _N_MIN:
+                errs.append(f"player {p['account_id']}: {dname} 的 n={d.get('n')} < {_N_MIN} "
+                            f"却返回了 percentile（§7.3：同侪不足必须降级为 insufficient_samples）")
         if set(ha) != _ARCHETYPES:
             missing = sorted(_ARCHETYPES - set(ha))
             extra = sorted(set(ha) - _ARCHETYPES)
