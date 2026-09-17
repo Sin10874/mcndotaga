@@ -31,6 +31,9 @@ data/
 *.dem.zst
 !data/.gitkeep
 
+# Kaggle 引导数据集的 506.2 MB 子集：由 `python -m ingest.kaggle_subset` 落到此处，绝不入库
+tests/fixtures/kaggle/
+
 # Local runtime
 *.log
 .DS_Store

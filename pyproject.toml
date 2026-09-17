@@ -12,6 +12,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "openapi-spec-validator>=0.7"]
+# 引导数据集（Task 12）用；只有真要下载时才需要。安装：python -m pip install -e ".[dev,ingest]"
+ingest = ["python-dotenv>=1.0", "kaggle>=1.6"]
 
 # 必需：仓库是扁平布局（db/ web/ shared/ models/ analysis/ contracts/ 全在顶层），
 # 不声明包发现规则时 setuptools 会以
