@@ -4,7 +4,7 @@
 
 **Goal:** 冻结 `contracts/openapi.yaml` 与 17 个边界 fixtures（解锁三条并行 worktree），并建成可查询的数据地基（常量层、含字母子版本的版本表、引导数据集入库）。
 
-**Architecture:** 单一 Postgres 实例承载全部关系数据；契约以 OpenAPI 3.1 为唯一权威源，fixtures 与 TS 类型均从它生成并由测试校验。常量层拆为「规范实体（`heroes`/`items`）+ 版本化 token 索引（`hero_token_index`）」，token 索引按快照冻结以防常量刷新时静默重映射。数据来源三类：Valve 官方补丁 feed（权威版本清单）、dotaconstants（英雄/道具）、Kaggle CC0 数据集（历史 BP 引导数据，仅下载 506 MB 子集）。
+**Architecture:** 单一 Postgres 实例承载全部关系数据；契约以 OpenAPI 3.1 为唯一权威源，fixtures 从它生成并由测试校验；TS 侧**只生成枚举联合与 `Resource` 联合**（`web/src/types/contract.ts`），53 个 schema 的**对象接口尚未生成**，属 Plan 4 开工第一件事（范围与做法见 Task 8 的「范围说明」）。常量层拆为「规范实体（`heroes`/`items`）+ 版本化 token 索引（`hero_token_index`）」，token 索引按快照冻结以防常量刷新时静默重映射。数据来源三类：Valve 官方补丁 feed（权威版本清单）、dotaconstants（英雄/道具）、Kaggle CC0 数据集（历史 BP 引导数据，仅下载 506 MB 子集）。
 
 **Tech Stack:** Python 3.12 · PostgreSQL 16 · Docker Compose · pytest · jsonschema + referencing · httpx · openapi-spec-validator
 
@@ -37,6 +37,12 @@
 - 线 C（序列模型）→ `models/`：依赖 `contracts/` + `shared/draft_template.py`。
   **不需要数据库**——引导数据集与模板足以训练与评估
 - 前端 → `web/`：依赖 `contracts/fixtures/`（即 Chunk 1 + 2），**不需要数据库、不需要 Chunk 3**
+
+**三条 worktree 一律从 M0 冻结提交 `64c89a9` 开分支（`git worktree add -b <分支> <路径> 64c89a9`），
+不要从 `main` 开。** `main` 停在 `c486c0d`（Task 2 之后），**不含** M0 的任何产出
+（`contracts/openapi.yaml`、`contracts/fixtures/`、`contracts/tools/gen_ts_types.py`、
+`web/src/types/contract.ts`、`shared/`），从 `main` 开出来的 worktree 会两手空空，
+而且缺失是静默的——目录在、文件不在。要么从冻结提交开，要么先把 `main` 快进到它。
 
 ---
 
@@ -2747,6 +2753,48 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
+**范围说明（Task 8 复核追加）——本任务只生成枚举，不生成对象接口：**
+
+生成的**只有**顶层枚举联合（`Confidence`/`ErrorCode`/`Factor`/`NoteKind`/`Recommendation`/
+`Side`/`Team`/`TheirOpening`/`UnavailableReason`）与 `Resource` 联合，共 10 个导出，别无其它。
+契约里 53 个 schema 的**对象图不生成**：4 个 `oneOf` + `unevaluatedProperties` 联合
+（`WinRateSample`/`LeaveEvaluation`/`CounterOption`/`PercentileDimension`）、`allOf` 条件
+（`Advise`/`Plan`/`Value`/`Degraded`/`SideMap`/`AdviseOption`）、`type: [X, "null"]` 数组
+（如 `SeriesGame.first_pick_team`）、`$ref` 链、`required` / `x-optional` 全部没有对应 TS 类型。
+**前端 worktree 不要以为有可用的对象类型**（例如 `Value`、`Policy`、`Playbook` 这些名字在
+`contract.ts` 里只出现在 `Resource` 联合里，不是接口）。
+
+**Plan 4 开工第一件事就是补齐它们**，做法是**扩展本仓库这个发射器**（`contracts/tools/
+gen_ts_types.py`），而不是另起一个生成器：
+
+| 契约构造 | 生成规则 |
+|---|---|
+| `required` 里的属性 | 必填字段（`name: T`） |
+| 其余属性 | 可选（`name?: T`） |
+| `allOf` | 展平成单个接口（本契约的 `allOf` 都是「基类 + 补充属性」） |
+| `oneOf` | `A | B | C` 联合 |
+| `$ref` | 引用目标 schema 的 TS 类型名 |
+| `type: [X, "null"]` | `X \| null` |
+| `additionalProperties: false` | 不生成索引签名（本契约多数对象是 `true`/缺省） |
+| `if` / `then` | **只用于校验，不生成类型**（JSON Schema 的条件约束没有直接 TS 对应物） |
+
+生成后同样要有冻结基线 + `--check` 新鲜度测试，理由与枚举一致：契约与生成物
+可能被同一次改动一起重建，两边「一致」是自洽的退化。
+
+**两条可复现性备注（Plan 4 需要处理）：**
+
+1. **`web/tsconfig.json` 目前不存在**。本任务的 `tsc` 手工校验因此显式传了
+   `--noEmit --strict --target es2020 --typeRoots /tmp/ts-empty-types`——`--typeRoots`
+   是绕开父目录 `/Users/xinzechao/node_modules/@types/node`（它依赖未安装的
+   `undici-types`，会报 5 条无关的 TS2792）。Plan 4 建前端工程时要落一份真的
+   `tsconfig.json`（含 `strict`），把这套参数固化进去。
+2. **Plan 4 需要给 `contract.ts` 配 `.prettierignore`（或调 `printWidth`）**。
+   Prettier 默认 `printWidth: 80`，而生成物里 15 行中有 6 行超宽（`ErrorCode`、
+   `NoteKind`、`TheirOpening`、`UnavailableReason` 等长联合）。按默认值格式化会
+   **重写生成物**，让 `--check` 新鲜度测试因纯排版差异变红（假失败）。二选一：
+   把 `web/src/types/contract.ts` 加进 `.prettierignore`（推荐，生成物本就不该手改），
+   或在 Prettier 配置里给 TS 放宽 `printWidth`。
+
 - [ ] **Step 2: 写新鲜度与完整性测试**
 
 ```python
@@ -2862,8 +2910,14 @@ Run: `make contract-ts && pytest tests/contracts -q`
 Expected: `wrote .../web/src/types/contract.ts`；**87 passed**（82 既有 + 2 fixtures + 3 TS）
 
 **实测（Task 8 落地时）**：87 passed ✓（`.venv/bin/pytest tests/contracts -q` → `87 passed in 0.18s`）。
-生成器**确定性**：连跑两次 `contracts.tools.gen_ts_types`，`git status` 保持干净、
-`shasum -a 256 web/src/types/contract.ts` = `761ad13bc745f4ae033a0cbb84f25565c807620e406aaac1d4f0945e36600505` 不变。
+生成器**确定性**：连跑两次 `contracts.tools.gen_ts_types`，`git status` 保持干净、哈希不变。
+
+> **实测（Task 8 复核修复后，`64c89a9`）**：87 passed ✓（条数不变——Resource 断言
+> 加在既有的逐成员测试里，没有新增测试函数）。生成物 15 行 → **18 行**（`Side`/`Team`
+> 各多一行 JSDoc），sha256 =
+> `56e840e7f0d15369b3b1166fcc9b3556edcebc666988e2445b82dc1b41d01fca`。
+> 新鲜度检查已改为只读 `--check`（`test_generated_ts_is_up_to_date` 不再写盘）：
+> 干净树 exit 0，手改后 exit 1 且**不覆盖**手改。
 
 **TS 真实编译器验证（手工步骤，**不**做成测试——没有 tsc 的机器会误红）**：
 
@@ -2901,10 +2955,16 @@ Expected: `contracts/openapi.yaml: OK`（openapi-spec-validator 0.9.x 会打印�
 Run: `make db-reset && make test`
 Expected: **120 passed**（33 + 82 + 2 + 3：db/shared + 既有契约 + Task 7 fixtures 两条
 + Task 8 TS **三**条。实测分解：db/shared 33 = db 22（16 约束 + 6 隔离）+ shared 11；
-既有契约 82 = 公共 6 + openapi 新鲜度 1 + 不变式 45 + schema 形状 31。相对上一版的 117：
+既有契约 82 = 公共 **5** + openapi 新鲜度 1 + 不变式 45 + schema 形状 31。相对上一版的 117：
 Task 7 复核修复给 `test_invariants.py` 补了 2 条 §7.3 用例（43 → 45），既有契约由 80 变 82；
 此前「Task 7 由 1 条变 2 条」的 +1 仍计入。Task 8 的 TS 由 2 条变 3 条（新增逐成员比对，
 见 Step 2 说明），故为 120）
+
+> **分解算式更正（Task 8 复核）**：上面这行此前写「公共 **6**」，是**重复计数**。
+> `test_common_schema.py` 实际只收 **5** 条（`.venv/bin/pytest tests/contracts -q --collect-only`
+> 逐文件核对：common_schema 5、openapi_fresh 1、invariants 45、schema_shape 31 → 82；
+> 加 fixtures 2、ts_types 3 → 87；加 db/shared 33 → 120）。总数 120 一直是对的，
+> 错的只是加数；5 + 1 + 45 + 31 = 82 才与实际收集一致。
 
 **实测（Task 8 落地时）**：120 passed ✓（临时 PostgreSQL 16 集群 + `TEST_DATABASE_URL`/
 `DATABASE_URL` 指向 55432 端口，`.venv/bin/pytest -q` → `120 passed in 0.36s`；
