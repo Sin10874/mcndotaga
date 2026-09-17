@@ -3320,11 +3320,39 @@ git commit -m "feat(constants): 英雄/道具常量 + token 索引 + 原型映�
 > **R5 `declare_lettered_versions()` 必须实现且受测（Task 11 的 `constants/load.py` 逐字 import 它）。** 它的返回值
 > 就是 `patches` 表的行集：**Valve 的 118 行 / 其中 84 个字母子版本** —— 规格 §3.2「`patches` 表的行集以此为准」、
 > §15③「行集来自 Valve（118 / 84）而非 patchdates（141 槽）」、M1 验收（Task 13 断言字母版本数 == 84）三处都要求如此。
-> patchdates 补出的 6.70–7.07 段（27 个基础版本 + **57 个字母槽**）由 `patchdates_only_versions()` 暴露、只用于归属，
+> patchdates 补出的 6.70–7.07 段（27 个基础版本 + **56 个字母槽** = 83 行）由 `patchdates_only_versions()` 暴露、只用于归属，
 > **不写进 `patches`**（否则 118/84 两个验收数字都会破）；`declare_lettered_versions(include_patchdates_only=True)`
-> 给出并集（202 行 / 141 个字母槽）。
+> 给出并集（201 行 / 140 个字母槽）。**上游 patchdates 的 141 槽属性不变**（规格 §3.2 与 README 记的都是上游，
+> 见下一段 R6）；收缩只发生在我们暴露的行集上。
 >
-> **测试计数**：计划原文的 8 条 → 实测 **17 条**（R1 重写 2 + 新增 1、R2 +1、R3 +3、R4 +1、R5 +2、下界守护 +1）。
+> **第二轮评审（2026-09-17，R6–R9）**：
+>
+> **R6 时间线不倒挂（本轮最重要的修复）**：patchdates key `"25"`（code 7.06，main=1494856800）的
+> `dates[4]=1471651200` 是**错档** —— 那其实是 6.88c 的公告时刻（patchdates 的 6.88c=1471564800、
+> 6.88d=1472774400），位置映射把它当成 7.06f，使 `[1471651200, 1472774400)` 这 12 天整段被错标成 7.06f。
+> **既有守卫全都抓不到它**：`cross_check_against_valve` 有意只比 Valve 覆盖的序列（patchdates 独有的
+> 6.70–7.07 段被跳过），测试侧的直方图口径相同。故新增一条**通用不变式**（`_drop_backdated_slots`）：
+> **槽位不得早于「前一个序列」的 `main`**（前一个 = main 小于本条目、且 main 最大的那条 patchdates 记录）。
+> 实测 61 条记录里**只有这一个**槽位违反；丢弃后 `patchdates_only_versions()` 84 → **83** 行（57 → **56** 字母槽）、
+> 并集 202 → **201** 行（141 → **140** 字母槽）。上游字节和 141 槽属性都不变，声明见 `KNOWN_EXCEPTIONS[7.06]`。
+>
+> **R7 2018 归属边界**：Valve 清单从 7.08 = 1517472000（2018-02-01）起，patchdates 独有的 6.70–7.07 段
+> **全部**排在其之前，故 `subpatch_for_timestamp(ts)` 返回的名字**只有**对 `ts >= 1517472000` 才保证出现在
+> `patches` 行集里（`1517471999 -> "7.07d"`，而 `patches` 里没有 7.07d）。Task 12 的 2016–2017 Kaggle 数据
+> 全在左侧，它的 `patch_id` 规则已按这条边界改写（不再用 `< 0.05` 的臆测预算）。
+>
+> **R8 `opendota_patch` 必须现在导出**：patchdates 的键**就是** OpenDota 的粗粒度 patch id，而 Valve 的
+> 34 个基础版本在 patchdates 里**全部**有对应条目（缺失 0）—— 故 `declare_lettered_versions()` 的每行都带上
+> `opendota_patch`（int；字母行继承其基础版本的 id）。否则 Task 11 写入的 118 行会全是 NULL，
+> 而它的 `ON CONFLICT (version_name) DO UPDATE SET released_at = ...` 让该列**永远无法回填**。
+>
+> **R9 冻结计数走 `_expect_count`**：118 / 84 / 141 与校准的 83 / 34 / 48 / 1（含排序反证的 35 / 46 / 2）
+> 一律改用可操作的退出信息（与 `tests/constants/test_dotaconstants.py` 同一口径），让 README 的
+> 「计数测试会给出快照版本升级的指引」对本文件同样成立。副作用：上游漂移到这些数字时会
+> `pytest.exit` **中止整个会话**（而不是只红一条测试）—— 与 `test_dotaconstants.py` 的行为一致。
+>
+> **测试计数**：计划原文的 8 条 → 第一轮裁决后 **17 条**（R1 重写 2 + 新增 1、R2 +1、R3 +3、R4 +1、R5 +2、
+> 下界守护 +1）→ 第二轮评审后 **21 条**（R6 +2、R7 +1、R8 +1）。
 
 **Files:**
 - Create: `constants/patches.py`
@@ -3346,9 +3374,16 @@ git commit -m "feat(constants): 英雄/道具常量 + token 索引 + 原型映�
 R1 **Valve 时间戳优先**：patchdates 的 7.41f 比 Valve 晚 11.8 h，边界取 Valve 的 1789455600；
 R2 **7.25 不移位**：位置映射给出的 b/c 已经正确，移位会造出 Valve 并不存在的 7.25d；
 R3 **7.22 不排序**：位置映射复现规格的 34 精确 / 48 ±1–2 天 / 1 例外；排序会变成 35 / 46 / 2。
+
+第二轮评审（同 2026-09-17，见计划 Task 10 的 R6–R9）新增四条守护：
+R6 **时间线不倒挂**：槽位不得早于前一个序列的 `main` —— 7.06 的错档槽位（6.88c 的日期被记在
+   7.06 名下）被丢弃，`[1471651200, 1472774400)` 因此归 6.88c/6.88d；
+R7 **2018 归属边界**：Valve 清单从 7.08 = 1517472000 起，更早的时间戳返回的名字**不在** `patches` 行集里；
+R8 **`opendota_patch` 可导出**：`declare_lettered_versions()` 的每行都带 patchdates 的键（int，缺失 0）；
+R9 **计数指引**：本文件的冻结计数（118/84/141/83/34/48/1）一律走 `_expect_count`，
+   让 tests/fixtures/network/README.md 的「计数测试会给出快照版本升级的指引」对本文件同样成立。
 """
 import datetime
-import re
 
 import pytest
 
@@ -3357,6 +3392,23 @@ from constants.patches import (fetch_valve_patches, fetch_patchdates,
                                restore_subpatch_dates, subpatch_for_timestamp)
 
 UTC = datetime.timezone.utc
+
+
+def _expect_count(what: str, got: int, want: int) -> None:
+    """冻结计数是**流程事件**，不是测试事实（与 tests/constants/test_dotaconstants.py 同一口径）。
+
+    出现新版本/上游改数据时，正确动作是提升 constants_snapshot.snapshot_version 并重训
+    （规格 §5.1：dense_index 稳定性靠冻结快照，不靠顺序假设），而不是改这条断言
+    或手改 tests/fixtures/network/ 下的缓存。
+    """
+    if got != want:
+        pytest.exit(
+            f"{what} 计数变了：期望 {want}，实测 {got}。\n"
+            f"常量快照是版本化的：请提升 constants_snapshot.snapshot_version 并重训模型；\n"
+            f"若这是上游例行变化，用 REFRESH_NETWORK=1 重抓缓存后再核对 M1 的验收计数。\n"
+            f"**不要**为了让测试变绿而改这条断言或手改缓存字节。",
+            returncode=1,
+        )
 
 
 def _day(ts: int) -> datetime.date:
@@ -3381,7 +3433,7 @@ def _deviation_histogram(*, sorted_dates: bool) -> dict:
     - 只有两侧都有的槽位才可核验（patchdates 独有的 6.70–7.07 段无从比较）。
     """
     valve = {p["patch_number"]: p["patch_timestamp"] for p in fetch_valve_patches()}
-    valve_bases = {re.sub(r"[a-z]+$", "", name) for name in valve}
+    valve_bases = {patches._base_version(name) for name in valve}
     devs = []
     for entry in fetch_patchdates().values():
         if entry["code"] not in valve_bases:
@@ -3401,14 +3453,16 @@ def _deviation_histogram(*, sorted_dates: bool) -> dict:
 def test_valve_list_has_118_versions_and_84_lettered():
     """用例③：权威清单来自 Valve，不是 patchdates（后者有 141 个槽位）。"""
     ps = fetch_valve_patches()
-    assert len(ps) == 118
-    assert sum(1 for p in ps if any(c.isalpha() for c in p["patch_number"])) == 84
+    _expect_count("Valve 版本", len(ps), 118)
+    _expect_count("Valve 字母版本",
+                  sum(1 for p in ps if any(c.isalpha() for c in p["patch_number"])), 84)
 
 
 def test_patchdates_has_141_letter_slots():
     pd = fetch_patchdates()
-    assert sum(len(v.get("dates") or []) + (1 if v.get("add") else 0)
-               for v in pd.values()) == 141
+    _expect_count("patchdates 字母槽",
+                  sum(len(v.get("dates") or []) + (1 if v.get("add") else 0)
+                      for v in pd.values()), 141)
 
 
 def test_dates_start_at_b_not_a():
@@ -3460,9 +3514,10 @@ def test_valve_timestamp_wins_inside_the_11_8h_window():
 
 
 def test_known_exceptions_are_declared():
-    """规格 §3.2：7.22 与 7.25 是已知例外，必须显式声明而非静默错标。"""
+    """规格 §3.2：7.22 与 7.25 是已知例外，必须显式声明而非静默错标；R6 再加上 7.06。"""
     from constants.patches import KNOWN_EXCEPTIONS
-    assert 7.22 in KNOWN_EXCEPTIONS and 7.25 in KNOWN_EXCEPTIONS
+    assert 7.06 in KNOWN_EXCEPTIONS and 7.22 in KNOWN_EXCEPTIONS and 7.25 in KNOWN_EXCEPTIONS
+    assert "错档" in KNOWN_EXCEPTIONS[7.06]          # 早于前一个序列的 main -> 整条丢弃
     assert "unsorted" in KNOWN_EXCEPTIONS[7.22]
     assert "no add" in KNOWN_EXCEPTIONS[7.25]
 
@@ -3504,22 +3559,26 @@ def test_7_22_keeps_the_given_order_and_the_anomaly_is_reported():
 def test_positional_rule_reproduces_the_spec_calibration():
     """R3 正证：位置映射复现规格 §3.2 的「83 槽 / 34 精确 / 48 ±1–2 天 / 1 例外」。"""
     hist = _deviation_histogram(sorted_dates=False)
-    assert hist["n"] == 83
-    assert (hist["exact"], hist["within_1_2"], len(hist["outliers"])) == (34, 48, 1)
+    _expect_count("可核验字母槽", hist["n"], 83)
+    _expect_count("完全一致的槽位", hist["exact"], 34)
+    _expect_count("相差 ±1–2 天的槽位", hist["within_1_2"], 48)
+    _expect_count("例外槽位", len(hist["outliers"]), 1)
     assert hist["outliers"] == [("7.22d", -34)]
 
 
 def test_sorting_7_22_contradicts_the_spec_calibration():
     """R3 反证：排序后再分配字母得到 35 / 46 / 2（7.22c 与 7.22d 同时错位），与规格对不上。"""
     hist = _deviation_histogram(sorted_dates=True)
-    assert (hist["exact"], hist["within_1_2"], len(hist["outliers"])) == (35, 46, 2)
+    _expect_count("排序后完全一致的槽位", hist["exact"], 35)
+    _expect_count("排序后相差 ±1–2 天的槽位", hist["within_1_2"], 46)
+    _expect_count("排序后例外槽位", len(hist["outliers"]), 2)
     assert hist["outliers"] == [("7.22c", -12), ("7.22d", -20)]
 
 
 def test_letter_mapping_agrees_with_valve_on_sampled_series():
     """用例③：交叉校验 —— 没有**意外**漂移（> ±2 天）；已声明例外单独可见（R4）。"""
     report = patches.cross_check_against_valve()
-    assert report["n_compared"] >= 80
+    assert report["n_compared"] == 83, report
     assert report["max_deviation_days"] <= 2, report
     outlier = next(o for o in report["outliers"] if o["version_name"] == "7.22d")
     assert outlier["deviation_days"] == -34 and outlier["declared_exception"] is True
@@ -3545,19 +3604,90 @@ def test_declare_lettered_versions_matches_the_patches_row_set():
 
     返回值就是 `patches` 表的行集：Valve 的 118 行、其中 84 个字母子版本 —— 规格 §3.2
     「`patches` 表的行集以此为准」、§15③、M1 验收（Task 13 断言字母版本数 == 84）。
-    键必须**恰好**是 Task 11 迭代的三个（`version_name` / `base_version` / `released_at`）。
+    键必须**恰好**是 Task 11 迭代的四个（`version_name` / `base_version` / `released_at` /
+    `opendota_patch`）—— 少了 `opendota_patch` 时 Task 11 会把 118 行全写成 NULL（R8）。
     """
     rows = patches.declare_lettered_versions()
     assert rows, "declare_lettered_versions() 不能为空"
     assert len(rows) == 118
     assert {frozenset(r) for r in rows} == {
-        frozenset({"version_name", "base_version", "released_at"})}
+        frozenset({"version_name", "base_version", "released_at", "opendota_patch"})}
     assert len({r["version_name"] for r in rows}) == 118
     assert sum(1 for r in rows if r["version_name"][-1].isalpha()) == 84
     assert all(isinstance(r["released_at"], int) and r["released_at"] > 0 for r in rows)
     assert all(r["version_name"].startswith(r["base_version"]) for r in rows)
+    assert all(isinstance(r["opendota_patch"], int) and r["opendota_patch"] > 0 for r in rows)
     valve = {p["patch_number"]: p["patch_timestamp"] for p in fetch_valve_patches()}
     assert {r["version_name"]: r["released_at"] for r in rows} == valve   # 时间戳来自 Valve
+
+
+def test_opendota_patch_comes_from_the_patchdates_keys():
+    """R8：`opendota_patch` 必须等于该行基础版本在 patchdates 里的**键**（int），且一行都不缺。
+
+    patchdates 的键就是 OpenDota 的粗粒度 patch id（61 个 = 34 个 Valve 覆盖的序列 + 27 个独有序列）；
+    字母行继承其基础版本的 id。三个抽查名字逐一对键，并断言 **0 行 None** —— 否则 Task 11 的
+    `ON CONFLICT (version_name) DO UPDATE SET released_at` 会让这一列永远无法回填。
+    """
+    key_by_code = {entry["code"]: int(key) for key, entry in fetch_patchdates().items()}
+    rows = patches.declare_lettered_versions()
+    assert sum(1 for r in rows if r["opendota_patch"] is None) == 0, "有行缺 opendota_patch"
+    by_name = {r["version_name"]: r for r in rows}
+    for name in ("7.08", "7.22", "7.41f"):
+        assert by_name[name]["opendota_patch"] == key_by_code[by_name[name]["base_version"]], name
+    assert by_name["7.08"]["opendota_patch"] == 27      # patchdates 键 "27"（7.08）
+    assert by_name["7.22"]["opendota_patch"] == 41      # patchdates 键 "41"（7.22）
+    assert by_name["7.41f"]["opendota_patch"] == 60     # patchdates 键 "60"（7.41f 继承 7.41）
+
+
+def test_7_06_slot_is_dropped_and_the_window_maps_to_6_88c():
+    """R6：7.06 的第 5 个槽位是错档 —— 丢弃后 [1471651200, 1472774400) 归 6.88c。
+
+    实测 patchdates key "25"（code 7.06）：main=1494856800（2017-05-15）、
+    dates=[1495324800, 1496016000, 1497139200, 1498953600, **1471651200**] —— 第 5 项是
+    2016-08-20，比 7.06 自己的 main 早 268 天。它其实是 6.88c 的公告时刻（patchdates 的
+    6.88c=1471564800 / 2016-08-19，6.88d=1472774400 / 2016-09-02），位置映射把它变成 7.06f，
+    使这 12 天窗口整段被错标。不变式丢弃它之后，窗口两侧分别归 6.88c / 6.88d。
+    """
+    entry = next(v for v in fetch_patchdates().values() if v["code"] == "7.06")
+    assert entry["dates"][-1] == 1471651200            # 上游确实错档（不是我们改了数据）
+    assert restore_subpatch_dates(entry)["7.06f"] == 1471651200   # 位置映射确实产出 7.06f
+    assert subpatch_for_timestamp(1471651200) == "6.88c"          # 窗口左端（7.06f 消失）
+    assert subpatch_for_timestamp(1471651199) == "6.88c"          # 左端前一秒仍属 6.88c
+    assert subpatch_for_timestamp(1472774400) == "6.88d"          # 窗口右端（6.88d 发布）
+    assert "7.06f" not in {r["version_name"] for r in patches.patchdates_only_versions()}
+
+
+def test_no_timeline_slot_precedes_its_predecessor_series_main():
+    """R6 的通用守护：整条时间线里没有任何槽位早于「前一个序列的 main」。
+
+    「前一个序列」= main 小于本条目、且 main 最大的那条 patchdates 记录（这里**独立重算**，
+    不调用生产实现的过滤）。实测当前快照只丢 1 条：7.06f（前一个序列 7.05 的 main=1491750000）。
+    """
+    entries = sorted(fetch_patchdates().values(), key=lambda e: int(e["main"]))
+    previous_main = {after["code"]: int(before["main"]) for before, after in zip(entries, entries[1:])}
+    valve_bases = {patches._base_version(n) for n in patches._valve_versions()}
+
+    # (1) 生产时间线里，patchdates 独有的序列不许出现倒挂槽位
+    seen: dict[str, dict[str, int]] = {}
+    for ts, name in patches._version_timeline():
+        seen.setdefault(patches._base_version(name), {})[name] = ts
+    checked = 0
+    for code, slots in seen.items():
+        if code in valve_bases:
+            continue
+        for name, ts in slots.items():
+            checked += 1
+            if code not in previous_main:       # 最早的一条序列（6.70）没有「前一个」，无约束
+                continue
+            assert ts >= previous_main[code], (
+                f"{name}（{_day(ts)}）早于前一个序列的 main（{_day(previous_main[code])}）：时间线倒挂")
+    assert checked == 83, f"应检查 83 个 patchdates 独有槽位（27 基础 + 56 字母），实测 {checked}"
+
+    # (2) 被丢弃的槽位必须**恰好**是那一条 —— 且 raw 映射里它仍在（是过滤在起作用，不是数据变了）
+    dropped = patches._dropped_backdated_slots()
+    assert [(d["base_version"], d["version_name"], d["released_at"]) for d in dropped] == [
+        ("7.06", "7.06f", 1471651200)]
+    assert dropped[0]["previous_main"] == 1491750000      # 7.05 的 main
 
 
 def test_patchdates_only_slots_are_available_but_stay_out_of_the_row_set():
@@ -3565,22 +3695,41 @@ def test_patchdates_only_slots_are_available_but_stay_out_of_the_row_set():
 
     它们**不能进 `patches` 表** —— 否则 M1 的「118 行 / 84 个字母子版本」两个验收数字都会破；
     但它们必须参与归属（否则 6.70–7.07 的比赛无法定位子版本），故以
-    `include_patchdates_only=True` 的并集形式暴露：27 个基础版本 + 57 个字母槽。
+    `include_patchdates_only=True` 的并集形式暴露：27 个基础版本 + 56 个字母槽 = 83 行
+    （上游 patchdates 有 57 个字母槽，7.06f 那个错档槽位被 R6 的不变式丢弃，见上一个测试）。
     """
     extra = patches.patchdates_only_versions()
-    assert len(extra) == 84
-    assert sum(1 for r in extra if r["version_name"][-1].isalpha()) == 57
+    assert len(extra) == 83
+    assert sum(1 for r in extra if r["version_name"][-1].isalpha()) == 56
     bases = {r["base_version"] for r in extra}
     assert "6.86" in bases and "7.07" in bases      # Valve 的清单从 7.08 起（规格 §16.3）
     assert "7.08" not in bases
     assert {r["version_name"] for r in extra} >= {"6.86", "6.86b", "7.07d"}
+    assert "7.06f" not in {r["version_name"] for r in extra}   # R6：错档槽位不进任何暴露的行集
 
     union = patches.declare_lettered_versions(include_patchdates_only=True)
-    assert len(union) == 118 + 84
-    assert sum(1 for r in union if r["version_name"][-1].isalpha()) == 84 + 57
+    assert len(union) == 118 + 83
+    assert sum(1 for r in union if r["version_name"][-1].isalpha()) == 84 + 56
+    assert {frozenset(r) for r in union} == {
+        frozenset({"version_name", "base_version", "released_at", "opendota_patch"})}
     # 6.70–7.07 段也要能归属：Valve 无记录的年代由 patchdates 兜底
     assert subpatch_for_timestamp(1450224000) == "6.86"
     assert subpatch_for_timestamp(1509462000) == "7.07"
+
+
+def test_attribution_boundary_is_the_valve_list_start():
+    """R7：Valve 清单从 7.08 = 1517472000（2018-02-01）起 —— 两侧的**入库保证**不同。
+
+    左：1517471999 属 7.07d，而 7.07d **不在** `patches` 行集里（patchdates 独有）；
+    右：1517472000 属 7.08，且 7.08 **在** `patches` 行集里。
+    Task 12 的 Kaggle 数据（2016–2017）全在左侧，故它的 `patch_id` 必然有 NULL：规则是
+    「仅 `start_time < 1517472000` 允许 NULL，之后必须 0 个 NULL」，并要求报出 pre-2018 占比。
+    """
+    row_set = {r["version_name"] for r in patches.declare_lettered_versions()}
+    assert subpatch_for_timestamp(1517471999) == "7.07d"
+    assert "7.07d" not in row_set
+    assert subpatch_for_timestamp(1517472000) == "7.08"
+    assert "7.08" in row_set
 
 
 def test_subpatch_for_timestamp_refuses_timestamps_before_the_earliest_version():
@@ -3600,14 +3749,14 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'constants.patches'`
 
 | 名字 | 职责 |
 |---|---|
-| `fetch_valve_patches()` | 拉 `https://www.dota2.com/datafeed/patchnoteslist?language=english`，返回 `data["patches"]`（118 条）。规格 §3.2：该系列 API **出错也返回 HTTP 200**，故实现里检查 `success` 字段 |
-| `fetch_patchdates()` | 拉 `D2-LRG-Metadata/patchdates.json`（无认证）。**计划原文没钉 URL，实现钉 canonical raw URL**：`https://raw.githubusercontent.com/leamare/D2-LRG-Metadata/master/patchdates.json`（7686 B / 61 键）；raw 抛 `httpx.HTTPError` 时回退镜像 `https://cdn.jsdelivr.net/gh/leamare/D2-LRG-Metadata@master/patchdates.json`（2026-09-17 实测 raw TLS 握手超时，镜像 0.9 s / 同样 7686 B） |
+| `fetch_valve_patches()` | 拉 `https://www.dota2.com/datafeed/patchnoteslist?language=english`，返回 `data["patches"]` 的**防御性拷贝**（118 条；`lru_cache` 只包私有的 `_fetch_valve_patches_cached()`——写在被缓存的函数里等于把拷贝本身也缓存起来，调用方一次 `append`/`sort` 照样污染整个进程）。规格 §3.2：该系列 API **出错也返回 HTTP 200**，故实现里检查 `success` 字段 |
+| `fetch_patchdates()` | 拉 `D2-LRG-Metadata/patchdates.json`（无认证）。**计划原文没钉 URL，实现钉 canonical raw URL**：`https://raw.githubusercontent.com/leamare/D2-LRG-Metadata/master/patchdates.json`（7686 B / 61 键）；raw 抛 `httpx.HTTPError` 时回退镜像 `https://cdn.jsdelivr.net/gh/leamare/D2-LRG-Metadata@master/patchdates.json`（2026-09-17 实测 raw TLS 握手超时，镜像 0.9 s / 同样 7686 B）。返回的是缓存里的**同一个 dict**，调用方不得原地修改 |
 | `restore_subpatch_dates(entry)` | **纯函数**，把一条 patchdates 记录展开为 `{版本名: 时间戳}`。规则见下 |
-| `subpatch_for_timestamp(ts)` | 按 Valve 时间戳（优先）回落 patchdates，返回版本名如 `"7.41e"`；左闭右开；早于 6.70 抛 `ValueError` |
-| `declare_lettered_versions()` | **本任务必须导出**：返回 `patches` 表的行集（Valve 的 118 行 / 84 个字母子版本），键恰好是 Task 11 迭代的 `version_name`/`base_version`/`released_at`。Task 11 的 `constants/load.py` 逐字写着 `from .patches import fetch_valve_patches, declare_lettered_versions`——漏掉它时 Task 9/10 全绿、Task 11 直接 `ImportError` |
-| `patchdates_only_versions()` | patchdates 补出的 6.70–7.07 段（27 个基础版本 + 57 个字母槽），只用于归属、**不进 `patches`**（规格 §3.2 / §15③；否则 M1 的 118 / 84 都会破） |
-| `KNOWN_EXCEPTIONS` | `{7.22: "...unsorted...", 7.25: "...no add..."}`，文本必须说清**为什么不排序 / 为什么不移位** |
-| `cross_check_against_valve()` | 返回 `{"n_compared": int, "max_deviation_days": int, "outliers": [...]}`；**由此函数独占 Valve × patchdates 的交叉校验职责**；口径见 R4 |
+| `subpatch_for_timestamp(ts)` | 按 Valve 时间戳（优先）回落 patchdates，返回版本名如 `"7.41e"`；左闭右开；早于 6.70 抛 `ValueError`。**返回的名字只有对 `ts >= 1517472000`（Valve 清单起点 7.08）才保证出现在 `patches` 行集里**（R7） |
+| `declare_lettered_versions()` | **本任务必须导出**：返回 `patches` 表的行集（Valve 的 118 行 / 84 个字母子版本），键恰好是 Task 11 迭代的四个 `version_name`/`base_version`/`released_at`/`opendota_patch`（R8）。Task 11 的 `constants/load.py` 逐字写着 `from .patches import fetch_valve_patches, declare_lettered_versions`——漏掉它时 Task 9/10 全绿、Task 11 直接 `ImportError` |
+| `patchdates_only_versions()` | patchdates 补出的 6.70–7.07 段（27 个基础版本 + 56 个字母槽 = 83 行；已按 R6 丢掉 7.06f 那个错档槽位），只用于归属、**不进 `patches`**（规格 §3.2 / §15③；否则 M1 的 118 / 84 都会破） |
+| `KNOWN_EXCEPTIONS` | `{7.06: "...错档...", 7.22: "...unsorted...", 7.25: "...no add..."}`，文本必须**逐条**说清为什么丢弃 / 为什么不排序 / 为什么不移位——三个例外的性质不同（7.22 的偏差本来就超阈值），不能用一句「都在 ±2 天阈值**之内**」概括 |
+| `cross_check_against_valve()` | 返回 `{"n_compared": int, "max_deviation_days": int, "outliers": [...]}`；**由此函数独占 Valve × patchdates 的交叉校验职责**；口径见 R4（`max_deviation_days` 排除已声明例外序列，故只有**非例外**序列的漂移会抬高它） |
 
 **字母映射规则（必须固化为代码，用错规则会让约 20 个序列整体错位一个字母）**：
 
@@ -3618,6 +3767,9 @@ dates[0]   -> <code> + 'b'      ← 从 'b' 起，不是 'a'
 dates[1]   -> <code> + 'c'
 ...        依次递增
 ```
+
+映射出来的槽位还要过**不倒挂不变式**：槽位不得早于「前一个序列的 `main`」（前一个 = main 小于本条目、
+且 main 最大的那条 patchdates 记录）。实测只丢 7.06 的一个错档槽位（见 R6 与 `KNOWN_EXCEPTIONS[7.06]`）。
 
 **两个已知例外的处理规则（2026-09-17 按实测更正，原表述已废弃）**：
 
@@ -3646,11 +3798,20 @@ patchdates 只用于补 Valve 未覆盖的序列（6.70–7.07 段）。
     dates[1]  -> <code> + 'c'
     ...
 
-两处已知例外（`KNOWN_EXCEPTIONS`）：**7.22 不排序、7.25 不移位** —— 详见该常量的文本。
+映射结果进入时间线/行集之前还要过一道**时间线不倒挂不变式**（`_drop_backdated_slots`）：槽位不得早于
+前一个序列的 `main`。实测它丢掉 7.06 的一个错档槽位（84 → 83 行）—— 那个槽位实际属于 6.88 时代。
+
+**归属边界（Task 12 必须按它处理 `patch_id`）**：Valve 清单从 7.08 = 1517472000（2018-02-01）起，
+patchdates 独有的 6.70–7.07 段**全部**排在其之前。故 `subpatch_for_timestamp(ts)` 返回的名字
+**只有**对 `ts >= 1517472000` 才保证出现在 `patches` 行集里。
+
+三处已知例外（`KNOWN_EXCEPTIONS`）：**7.22 不排序、7.25 不移位、7.06 错档槽位丢弃** —— 详见该常量。
 
 性能：两个上游响应用 `lru_cache` **按进程缓存**（一次进程只读一次磁盘；`REFRESH_NETWORK=1` 时也只刷新
 一次——否则每条测试都会重拉，patchdates 的 raw 优先策略会连续 timeout）；`_version_timeline()` 每次重建。
-两个 fetch 返回的是缓存里的**同一个对象**，调用方不得原地修改。
+`lru_cache` 一旦填充，`MCNDOTAGA_CACHE_DIR` / `REFRESH_NETWORK` 的改动就只在 `cache_clear()` 之后生效。
+`fetch_valve_patches()` 返回**防御性拷贝**（list 与每行 dict 都是新的）；`fetch_patchdates()` 返回的仍是
+缓存里的**同一个对象**，调用方不得原地修改。
 """
 from __future__ import annotations
 
@@ -3681,9 +3842,22 @@ MAX_TOLERATED_DEVIATION_DAYS = 2
 
 _LETTERS = string.ascii_lowercase
 
-# 两个已知例外必须显式声明 —— 它们的偏差都在 ±2 天阈值**之内**，靠偏差检测抓不到。
+# 三个已知例外必须显式声明 —— 每个例外的性质不同，逐条说清（**不要**用一句「偏差都在 ±2 天阈值之内」
+# 概括：那是错的，7.22 的唯一例外槽位偏差 -34 天，本来就超阈值）：
+# - 7.22：偏差 -34 天，**超出** ±2 天阈值，偏差检测能抓到。声明它是为了固化「不排序」的读法，并让
+#   cross_check 的 max_deviation_days 排除它（否则那条 `<= 2` 哨兵会永远红）；例外仍出现在 outliers 里。
+# - 7.25：偏差 +1 天，落在阈值**之内**，偏差检测抓不到，只能靠显式声明。
+# - 7.06：不是「偏差」问题，而是槽位**错档** —— 该槽位早于前一个序列的 main，由时间线不倒挂不变式
+#   整条丢弃（丢弃后该窗口归 6.88c）；原始 patchdates 字节不变，故仍需要声明。
 # 键用 float 是为了让 `7.22 in KNOWN_EXCEPTIONS` 这种写法直接可用（规格 §3.2 的版本号记法）。
 KNOWN_EXCEPTIONS: dict[float, str] = {
+    7.06: ("patchdates 的 dates[4]=1471651200（2016-08-20）**错档**：它实际是 6.88c 的公告时刻"
+           "（patchdates 的 6.88c=1471564800 / 2016-08-19，6.88d=1472774400 / 2016-09-02），"
+           "却记在 7.06 名下。位置映射把它变成 7.06f（比 7.06 自己的 main 1494856800 早 268 天），"
+           "使 [1471651200, 1472774400) 这 12 天整段被错标成 7.06f。**该槽位整条丢弃**："
+           "由 _drop_backdated_slots 的不倒挂不变式（槽位不得早于前一个序列的 main；7.06 的前一个"
+           "序列是 7.05，main=1491750000）拦下，丢弃后该窗口正确归属 6.88c/6.88d。"
+           "这是通用不变式，不是为 7.06 写的点修 —— 下次数据刷新再出现错档，同样会被丢弃。"),
     7.22: ("patchdates 的 dates[] 未排序（unsorted）：dates[2]=1558915200 被位置映射成 7.22d，"
            "比 Valve 的 7.22d=1561878000 早 34 天。**不排序**：按给定顺序的位置映射才能复现规格 §3.2 的"
            "「83 槽 / 34 精确 / 48 ±1–2 天 / 1 例外」；排序后 7.22c 与 7.22d 会同时错位（35 / 46 / 2）。"
@@ -3696,8 +3870,11 @@ KNOWN_EXCEPTIONS: dict[float, str] = {
 
 
 @functools.lru_cache(maxsize=1)
-def fetch_valve_patches() -> list[dict]:
-    """Valve 官方补丁清单（免密钥）。返回 `data["patches"]`（118 条，按发布时间升序）。"""
+def _fetch_valve_patches_cached() -> list[dict]:
+    """Valve 官方补丁清单（免密钥）。返回 `data["patches"]`（118 条，按发布时间升序）。
+
+    **私有**：返回值就是进程级缓存对象本身，只许 `fetch_valve_patches()` 读它。
+    """
     data = _http.fetch_json(VALVE_PATCHNOTESLIST_URL, VALVE_CACHE_NAME)
     if not isinstance(data, dict) or "patches" not in data:
         raise RuntimeError(
@@ -3707,6 +3884,16 @@ def fetch_valve_patches() -> list[dict]:
     if data.get("success") is False:
         raise RuntimeError("Valve patchnoteslist 返回 success=false：上游拒绝或参数错误")
     return data["patches"]
+
+
+def fetch_valve_patches() -> list[dict]:
+    """`_fetch_valve_patches_cached()` 的**防御性拷贝**（列表与每行 dict 都是新的）。
+
+    拷贝必须发生在 `lru_cache` **之外**：写在被缓存的函数里等于把拷贝本身也缓存起来，
+    调用方一次 `append`/`sort`/改字段照样污染整个进程（返回值全是 int/str，故逐行浅拷贝即可）。
+    磁盘缓存仍是一次进程只读一次。
+    """
+    return [dict(p) for p in _fetch_valve_patches_cached()]
 
 
 @functools.lru_cache(maxsize=1)
@@ -3756,20 +3943,86 @@ def _utc_day(ts: int) -> datetime.date:
     return datetime.datetime.fromtimestamp(int(ts), datetime.timezone.utc).date()
 
 
+def _patchdates_series() -> list[Mapping[str, Any]]:
+    """patchdates 的条目按 `main` 升序 —— 序列的**时间顺序**（不是键 "0"…"60" 的顺序）。"""
+    return sorted(fetch_patchdates().values(), key=lambda e: int(e["main"]))
+
+
+def _drop_backdated_slots(entry: Mapping[str, Any], previous_main: int | None
+                          ) -> tuple[dict[str, int], dict[str, int]]:
+    """把 `restore_subpatch_dates(entry)` 按**时间线不倒挂不变式**切成（保留, 丢弃）。
+
+    不变式：**映射出来的槽位不得早于「前一个序列」的 `main`**；「前一个序列」= `main` 小于本条目、
+    且 `main` 最大的那条 patchdates 记录。理由：字母由**位置**决定（见 `restore_subpatch_dates`），
+    一个槽位一旦落到前一个序列的地盘上，位置映射必然给出一个错版本名 —— 它比前一个序列的 main
+    还早这件事本身就暴露了错档。
+
+    这是**通用不变式，不是针对某条记录的点修**：将来数据刷新若再出现错档槽位，同样会被丢弃，
+    而不是悄悄把一段窗口的归属弄反。实测当前快照只丢 1 条：7.06f（见 `KNOWN_EXCEPTIONS[7.06]`）。
+    """
+    slots = restore_subpatch_dates(entry)
+    if previous_main is None:              # 最早的那条序列没有「前一个」
+        return slots, {}
+    kept = {name: ts for name, ts in slots.items() if ts >= previous_main}
+    dropped = {name: ts for name, ts in slots.items() if ts < previous_main}
+    return kept, dropped
+
+
+def _kept_and_dropped_slots() -> tuple[dict[str, dict[str, int]], list[dict]]:
+    """一次遍历得到 `({code: 过完不倒挂不变式的槽位}, [被丢弃的槽位])`。"""
+    kept_by_code: dict[str, dict[str, int]] = {}
+    dropped: list[dict] = []
+    previous_main: int | None = None
+    for entry in _patchdates_series():
+        kept, lost = _drop_backdated_slots(entry, previous_main)
+        kept_by_code[entry["code"]] = kept
+        dropped += [{"base_version": entry["code"], "version_name": name, "released_at": ts,
+                     "previous_main": previous_main} for name, ts in lost.items()]
+        previous_main = int(entry["main"])
+    return kept_by_code, dropped
+
+
+def _dropped_backdated_slots() -> list[dict]:
+    """被不倒挂不变式丢弃的槽位（实测恰好 1 条：7.06f；`previous_main` 是前一个序列的 main）。"""
+    return _kept_and_dropped_slots()[1]
+
+
+def _opendota_patch_by_base() -> dict[str, int]:
+    """`{基础版本名: OpenDota 粗粒度 patch id}` —— **patchdates 的键就是这个 id**（字符串）。
+
+    实测（2026-09-17 快照）：patchdates 有 61 个键 = 34 个 Valve 覆盖的序列 + 27 个 patchdates
+    独有的序列；Valve 的 34 个基础版本**全部**在这里有对应条目（缺失 0），故 `declare_lettered_versions()`
+    的每一行都能导出 `opendota_patch`，不是 NULL。
+    """
+    return {entry["code"]: int(key) for key, entry in fetch_patchdates().items()}
+
+
 def patchdates_only_versions() -> list[dict]:
-    """Valve 未覆盖的序列（6.70–7.07 段）：patchdates 独有的基础版本 + 字母槽（27 + 57 = 84 行）。
+    """Valve 未覆盖的序列（6.70–7.07 段）：patchdates 独有的基础版本 + 字母槽（27 + 56 = 83 行）。
 
     **不写入 `patches` 表**：规格 §3.2「`patches` 表的行集以 Valve 为准（118 版本 / 84 字母版本）」、
     §15③、以及 M1 验收（Task 13 断言字母版本数 == 84）都要求行集来自 Valve，
-    而 patchdates 有 141 个字母槽。它的用途是让 `subpatch_for_timestamp` 能归属 Valve 无记录的年代。
+    而 patchdates 原始有 141 个字母槽。它的用途是让 `subpatch_for_timestamp` 能归属 Valve 无记录的年代。
+
+    相对上游的原始映射有**两处收缩**，都在这里体现：字母槽只算 Valve 未覆盖的序列（141 → 57），
+    再被时间线不倒挂不变式丢掉 7.06 的错档槽位 7.06f（57 → 56），行数 84 → 83。
+    每行四个键（含 `opendota_patch`，与 `declare_lettered_versions()` 的行形状一致）；
+    上游 `patchdates.json` 的 141 槽属性本身不变（规格 §3.2 / README 记的是上游）。
+
+    **归属边界**：这些行**全部**早于 Valve 清单起点（7.08 = 1517472000，2018-02-01），
+    故它们不属于 `patches` 行集；`subpatch_for_timestamp` 对早于该时刻的时间戳返回的名字
+    **不在** `patches` 里。
     """
     valve_bases = {_base_version(name) for name in _valve_versions()}
+    kept_by_code, _ = _kept_and_dropped_slots()
+    opendota = _opendota_patch_by_base()
     rows = []
-    for entry in fetch_patchdates().values():
-        if entry["code"] in valve_bases:
+    for code, slots in kept_by_code.items():
+        if code in valve_bases:
             continue
-        for name, ts in restore_subpatch_dates(entry).items():
-            rows.append({"version_name": name, "base_version": entry["code"], "released_at": ts})
+        for name, ts in slots.items():
+            rows.append({"version_name": name, "base_version": code,
+                         "released_at": ts, "opendota_patch": opendota[code]})
     rows.sort(key=lambda r: (r["released_at"], r["version_name"]))
     return rows
 
@@ -3777,13 +4030,17 @@ def patchdates_only_versions() -> list[dict]:
 def declare_lettered_versions(*, include_patchdates_only: bool = False) -> list[dict]:
     """`patches` 表的行集：Valve 的 118 个版本（含 84 个字母子版本），按时间戳升序。
 
-    每行**恰好**三个键，对应 Task 11（`constants/load.py`）迭代的字段：
-    `version_name` / `base_version` / `released_at`（int，Unix 秒，来自 Valve）。
+    每行**恰好**四个键，对应 Task 11（`constants/load.py`）迭代的字段：
+    `version_name` / `base_version` / `released_at`（int，Unix 秒，来自 Valve）/
+    `opendota_patch`（int，OpenDota 粗粒度 patch id —— **patchdates 的键就是它**；字母行继承其
+    基础版本的 id，实测 34 个 Valve 基础版本在 patchdates 里全有对应条目，故没有一行是 None）。
 
-    `include_patchdates_only=True` 时并上 `patchdates_only_versions()`（6.70–7.07 段，84 行）——
-    那是**归属用**的并集（202 行 / 141 个字母槽），**不要**写进 `patches` 表（见该函数说明）。
+    `include_patchdates_only=True` 时并上 `patchdates_only_versions()`（6.70–7.07 段，83 行）——
+    那是**归属用**的并集（201 行 / 140 个字母槽），**不要**写进 `patches` 表（见该函数说明）。
     """
-    rows = [{"version_name": name, "base_version": _base_version(name), "released_at": ts}
+    opendota = _opendota_patch_by_base()
+    rows = [{"version_name": name, "base_version": _base_version(name), "released_at": ts,
+             "opendota_patch": opendota.get(_base_version(name))}
             for name, ts in _valve_versions().items()]
     if include_patchdates_only:
         rows += patchdates_only_versions()
@@ -3797,14 +4054,16 @@ def _version_timeline() -> list[tuple[int, str]]:
     规格 §3.2 入库规则「以 Valve 的时间戳为准；patchdates 的值仅用于填写那些 Valve 列表未覆盖的
     序列」：同一 `base_version` 只要 Valve 覆盖了，就**只用 Valve 的条目**，patchdates 的同名槽位
     一律丢弃（两个来源的 7.41f 相差 11.8 h，混用会让窗口内的比赛错标一个字母）。
+    patchdates 独有的序列还要过 `_drop_backdated_slots` 的不倒挂不变式（丢掉 7.06f 这个错档槽位）。
     """
     valve = _valve_versions()
     valve_bases = {_base_version(name) for name in valve}
     timeline = [(ts, name) for name, ts in valve.items()]
-    for entry in fetch_patchdates().values():
-        if entry["code"] in valve_bases:
+    kept_by_code, _ = _kept_and_dropped_slots()
+    for code, slots in kept_by_code.items():
+        if code in valve_bases:
             continue
-        timeline += [(ts, name) for name, ts in restore_subpatch_dates(entry).items()]
+        timeline += [(ts, name) for name, ts in slots.items()]
     timeline.sort()
     return timeline
 
@@ -3815,6 +4074,11 @@ def subpatch_for_timestamp(ts: int) -> str:
     区间语义：**左闭右开** —— 恰好在某版本发布时刻 `t` 的 `ts` 属于该新版本（`t` 之前一秒属于旧版本）。
     数据来源：Valve 优先；Valve 未覆盖的 6.70–7.07 段回落 patchdates（见 `_version_timeline`）。
     早于最早已知版本的时间戳抛 `ValueError`（静默归到某个版本会让年代错得离谱）。
+
+    **归属 ≠ 入库成功**：返回的名字**只有**对 `ts >= 1517472000`（Valve 清单起点 7.08，2018-02-01）
+    才保证出现在 `patches` 行集里。更早的时间戳（2016–2017 的 Kaggle 数据全在此列）返回的是
+    patchdates 独有的 6.70–7.07 名字，`patches` 里**没有**这些行 —— 调用方（Task 12）必须按这条
+    边界决定 `patch_id` 写不写：仅 `start_time < 1517472000` 允许 NULL，之后必须 0 个 NULL。
     """
     timeline = _version_timeline()
     stamps = [t for t, _ in timeline]
@@ -3840,8 +4104,10 @@ def cross_check_against_valve() -> dict:
       误报成超差）。
     - `outliers`：|偏差| > 2 天的**全部**槽位，**包含**已声明的例外（7.22d）—— 例外必须可见。
     - `max_deviation_days`：**排除已声明例外序列**（`KNOWN_EXCEPTIONS` 里的 base_version）后的最大
-      偏差，故 `<= 2` 的含义是「没有**意外**漂移」。例外槽位仍出现在 `outliers` 里，
-      所以这个排除不可能把它藏起来；任何**新**的超差都会同时抬高该值（见测试的变异守护）。
+      偏差 —— 排除发生在取 max **之前**：逐个条目先判 `declared`，已声明的整段跳过。故 `<= 2` 的含义
+      是「没有**意外**漂移」。例外槽位仍出现在 `outliers` 里，所以这个排除不可能把它藏起来。
+      **会抬高该值的只有非例外序列的漂移**；已声明序列内部再怎么漂（如 7.22d 的 −34 天）也只出现在
+      `outliers` 里，不会反映到这个值上 —— 原表述「任何新的超差都会同时抬高该值」是错的。
     """
     valve = _valve_versions()
     valve_bases = {_base_version(name) for name in valve}
@@ -3871,7 +4137,7 @@ def cross_check_against_valve() -> dict:
 - [ ] **Step 4: 运行确认通过**
 
 Run: `pytest tests/constants/test_patches.py -q`
-Expected: **17 passed**（原文 8 条 → 裁决后 17 条：R1 重写 2 + 新增 1、R2 +1、R3 +3、R4 +1、R5 +2、下界守护 +1）
+Expected: **21 passed**（原文 8 条 → 第一轮裁决 17 条 → 第二轮评审 21 条：R6 +2、R7 +1、R8 +1）
 
 - [ ] **Step 5: 提交（4 个 commit，缓存与计划同步各自独立）**
 
@@ -3890,21 +4156,30 @@ git add docs/superpowers/plans/2026-09-16-contract-freeze-and-data-foundation.md
 git commit -m "docs(plan): Task 10 同步实现与实测校准（含三处裁决依据）"
 ```
 
-### Task 10 实测记录（2026-09-17，提交后复核）
+### Task 10 实测记录（2026-09-17，提交后复核；含同日第二轮评审 R6–R9）
 
 - **两个上游**：Valve `patchnoteslist` → HTTP 200 / 9129 B / `{"patches": […], "success": true}` / **118 条、84 个字母版本**、最后一条 `7.41f`；
   patchdates → **7686 B / 61 键**（键是 OpenDota 粗粒度 patch id 的字符串）。两文件已随本任务提交进
   `tests/fixtures/network/`（`dota2_patchnoteslist.json` sha256 `9ec57bde…`、`d2lrg_patchdates.json` sha256 `5c54af61…`）。
 - **R3 校准表**（见上文 R3 表格）：位置映射 **34 / 48 / 1**（唯一例外 7.22d −34 天）与规格 §3.2 逐字吻合；排序 **35 / 46 / 2**（7.22c −12、7.22d −20）与规格冲突。
 - **`cross_check_against_valve()`**：`{"n_compared": 83, "max_deviation_days": 2, "outliers": [{"version_name": "7.22d", "deviation_days": -34, "patchdates": 1558915200, "valve": 1561878000, "declared_exception": true}]}`。
-- **`declare_lettered_versions()`**：118 行 / 84 个字母子版本 / 键恰好 3 个 / `released_at` 全为正 int / 与 Valve 的 `patch_number → patch_timestamp` 逐条相等。
-  `patchdates_only_versions()`：84 行（27 基础 + 57 字母）；并集 `include_patchdates_only=True`：202 行 / 141 个字母槽。
-- **变异守护（5 条，全部 apply → run → restore → sha256 复原）**：7.25 移位 → `test_7_25_is_not_shifted` 失败；
-  7.22 排序 → 7.22 顺序测试 + 校准正证失败；边界改用 patchdates 时间戳 → 两条边界测试失败；
-  `max_deviation_days` 计入例外 → 计划原文的 `<= 2` 断言以 `max_deviation_days=34` 失败；删除 `declare_lettered_versions` → 两条 R5 测试失败。
-- **离线**：`pytest tests/constants -q` 命中已提交缓存，**0.06–0.08 s / 33 passed**；`REFRESH_NETWORK=1` 复跑后 `git status` 干净（上游字节未变）。
-- **测试计数口径**：`tests/constants` 实测 = `test_archetypes.py` 5 + `test_dotaconstants.py` 8 + `test_http.py` 3 + `test_patches.py` **17** = **33**。
-  Task 11 的 Step 4 期望值（原文 24）应相应改为 **39**（Task 9 实测 16 + Task 10 实测 17 + Task 11 的 6）；按"只改 Task 10 段落"的约束，此处只记录、未改 Task 11 段落。
+- **`declare_lettered_versions()`**：118 行 / 84 个字母子版本 / 键恰好 4 个（R8 加入 `opendota_patch`）/ `released_at` 全为正 int / 与 Valve 的 `patch_number → patch_timestamp` 逐条相等；
+  `opendota_patch` **0 行缺失**（Valve 的 34 个基础版本在 patchdates 的 61 个键里全有对应条目；抽查 `7.08→27`、`7.22→41`、`7.41f→60`）。
+  `patchdates_only_versions()`：**83 行**（27 基础 + 56 字母）；并集 `include_patchdates_only=True`：**201 行 / 140 个字母槽** —— R6 丢掉 7.06f 后由 84 / 202 / 141 收缩而来。
+- **R6 实测**：按「槽位不得早于前一个序列的 main」扫全部 61 条 patchdates 记录，**违反者恰好 1 条** ——
+  `7.06f = 1471651200`（2016-08-20；前一个序列 7.05 的 main = 1491750000）。丢弃后
+  `1471651200 → "6.88c"`、`1472774400 → "6.88d"`（原先 `[1471651200, 1472774400)` 这 12 天整段被错标成 7.06f）。
+- **R7 实测**：`1517471999 → "7.07d"`（该名字**不在** `patches` 行集里）、`1517472000 → "7.08"`（**在**行集里）。
+- **变异守护（7 条，全部 apply → run → restore → sha256 复原）**：7.25 移位 → `test_7_25_is_not_shifted` 失败；
+  7.22 排序 → 7.22 顺序测试失败，校准正证改走 `_expect_count` 后以 `pytest.exit` 中止会话（R9 的行为变化）；边界改用 patchdates 时间戳 → 两条边界测试失败；
+  `max_deviation_days` 计入例外 → 计划原文的 `<= 2` 断言以 `max_deviation_days=34` 失败；删除 `declare_lettered_versions` → 两条 R5 测试失败；
+  **把 7.06f 放回 `dates[]`（R6 反证）→ `test_7_06_slot_is_dropped_and_the_window_maps_to_6_88c` +
+  `test_no_timeline_slot_precedes_its_predecessor_series_main` 失败**；
+  **从行里删掉 `opendota_patch`（R8 反证）→ `test_declare_lettered_versions_matches_the_patches_row_set` +
+  `test_opendota_patch_comes_from_the_patchdates_keys` 失败**。
+- **离线**：`pytest tests/constants -q` 命中已提交缓存，**0.09 s / 37 passed**；`REFRESH_NETWORK=1` 复跑后 `git status` 干净（上游字节未变）。
+- **测试计数口径**：`tests/constants` 实测 = `test_archetypes.py` 5 + `test_dotaconstants.py` 8 + `test_http.py` 3 + `test_patches.py` **21** = **37**。
+  Task 11 的 Step 4 期望值（原文 24）已同步为 **43**（Task 9 实测 16 + Task 10 实测 21 + Task 11 的 6）。
 ### Task 11: 常量入库（M1 的前置，原计划缺失）
 
 **这是整个计划此前最大的缺口**：没有任何任务把常量写进 `heroes`/`items`/`patches`/`hero_token_index`/`constants_snapshot`/`app_config_kv`。没有它，M1 的四条验收断言不可能通过，Kaggle 加载器也会被 `draft_actions.hero_id` 的外键挡住。
@@ -4021,13 +4296,15 @@ def load_constants(conn: psycopg.Connection) -> None:
                            VALUES (%s,%s,%s) ON CONFLICT DO NOTHING""",
                         [(SNAPSHOT_VERSION, hid, di) for hid, di in token_index.items()])
 
-    # 版本表：Valve 为准；patchdates 仅补 Valve 未覆盖的序列
+    # 版本表：Valve 为准；opendota_patch 由 declare_lettered_versions() 从 patchdates 的键导出
     for p in declare_lettered_versions():
         conn.execute("""INSERT INTO patches(version_name, base_version, released_at, opendota_patch)
                         VALUES (%s,%s,to_timestamp(%s),%s)
                         ON CONFLICT (version_name) DO UPDATE
-                        SET released_at = EXCLUDED.released_at""",
-                     (p["version_name"], p["base_version"], p["released_at"], p.get("opendota_patch")))
+                        SET released_at = EXCLUDED.released_at,
+                            base_version = EXCLUDED.base_version,
+                            opendota_patch = EXCLUDED.opendota_patch""",
+                     (p["version_name"], p["base_version"], p["released_at"], p["opendota_patch"]))
 
     conn.execute("""INSERT INTO app_config_kv(key, value, note) VALUES
         ('archetype_role_map',    %s, '规格 §7 维度 6 的 roles→原型 映射'),
@@ -4040,11 +4317,17 @@ def load_constants(conn: psycopg.Connection) -> None:
 ```
 
 > `items` 的短名取自 OpenDota 返回的字典键（`i["key"]`），不是 `i["name"]`（后者是 `item_blink` 这类内部名）。实现时按实际 payload 调整。
+>
+> `patches` 的 `ON CONFLICT` 必须更新**所有可能被后续修复改动的列**（`released_at` / `base_version` /
+> `opendota_patch`）：只更新 `released_at` 时，第一版写进去的 NULL 永远无法回填（本轮 R8 之前
+> `declare_lettered_versions()` 正是这种情况）。因此这里直接取 `p["opendota_patch"]`（Task 10 保证该键存在，
+> 见 R8），不用 `p.get(...)` —— 键缺失要在 Task 10 的接口测试里炸，而不是静默写 NULL。
 
 - [ ] **Step 4: 运行确认通过**
 
 Run: `make db-reset && pytest tests/constants -q`
-Expected: **24 passed**（`tests/constants` 下三个文件：Task 9 = 10、Task 10 = 8、Task 11 = 6）
+Expected: **43 passed**（实测口径：Task 9 = 16（`test_archetypes.py` 5 + `test_dotaconstants.py` 8 + `test_http.py` 3）、
+Task 10 = 21、Task 11 = 6；原文写的 24（Task 9 = 10、Task 10 = 8）是计划阶段的估计，已按实测校准）
 
 - [ ] **Step 5: Commit**
 
@@ -4148,7 +4431,7 @@ def test_picks_bans_columns_and_order_origin(sample_csv):
 3. `draft_actions` ← `picks_bans.csv`：按 `match_id` **先删后插**（规格 §5.2 的幂等要求），`ord` 取 CSV 的 `order`（若为 1-based 则减 1，见 Step 2 的说明）
 4. `first_pick_team` ← 每场 `ord=0` 的 `team`（用 `shared.draft_template.first_pick_team_from_actions`）
 5. `n_draft_actions` / `draft_state` / `anomaly` ← 按规格 §5.3 判定：手数 ≠ 24 或类型偏离模板 → `anomaly=true` 且写一行 `draft_anomalies`
-6. `patch_id` ← `constants.patches.subpatch_for_timestamp(start_time)` 查 `patches`
+6. `patch_id` ← `constants.patches.subpatch_for_timestamp(start_time)` 查 `patches`（**只有 `start_time >= 1517472000` 才保证查得到**，见 Task 10 的 R7 与 Step 5 的边界规则：更早的场次留 NULL 并报出占比）
 7. 全部写入用 `ON CONFLICT`，并用单一事务；**每 N 场 commit 一次**以便中断可续
 
 - [ ] **Step 5: 写引导入库的验收测试**
@@ -4178,11 +4461,27 @@ def test_first_pick_team_matches_ord_zero(db_after_bootstrap):
         WHERE m.first_pick_team IS DISTINCT FROM d.team""").fetchone()[0]
     assert bad == 0
 
-def test_every_match_has_a_patch(db_after_bootstrap):
-    """patch_id 必须能解析——否则版本维度全废。"""
-    nulls = db_after_bootstrap.execute("SELECT count(*) FROM matches WHERE patch_id IS NULL").fetchone()[0]
+def test_patch_id_is_null_only_before_the_2018_attribution_boundary(db_after_bootstrap):
+    """`patch_id` 的归属规则 —— 边界是**实测的** 1517472000（Valve 清单起点 7.08，2018-02-01）。
+
+    `patches` 的行集来自 Valve（Task 10 的 R7），故 `start_time >= 1517472000` 的比赛必须解析出
+    `patch_id`（0 个 NULL）；更早的比赛（2016–2017 的 Kaggle 数据全在此列）落在 patchdates 独有的
+    6.70–7.07 段，本来就无行可指。**pre-2018 占比是测量结果，不是可以预设的预算**——所以这里把它
+    **打印出来**，而不是拿「< 5%」这类没人量过的数字当断言。
+    """
     total = db_after_bootstrap.execute("SELECT count(*) FROM matches").fetchone()[0]
-    assert nulls / total < 0.05, f"{nulls}/{total} 场无法解析版本"
+    pre = db_after_bootstrap.execute(
+        "SELECT count(*) FROM matches WHERE start_time < to_timestamp(1517472000)").fetchone()[0]
+    late_nulls = db_after_bootstrap.execute(
+        "SELECT count(*) FROM matches WHERE patch_id IS NULL"
+        " AND start_time >= to_timestamp(1517472000)").fetchone()[0]
+    assert late_nulls == 0, (
+        f"{late_nulls}/{total} 场 start_time >= 1517472000（2018-02-01）的比赛没有 patch_id："
+        f"这违反归属边界（该日之后 Valve 清单必须覆盖）")
+    pre_nulls = db_after_bootstrap.execute(
+        "SELECT count(*) FROM matches WHERE patch_id IS NULL"
+        " AND start_time < to_timestamp(1517472000)").fetchone()[0]
+    print(f"pre-2018 场次 {pre}/{total}（{pre/total:.1%}），其中 patch_id IS NULL 的 {pre_nulls} 场")
 ```
 
 - [ ] **Step 6: 运行**
