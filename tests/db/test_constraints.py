@@ -31,17 +31,19 @@ def test_two_anonymous_players_coexist(db, seeded):
 
 def test_raw_mod_128_normalization_is_rejected(db, seeded):
     """规格 §16.2：raw%128 把 Dire 的 128..132 塌缩成 0..4。"""
-    with expect_violation(db):
+    with expect_violation(db, sqlstate="23514", constraint="slot_team_agree"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,0,NULL,1,80)""")
 
 def test_slot_team_mismatch_is_rejected(db, seeded):
-    with expect_violation(db):
+    """slot 的 0-4/5-9 分段必须与 team 自洽（与 raw%128 同为 slot_team_agree 守护）。"""
+    with expect_violation(db, sqlstate="23514", constraint="slot_team_agree"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,5,NULL,0,80)""")
 
 def test_metric_weights_rejects_undefined_metric(db, seeded):
-    with expect_violation(db):
+    """规格 §7：只认六个指标键；'laning' 不是其中之一。"""
+    with expect_violation(db, sqlstate="23514", constraint="metric_weights_metric_check"):
         db.execute("INSERT INTO metric_weights VALUES ('laning','pro_match',1.0,NULL)")
 
 def test_metric_weights_accepts_all_six_spec_keys(db, seeded):
@@ -49,39 +51,51 @@ def test_metric_weights_accepts_all_six_spec_keys(db, seeded):
         db.execute("INSERT INTO metric_weights VALUES (%s,'pro_match',1.0,NULL)", (m,))
 
 def test_data_source_rejects_undefined_value(db, seeded):
-    with expect_violation(db):
+    """规格 §5.4：只有 pro_match/pub_match/scrim 三种来源，'ranked' 不合法。"""
+    with expect_violation(db, sqlstate="23514", constraint="matches_data_source_check"):
         db.execute("""INSERT INTO matches(match_id,data_source,started_at,draft_state)
                       VALUES (9,'ranked',now(),'complete')""")
 
 def test_draft_state_rejects_undefined_value(db, seeded):
-    with expect_violation(db):
+    """状态机只有 pending/complete/unavailable，'partial' 不合法。"""
+    with expect_violation(db, sqlstate="23514", constraint="matches_draft_state_check"):
         db.execute("""INSERT INTO matches(match_id,data_source,started_at,draft_state)
                       VALUES (9,'pro_match',now(),'partial')""")
 
 def test_draft_actions_rejects_unknown_hero(db, seeded):
-    with expect_violation(db):
+    """hero_id 外键：不存在的英雄必须被 FK 拒绝（不是 CHECK）。"""
+    with expect_violation(db, sqlstate="23503", constraint="draft_actions_hero_id_fkey"):
         db.execute("INSERT INTO draft_actions VALUES (1,0,false,0,999)")
 
 def test_draft_actions_rejects_ord_out_of_range(db, seeded):
-    with expect_violation(db):
+    """24 手模板：ord 合法区间是 0..23。"""
+    with expect_violation(db, sqlstate="23514", constraint="draft_actions_ord_check"):
         db.execute("INSERT INTO draft_actions VALUES (1,24,false,0,80)")
 
 def test_rosters_allows_null_joined_at(db, seeded):
+    """两条断言：joined_at 可空能入库（Liquipedia 常缺 joindate），
+    但同队同选手不允许第二条 left_at IS NULL。
+
+    此处的唯一性由**部分唯一索引** rosters_team_id_account_id_idx 提供，
+    故 PG 报的是索引名而非约束名——这正是 constraint 参数要收元组/索引名的原因。
+    """
     db.execute("INSERT INTO players(account_id,name) VALUES (111,'p')")
     db.execute("INSERT INTO teams(team_id,name) VALUES (10,'A')")
     db.execute("INSERT INTO rosters(team_id,account_id,joined_at,source) VALUES (10,111,NULL,'liquipedia')")
-    with expect_violation(db):
+    with expect_violation(db, sqlstate="23505",
+                          constraint="rosters_team_id_account_id_idx"):
         db.execute("INSERT INTO rosters(team_id,account_id,joined_at,source) VALUES (10,111,'2020-01-01','liquipedia')")
 
 def test_hero_token_index_rejects_duplicate_dense_index(db, seeded):
     """同快照内两个英雄不能占用同一 dense_index。"""
     db.execute("""INSERT INTO heroes(hero_id,name,localized_name) VALUES (81,'npc_dota_hero_x','X')""")
-    with expect_violation(db):
+    with expect_violation(db, sqlstate="23505", constraint="hero_token_index_pkey"):
         db.execute("INSERT INTO hero_token_index VALUES (1, 81, 73)")
 
 def test_hero_token_index_rejects_double_index_for_same_hero(db, seeded):
-    """同一英雄在同快照内不能有两个索引。"""
-    with expect_violation(db):
+    """同一英雄在同快照内不能有两个索引（UNIQUE(snapshot_version, hero_id)）。"""
+    with expect_violation(db, sqlstate="23505",
+                          constraint="hero_token_index_snapshot_version_hero_id_key"):
         db.execute("INSERT INTO hero_token_index VALUES (1, 80, 121)")
 
 def test_hero_token_index_is_versioned(db, seeded):

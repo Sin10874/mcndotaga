@@ -16,16 +16,22 @@ def dsn() -> str:
     旧 schema 上（改了 DDL 却依然全绿）。Task 3 起会频繁改 schema，这个坑
     必然再踩，故每次 session 都从零重建以换取「schema 永远对应当前迁移」。
 
-    WITH (FORCE) 需要 PG 13+（本机 16.14）。
+    两点取舍（有意为之，不是疏忽）：
+    - WITH (FORCE) 需要 PG 13+（本机 16.14）。它会**踢掉连到该库的其他会话**，
+      因此两个 pytest 会话并行跑会互相 DROP/CREATE。当前依赖**串行执行**；
+      将来若要并行（pytest-xdist），必须改为每 worker 一个库名。
+    - DROP/CREATE 每次 session 多花几百毫秒，换来"schema 永远对应当前迁移"。
     """
     base = os.environ.get("TEST_DATABASE_URL")
     if not base:
         head, dbname = _base_dsn().rsplit("/", 1)
         base = f"{head}/{dbname}_test"
     head, test_name = base.rsplit("/", 1)
+    # 库名是标识符，不能参数化（%s 只能用在值的位置），故手工转义双引号
+    ident = test_name.replace('"', '""')
     with psycopg.connect(f"{head}/postgres", autocommit=True) as c:
-        c.execute(f'DROP DATABASE IF EXISTS "{test_name}" WITH (FORCE)')
-        c.execute(f'CREATE DATABASE "{test_name}"')
+        c.execute(f'DROP DATABASE IF EXISTS "{ident}" WITH (FORCE)')
+        c.execute(f'CREATE DATABASE "{ident}"')
     from db.migrate import apply
     apply(base)
     return base
@@ -37,17 +43,22 @@ def db(dsn):
         conn.rollback()
 
 @contextmanager
-def expect_violation(conn, sqlstate: str | None = None):
+def expect_violation(conn, sqlstate: str | None = None,
+                     constraint: str | tuple[str, ...] | None = None):
     """断言语句违反约束，并回滚到保存点使事务可继续。
 
     必需：psycopg 在约束违规后事务进入 aborted 状态，
     后续任何语句都会以 'current transaction is aborted' 失败。
 
-    sqlstate：不传则接受任何 psycopg.Error（宽松，仅适用于"被任意约束拒绝
-    即可"的断言）；传入则要求恰好是该 SQLSTATE，否则视为测试失败。
-    **守护唯一性/主键的测试必须显式传入**——psycopg.Error 是个很宽的网，
-    一条被 FK（23503）或 CHECK（23514）拒绝的语句同样能让 with 块通过，
-    于是测试名声称在守护主键、实际什么都没守护。
+    sqlstate / constraint：钉死"拒绝到底来自哪条约束"。都不传时接受任何
+    psycopg.Error——**这是个很宽的网**：一条被别的约束拒绝的语句同样能让
+    with 块通过，于是测试名声称在守护 X、实际什么都没守护。本项目已实测踩到
+    这一点（一条声称守护 (match_id, player_slot) 主键的测试，实际可以是被
+    FK 拒绝）。故**所有负向测试都必须显式传 sqlstate**；同一 SQLSTATE 下有
+    歧义风险时再传 constraint。
+
+    constraint 收字符串或字符串元组：PG 对具名约束报约束名，对**部分唯一
+    索引**报索引名（如 rosters 的 left_at IS NULL 那条），两者形式不同。
     """
     conn.execute("SAVEPOINT sp")
     try:
@@ -58,6 +69,11 @@ def expect_violation(conn, sqlstate: str | None = None):
             pytest.fail(
                 f"期望 SQLSTATE {sqlstate}，实际为 {exc.sqlstate}：{exc}"
             )
+        if constraint is not None:
+            allowed = (constraint,) if isinstance(constraint, str) else constraint
+            actual = exc.diag.constraint_name
+            if actual not in allowed:
+                pytest.fail(f"期望约束 {allowed}，实际为 {actual!r}：{exc}")
     except BaseException:
         # 非 psycopg 异常（例如测试里调用的辅助函数抛 KeyError）也必须回滚，
         # 否则块内的写入会留在事务里可见，污染后续断言。

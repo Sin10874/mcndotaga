@@ -258,16 +258,22 @@ def dsn() -> str:
     旧 schema 上（改了 DDL 却依然全绿）。Task 3 起会频繁改 schema，这个坑
     必然再踩，故每次 session 都从零重建以换取「schema 永远对应当前迁移」。
 
-    WITH (FORCE) 需要 PG 13+（本机 16.14）。
+    两点取舍（有意为之，不是疏忽）：
+    - WITH (FORCE) 需要 PG 13+（本机 16.14）。它会**踢掉连到该库的其他会话**，
+      因此两个 pytest 会话并行跑会互相 DROP/CREATE。当前依赖**串行执行**；
+      将来若要并行（pytest-xdist），必须改为每 worker 一个库名。
+    - DROP/CREATE 每次 session 多花几百毫秒，换来"schema 永远对应当前迁移"。
     """
     base = os.environ.get("TEST_DATABASE_URL")
     if not base:
         head, dbname = _base_dsn().rsplit("/", 1)
         base = f"{head}/{dbname}_test"
     head, test_name = base.rsplit("/", 1)
+    # 库名是标识符，不能参数化（%s 只能用在值的位置），故手工转义双引号
+    ident = test_name.replace('"', '""')
     with psycopg.connect(f"{head}/postgres", autocommit=True) as c:
-        c.execute(f'DROP DATABASE IF EXISTS "{test_name}" WITH (FORCE)')
-        c.execute(f'CREATE DATABASE "{test_name}"')
+        c.execute(f'DROP DATABASE IF EXISTS "{ident}" WITH (FORCE)')
+        c.execute(f'CREATE DATABASE "{ident}"')
     from db.migrate import apply
     apply(base)
     return base
@@ -279,17 +285,22 @@ def db(dsn):
         conn.rollback()
 
 @contextmanager
-def expect_violation(conn, sqlstate: str | None = None):
+def expect_violation(conn, sqlstate: str | None = None,
+                     constraint: str | tuple[str, ...] | None = None):
     """断言语句违反约束，并回滚到保存点使事务可继续。
 
     必需：psycopg 在约束违规后事务进入 aborted 状态，
     后续任何语句都会以 'current transaction is aborted' 失败。
 
-    sqlstate：不传则接受任何 psycopg.Error（宽松，仅适用于"被任意约束拒绝
-    即可"的断言）；传入则要求恰好是该 SQLSTATE，否则视为测试失败。
-    **守护唯一性/主键的测试必须显式传入**——psycopg.Error 是个很宽的网，
-    一条被 FK（23503）或 CHECK（23514）拒绝的语句同样能让 with 块通过，
-    于是测试名声称在守护主键、实际什么都没守护。
+    sqlstate / constraint：钉死"拒绝到底来自哪条约束"。都不传时接受任何
+    psycopg.Error——**这是个很宽的网**：一条被别的约束拒绝的语句同样能让
+    with 块通过，于是测试名声称在守护 X、实际什么都没守护。本项目已实测踩到
+    这一点（一条声称守护 (match_id, player_slot) 主键的测试，实际可以是被
+    FK 拒绝）。故**所有负向测试都必须显式传 sqlstate**；同一 SQLSTATE 下有
+    歧义风险时再传 constraint。
+
+    constraint 收字符串或字符串元组：PG 对具名约束报约束名，对**部分唯一
+    索引**报索引名（如 rosters 的 left_at IS NULL 那条），两者形式不同。
     """
     conn.execute("SAVEPOINT sp")
     try:
@@ -300,6 +311,11 @@ def expect_violation(conn, sqlstate: str | None = None):
             pytest.fail(
                 f"期望 SQLSTATE {sqlstate}，实际为 {exc.sqlstate}：{exc}"
             )
+        if constraint is not None:
+            allowed = (constraint,) if isinstance(constraint, str) else constraint
+            actual = exc.diag.constraint_name
+            if actual not in allowed:
+                pytest.fail(f"期望约束 {allowed}，实际为 {actual!r}：{exc}")
     except BaseException:
         # 非 psycopg 异常（例如测试里调用的辅助函数抛 KeyError）也必须回滚，
         # 否则块内的写入会留在事务里可见，污染后续断言。
@@ -364,17 +380,19 @@ def test_two_anonymous_players_coexist(db, seeded):
 
 def test_raw_mod_128_normalization_is_rejected(db, seeded):
     """规格 §16.2：raw%128 把 Dire 的 128..132 塌缩成 0..4。"""
-    with expect_violation(db):
+    with expect_violation(db, sqlstate="23514", constraint="slot_team_agree"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,0,NULL,1,80)""")
 
 def test_slot_team_mismatch_is_rejected(db, seeded):
-    with expect_violation(db):
+    """slot 的 0-4/5-9 分段必须与 team 自洽（与 raw%128 同为 slot_team_agree 守护）。"""
+    with expect_violation(db, sqlstate="23514", constraint="slot_team_agree"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,5,NULL,0,80)""")
 
 def test_metric_weights_rejects_undefined_metric(db, seeded):
-    with expect_violation(db):
+    """规格 §7：只认六个指标键；'laning' 不是其中之一。"""
+    with expect_violation(db, sqlstate="23514", constraint="metric_weights_metric_check"):
         db.execute("INSERT INTO metric_weights VALUES ('laning','pro_match',1.0,NULL)")
 
 def test_metric_weights_accepts_all_six_spec_keys(db, seeded):
@@ -382,39 +400,51 @@ def test_metric_weights_accepts_all_six_spec_keys(db, seeded):
         db.execute("INSERT INTO metric_weights VALUES (%s,'pro_match',1.0,NULL)", (m,))
 
 def test_data_source_rejects_undefined_value(db, seeded):
-    with expect_violation(db):
+    """规格 §5.4：只有 pro_match/pub_match/scrim 三种来源，'ranked' 不合法。"""
+    with expect_violation(db, sqlstate="23514", constraint="matches_data_source_check"):
         db.execute("""INSERT INTO matches(match_id,data_source,started_at,draft_state)
                       VALUES (9,'ranked',now(),'complete')""")
 
 def test_draft_state_rejects_undefined_value(db, seeded):
-    with expect_violation(db):
+    """状态机只有 pending/complete/unavailable，'partial' 不合法。"""
+    with expect_violation(db, sqlstate="23514", constraint="matches_draft_state_check"):
         db.execute("""INSERT INTO matches(match_id,data_source,started_at,draft_state)
                       VALUES (9,'pro_match',now(),'partial')""")
 
 def test_draft_actions_rejects_unknown_hero(db, seeded):
-    with expect_violation(db):
+    """hero_id 外键：不存在的英雄必须被 FK 拒绝（不是 CHECK）。"""
+    with expect_violation(db, sqlstate="23503", constraint="draft_actions_hero_id_fkey"):
         db.execute("INSERT INTO draft_actions VALUES (1,0,false,0,999)")
 
 def test_draft_actions_rejects_ord_out_of_range(db, seeded):
-    with expect_violation(db):
+    """24 手模板：ord 合法区间是 0..23。"""
+    with expect_violation(db, sqlstate="23514", constraint="draft_actions_ord_check"):
         db.execute("INSERT INTO draft_actions VALUES (1,24,false,0,80)")
 
 def test_rosters_allows_null_joined_at(db, seeded):
+    """两条断言：joined_at 可空能入库（Liquipedia 常缺 joindate），
+    但同队同选手不允许第二条 left_at IS NULL。
+
+    此处的唯一性由**部分唯一索引** rosters_team_id_account_id_idx 提供，
+    故 PG 报的是索引名而非约束名——这正是 constraint 参数要收元组/索引名的原因。
+    """
     db.execute("INSERT INTO players(account_id,name) VALUES (111,'p')")
     db.execute("INSERT INTO teams(team_id,name) VALUES (10,'A')")
     db.execute("INSERT INTO rosters(team_id,account_id,joined_at,source) VALUES (10,111,NULL,'liquipedia')")
-    with expect_violation(db):
+    with expect_violation(db, sqlstate="23505",
+                          constraint="rosters_team_id_account_id_idx"):
         db.execute("INSERT INTO rosters(team_id,account_id,joined_at,source) VALUES (10,111,'2020-01-01','liquipedia')")
 
 def test_hero_token_index_rejects_duplicate_dense_index(db, seeded):
     """同快照内两个英雄不能占用同一 dense_index。"""
     db.execute("""INSERT INTO heroes(hero_id,name,localized_name) VALUES (81,'npc_dota_hero_x','X')""")
-    with expect_violation(db):
+    with expect_violation(db, sqlstate="23505", constraint="hero_token_index_pkey"):
         db.execute("INSERT INTO hero_token_index VALUES (1, 81, 73)")
 
 def test_hero_token_index_rejects_double_index_for_same_hero(db, seeded):
-    """同一英雄在同快照内不能有两个索引。"""
-    with expect_violation(db):
+    """同一英雄在同快照内不能有两个索引（UNIQUE(snapshot_version, hero_id)）。"""
+    with expect_violation(db, sqlstate="23505",
+                          constraint="hero_token_index_snapshot_version_hero_id_key"):
         db.execute("INSERT INTO hero_token_index VALUES (1, 80, 121)")
 
 def test_hero_token_index_is_versioned(db, seeded):
@@ -481,6 +511,45 @@ slot_team_agree，预期 2 failed, 13 passed"——数字对不上，且理由�
 `expect_violation` 照样通过，测试就变成恒绿的空断言——第一版正是这么写的，
 实测"删掉主键仍然绿"。因此该测试显式传 `sqlstate="23505"`，把"拒绝来自
 `(match_id, player_slot)` 唯一性"钉死。
+
+#### 每条负向测试必须钉死"拒绝来自哪条约束"
+
+`expect_violation` 不传参数时接受**任何** `psycopg.Error`，这是个很宽的网：一条被
+FK 拒绝的语句同样能让 `with` 块通过，于是测试名声称在守护 X、实际什么都没守护。
+本项目已实测踩到（一条声称守护 `(match_id, player_slot)` 主键的测试，实际可以被
+FK 拒绝而恒绿）。故**所有负向测试都必须显式传 `sqlstate`**；同一 SQLSTATE 下有
+歧义风险时再传 `constraint`。
+
+下表 SQLSTATE 与约束名**全部为实测值**（PG 16.14，逐条探测 `exc.sqlstate` 与
+`exc.diag.constraint_name`），不是照抄标准：
+
+| 测试 | sqlstate | constraint |
+|---|---|---|
+| `test_duplicate_player_slot_is_rejected` | `23505` | `match_players_pkey` |
+| `test_raw_mod_128_normalization_is_rejected` | `23514` | `slot_team_agree` |
+| `test_slot_team_mismatch_is_rejected` | `23514` | `slot_team_agree` |
+| `test_metric_weights_rejects_undefined_metric` | `23514` | `metric_weights_metric_check` |
+| `test_data_source_rejects_undefined_value` | `23514` | `matches_data_source_check` |
+| `test_draft_state_rejects_undefined_value` | `23514` | `matches_draft_state_check` |
+| `test_draft_actions_rejects_unknown_hero` | `23503` | `draft_actions_hero_id_fkey` |
+| `test_draft_actions_rejects_ord_out_of_range` | `23514` | `draft_actions_ord_check` |
+| `test_rosters_allows_null_joined_at`（后半段） | `23505` | `rosters_team_id_account_id_idx` |
+| `test_hero_token_index_rejects_duplicate_dense_index` | `23505` | `hero_token_index_pkey` |
+| `test_hero_token_index_rejects_double_index_for_same_hero` | `23505` | `hero_token_index_snapshot_version_hero_id_key` |
+
+两个易错点：
+- **未命名约束的自动命名**：`CHECK (metric IN (...))` 这类内联约束 PG 会命名为
+  `<表>_<列>_check`；`CREATE UNIQUE INDEX` 报的是**索引名**而非约束名
+  （故 `rosters` 那条是 `..._idx`，`constraint` 参数因此也要接受索引名）。
+- **同一 SQLSTATE 下的歧义**：`hero_token_index` 两条测试都是 `23505`，靠
+  `constraint` 区分主键与 `UNIQUE(snapshot_version, hero_id)`。
+
+破坏-恢复验证（实测，各 1 failed / 15 passed，失败者即目标测试）：
+- 删 `(match_id, player_slot)` 唯一性（连带删 `item_timings` 的 FK，见实验 B2）→
+  `test_duplicate_player_slot_is_rejected` 红
+- 把 `'laning'` 加进 `metric_weights` 的 CHECK 白名单 → 该测试红
+- 只把 `metric_weights_metric_check` 改名（SQLSTATE 仍是 `23514`）→ 该测试红，
+  报 `期望约束 (...)，实际为 '..._renamed'`，证明约束名钉死确实在起作用
 
 **请实际执行一次这个反向验证再继续。**
 
