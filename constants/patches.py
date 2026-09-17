@@ -14,11 +14,20 @@
     dates[1]  -> <code> + 'c'
     ...
 
-两处已知例外（`KNOWN_EXCEPTIONS`）：**7.22 不排序、7.25 不移位** —— 详见该常量的文本。
+映射结果进入时间线/行集之前还要过一道**时间线不倒挂不变式**（`_drop_backdated_slots`）：槽位不得早于
+前一个序列的 `main`。实测它丢掉 7.06 的一个错档槽位（84 → 83 行）—— 那个槽位实际属于 6.88 时代。
+
+**归属边界（Task 12 必须按它处理 `patch_id`）**：Valve 清单从 7.08 = 1517472000（2018-02-01）起，
+patchdates 独有的 6.70–7.07 段**全部**排在其之前。故 `subpatch_for_timestamp(ts)` 返回的名字
+**只有**对 `ts >= 1517472000` 才保证出现在 `patches` 行集里。
+
+三处已知例外（`KNOWN_EXCEPTIONS`）：**7.22 不排序、7.25 不移位、7.06 错档槽位丢弃** —— 详见该常量。
 
 性能：两个上游响应用 `lru_cache` **按进程缓存**（一次进程只读一次磁盘；`REFRESH_NETWORK=1` 时也只刷新
 一次——否则每条测试都会重拉，patchdates 的 raw 优先策略会连续 timeout）；`_version_timeline()` 每次重建。
-两个 fetch 返回的是缓存里的**同一个对象**，调用方不得原地修改。
+`lru_cache` 一旦填充，`MCNDOTAGA_CACHE_DIR` / `REFRESH_NETWORK` 的改动就只在 `cache_clear()` 之后生效。
+`fetch_valve_patches()` 返回**防御性拷贝**（list 与每行 dict 都是新的）；`fetch_patchdates()` 返回的仍是
+缓存里的**同一个对象**，调用方不得原地修改。
 """
 from __future__ import annotations
 
@@ -49,9 +58,22 @@ MAX_TOLERATED_DEVIATION_DAYS = 2
 
 _LETTERS = string.ascii_lowercase
 
-# 两个已知例外必须显式声明 —— 它们的偏差都在 ±2 天阈值**之内**，靠偏差检测抓不到。
+# 三个已知例外必须显式声明 —— 每个例外的性质不同，逐条说清（**不要**用一句「偏差都在 ±2 天阈值之内」
+# 概括：那是错的，7.22 的唯一例外槽位偏差 -34 天，本来就超阈值）：
+# - 7.22：偏差 -34 天，**超出** ±2 天阈值，偏差检测能抓到。声明它是为了固化「不排序」的读法，并让
+#   cross_check 的 max_deviation_days 排除它（否则那条 `<= 2` 哨兵会永远红）；例外仍出现在 outliers 里。
+# - 7.25：偏差 +1 天，落在阈值**之内**，偏差检测抓不到，只能靠显式声明。
+# - 7.06：不是「偏差」问题，而是槽位**错档** —— 该槽位早于前一个序列的 main，由时间线不倒挂不变式
+#   整条丢弃（丢弃后该窗口归 6.88c）；原始 patchdates 字节不变，故仍需要声明。
 # 键用 float 是为了让 `7.22 in KNOWN_EXCEPTIONS` 这种写法直接可用（规格 §3.2 的版本号记法）。
 KNOWN_EXCEPTIONS: dict[float, str] = {
+    7.06: ("patchdates 的 dates[4]=1471651200（2016-08-20）**错档**：它实际是 6.88c 的公告时刻"
+           "（patchdates 的 6.88c=1471564800 / 2016-08-19，6.88d=1472774400 / 2016-09-02），"
+           "却记在 7.06 名下。位置映射把它变成 7.06f（比 7.06 自己的 main 1494856800 早 268 天），"
+           "使 [1471651200, 1472774400) 这 12 天整段被错标成 7.06f。**该槽位整条丢弃**："
+           "由 _drop_backdated_slots 的不倒挂不变式（槽位不得早于前一个序列的 main；7.06 的前一个"
+           "序列是 7.05，main=1491750000）拦下，丢弃后该窗口正确归属 6.88c/6.88d。"
+           "这是通用不变式，不是为 7.06 写的点修 —— 下次数据刷新再出现错档，同样会被丢弃。"),
     7.22: ("patchdates 的 dates[] 未排序（unsorted）：dates[2]=1558915200 被位置映射成 7.22d，"
            "比 Valve 的 7.22d=1561878000 早 34 天。**不排序**：按给定顺序的位置映射才能复现规格 §3.2 的"
            "「83 槽 / 34 精确 / 48 ±1–2 天 / 1 例外」；排序后 7.22c 与 7.22d 会同时错位（35 / 46 / 2）。"
@@ -64,8 +86,11 @@ KNOWN_EXCEPTIONS: dict[float, str] = {
 
 
 @functools.lru_cache(maxsize=1)
-def fetch_valve_patches() -> list[dict]:
-    """Valve 官方补丁清单（免密钥）。返回 `data["patches"]`（118 条，按发布时间升序）。"""
+def _fetch_valve_patches_cached() -> list[dict]:
+    """Valve 官方补丁清单（免密钥）。返回 `data["patches"]`（118 条，按发布时间升序）。
+
+    **私有**：返回值就是进程级缓存对象本身，只许 `fetch_valve_patches()` 读它。
+    """
     data = _http.fetch_json(VALVE_PATCHNOTESLIST_URL, VALVE_CACHE_NAME)
     if not isinstance(data, dict) or "patches" not in data:
         raise RuntimeError(
@@ -75,6 +100,16 @@ def fetch_valve_patches() -> list[dict]:
     if data.get("success") is False:
         raise RuntimeError("Valve patchnoteslist 返回 success=false：上游拒绝或参数错误")
     return data["patches"]
+
+
+def fetch_valve_patches() -> list[dict]:
+    """`_fetch_valve_patches_cached()` 的**防御性拷贝**（列表与每行 dict 都是新的）。
+
+    拷贝必须发生在 `lru_cache` **之外**：写在被缓存的函数里等于把拷贝本身也缓存起来，
+    调用方一次 `append`/`sort`/改字段照样污染整个进程（返回值全是 int/str，故逐行浅拷贝即可）。
+    磁盘缓存仍是一次进程只读一次。
+    """
+    return [dict(p) for p in _fetch_valve_patches_cached()]
 
 
 @functools.lru_cache(maxsize=1)
@@ -124,20 +159,73 @@ def _utc_day(ts: int) -> datetime.date:
     return datetime.datetime.fromtimestamp(int(ts), datetime.timezone.utc).date()
 
 
+def _patchdates_series() -> list[Mapping[str, Any]]:
+    """patchdates 的条目按 `main` 升序 —— 序列的**时间顺序**（不是键 "0"…"60" 的顺序）。"""
+    return sorted(fetch_patchdates().values(), key=lambda e: int(e["main"]))
+
+
+def _drop_backdated_slots(entry: Mapping[str, Any], previous_main: int | None
+                          ) -> tuple[dict[str, int], dict[str, int]]:
+    """把 `restore_subpatch_dates(entry)` 按**时间线不倒挂不变式**切成（保留, 丢弃）。
+
+    不变式：**映射出来的槽位不得早于「前一个序列」的 `main`**；「前一个序列」= `main` 小于本条目、
+    且 `main` 最大的那条 patchdates 记录。理由：字母由**位置**决定（见 `restore_subpatch_dates`），
+    一个槽位一旦落到前一个序列的地盘上，位置映射必然给出一个错版本名 —— 它比前一个序列的 main
+    还早这件事本身就暴露了错档。
+
+    这是**通用不变式，不是针对某条记录的点修**：将来数据刷新若再出现错档槽位，同样会被丢弃，
+    而不是悄悄把一段窗口的归属弄反。实测当前快照只丢 1 条：7.06f（见 `KNOWN_EXCEPTIONS[7.06]`）。
+    """
+    slots = restore_subpatch_dates(entry)
+    if previous_main is None:              # 最早的那条序列没有「前一个」
+        return slots, {}
+    kept = {name: ts for name, ts in slots.items() if ts >= previous_main}
+    dropped = {name: ts for name, ts in slots.items() if ts < previous_main}
+    return kept, dropped
+
+
+def _kept_and_dropped_slots() -> tuple[dict[str, dict[str, int]], list[dict]]:
+    """一次遍历得到 `({code: 过完不倒挂不变式的槽位}, [被丢弃的槽位])`。"""
+    kept_by_code: dict[str, dict[str, int]] = {}
+    dropped: list[dict] = []
+    previous_main: int | None = None
+    for entry in _patchdates_series():
+        kept, lost = _drop_backdated_slots(entry, previous_main)
+        kept_by_code[entry["code"]] = kept
+        dropped += [{"base_version": entry["code"], "version_name": name, "released_at": ts,
+                     "previous_main": previous_main} for name, ts in lost.items()]
+        previous_main = int(entry["main"])
+    return kept_by_code, dropped
+
+
+def _dropped_backdated_slots() -> list[dict]:
+    """被不倒挂不变式丢弃的槽位（实测恰好 1 条：7.06f；`previous_main` 是前一个序列的 main）。"""
+    return _kept_and_dropped_slots()[1]
+
+
 def patchdates_only_versions() -> list[dict]:
-    """Valve 未覆盖的序列（6.70–7.07 段）：patchdates 独有的基础版本 + 字母槽（27 + 57 = 84 行）。
+    """Valve 未覆盖的序列（6.70–7.07 段）：patchdates 独有的基础版本 + 字母槽（27 + 56 = 83 行）。
 
     **不写入 `patches` 表**：规格 §3.2「`patches` 表的行集以 Valve 为准（118 版本 / 84 字母版本）」、
     §15③、以及 M1 验收（Task 13 断言字母版本数 == 84）都要求行集来自 Valve，
-    而 patchdates 有 141 个字母槽。它的用途是让 `subpatch_for_timestamp` 能归属 Valve 无记录的年代。
+    而 patchdates 原始有 141 个字母槽。它的用途是让 `subpatch_for_timestamp` 能归属 Valve 无记录的年代。
+
+    相对上游的原始映射有**两处收缩**，都在这里体现：字母槽只算 Valve 未覆盖的序列（141 → 57），
+    再被时间线不倒挂不变式丢掉 7.06 的错档槽位 7.06f（57 → 56），行数 84 → 83。
+    上游 `patchdates.json` 的 141 槽属性本身不变（规格 §3.2 / README 记的是上游）。
+
+    **归属边界**：这些行**全部**早于 Valve 清单起点（7.08 = 1517472000，2018-02-01），
+    故它们不属于 `patches` 行集；`subpatch_for_timestamp` 对早于该时刻的时间戳返回的名字
+    **不在** `patches` 里。
     """
     valve_bases = {_base_version(name) for name in _valve_versions()}
+    kept_by_code, _ = _kept_and_dropped_slots()
     rows = []
-    for entry in fetch_patchdates().values():
-        if entry["code"] in valve_bases:
+    for code, slots in kept_by_code.items():
+        if code in valve_bases:
             continue
-        for name, ts in restore_subpatch_dates(entry).items():
-            rows.append({"version_name": name, "base_version": entry["code"], "released_at": ts})
+        for name, ts in slots.items():
+            rows.append({"version_name": name, "base_version": code, "released_at": ts})
     rows.sort(key=lambda r: (r["released_at"], r["version_name"]))
     return rows
 
@@ -148,8 +236,8 @@ def declare_lettered_versions(*, include_patchdates_only: bool = False) -> list[
     每行**恰好**三个键，对应 Task 11（`constants/load.py`）迭代的字段：
     `version_name` / `base_version` / `released_at`（int，Unix 秒，来自 Valve）。
 
-    `include_patchdates_only=True` 时并上 `patchdates_only_versions()`（6.70–7.07 段，84 行）——
-    那是**归属用**的并集（202 行 / 141 个字母槽），**不要**写进 `patches` 表（见该函数说明）。
+    `include_patchdates_only=True` 时并上 `patchdates_only_versions()`（6.70–7.07 段，83 行）——
+    那是**归属用**的并集（201 行 / 140 个字母槽），**不要**写进 `patches` 表（见该函数说明）。
     """
     rows = [{"version_name": name, "base_version": _base_version(name), "released_at": ts}
             for name, ts in _valve_versions().items()]
@@ -165,14 +253,16 @@ def _version_timeline() -> list[tuple[int, str]]:
     规格 §3.2 入库规则「以 Valve 的时间戳为准；patchdates 的值仅用于填写那些 Valve 列表未覆盖的
     序列」：同一 `base_version` 只要 Valve 覆盖了，就**只用 Valve 的条目**，patchdates 的同名槽位
     一律丢弃（两个来源的 7.41f 相差 11.8 h，混用会让窗口内的比赛错标一个字母）。
+    patchdates 独有的序列还要过 `_drop_backdated_slots` 的不倒挂不变式（丢掉 7.06f 这个错档槽位）。
     """
     valve = _valve_versions()
     valve_bases = {_base_version(name) for name in valve}
     timeline = [(ts, name) for name, ts in valve.items()]
-    for entry in fetch_patchdates().values():
-        if entry["code"] in valve_bases:
+    kept_by_code, _ = _kept_and_dropped_slots()
+    for code, slots in kept_by_code.items():
+        if code in valve_bases:
             continue
-        timeline += [(ts, name) for name, ts in restore_subpatch_dates(entry).items()]
+        timeline += [(ts, name) for name, ts in slots.items()]
     timeline.sort()
     return timeline
 
@@ -183,6 +273,11 @@ def subpatch_for_timestamp(ts: int) -> str:
     区间语义：**左闭右开** —— 恰好在某版本发布时刻 `t` 的 `ts` 属于该新版本（`t` 之前一秒属于旧版本）。
     数据来源：Valve 优先；Valve 未覆盖的 6.70–7.07 段回落 patchdates（见 `_version_timeline`）。
     早于最早已知版本的时间戳抛 `ValueError`（静默归到某个版本会让年代错得离谱）。
+
+    **归属 ≠ 入库成功**：返回的名字**只有**对 `ts >= 1517472000`（Valve 清单起点 7.08，2018-02-01）
+    才保证出现在 `patches` 行集里。更早的时间戳（2016–2017 的 Kaggle 数据全在此列）返回的是
+    patchdates 独有的 6.70–7.07 名字，`patches` 里**没有**这些行 —— 调用方（Task 12）必须按这条
+    边界决定 `patch_id` 写不写：仅 `start_time < 1517472000` 允许 NULL，之后必须 0 个 NULL。
     """
     timeline = _version_timeline()
     stamps = [t for t, _ in timeline]
@@ -208,8 +303,10 @@ def cross_check_against_valve() -> dict:
       误报成超差）。
     - `outliers`：|偏差| > 2 天的**全部**槽位，**包含**已声明的例外（7.22d）—— 例外必须可见。
     - `max_deviation_days`：**排除已声明例外序列**（`KNOWN_EXCEPTIONS` 里的 base_version）后的最大
-      偏差，故 `<= 2` 的含义是「没有**意外**漂移」。例外槽位仍出现在 `outliers` 里，
-      所以这个排除不可能把它藏起来；任何**新**的超差都会同时抬高该值（见测试的变异守护）。
+      偏差 —— 排除发生在取 max **之前**：逐个条目先判 `declared`，已声明的整段跳过。故 `<= 2` 的含义
+      是「没有**意外**漂移」。例外槽位仍出现在 `outliers` 里，所以这个排除不可能把它藏起来。
+      **会抬高该值的只有非例外序列的漂移**；已声明序列内部再怎么漂（如 7.22d 的 −34 天）也只出现在
+      `outliers` 里，不会反映到这个值上 —— 原表述「任何新的超差都会同时抬高该值」是错的。
     """
     valve = _valve_versions()
     valve_bases = {_base_version(name) for name in valve}
