@@ -925,6 +925,7 @@ git commit -m "feat(shared): 24 手模板唯一定义处，供引擎、模型与
 - Create: `contracts/tools/__init__.py`, `contracts/tools/build_openapi.py`
 - Create: `tests/contracts/__init__.py`, `tests/contracts/conftest.py`
 - Test: `tests/contracts/test_common_schema.py`
+- Test: `tests/contracts/test_openapi_fresh.py`
 
 - [ ] **Step 1: 写 `tests/contracts/__init__.py` 与 `tests/contracts/conftest.py`**
 
@@ -1076,7 +1077,7 @@ def test_degraded_requires_needs_only_for_needs_replay(validator_for):
     with pytest.raises(jsonschema.ValidationError):
         v.validate({"value": None, "reason": "needs_replay"})
 
-def test_degraded_rejects_truthy_value(validator_for):
+def test_degraded_rejects_non_null_value(validator_for):
     with pytest.raises(jsonschema.ValidationError):
         validator_for("Degraded").validate({"value": 0, "reason": "insufficient_samples"})
 
@@ -1084,15 +1085,45 @@ def test_error_codes_are_closed(validator_for):
     with pytest.raises(jsonschema.ValidationError):
         validator_for("ErrorEnvelope").validate({"error": {"code": "boom", "message": "x"}})
 
-def test_all_six_archetypes_are_defined(common):
+def test_all_seven_their_opening_values_are_defined(common):
     assert set(common["TheirOpening"]["enum"]) == {
         "teamfight","push","pickoff","splitpush","protect","initiate","unknown"}
+
+def test_reason_enum_closure_via_ref(validator_for):
+    """四个 unavailable_reason 都必须被接受（逐个守护枚举成员），且经
+    Degraded.reason 的 $ref 拒绝非法值——把该 $ref 换成 {type: string} 会让本测试变红。"""
+    v = validator_for("Degraded")
+    for reason in ["needs_replay", "insufficient_samples",
+                   "source_not_allowed", "stat_unavailable"]:
+        payload = {"value": None, "reason": reason}
+        if reason == "needs_replay":
+            payload["needs"] = "Phase B"
+        v.validate(payload)
+    with pytest.raises(jsonschema.ValidationError):
+        v.validate({"value": None, "reason": "bogus"})
+```
+
+- [ ] **Step 4b: 写 `tests/contracts/test_openapi_fresh.py`（生成物新鲜度）**
+
+```python
+"""契约生成物新鲜度：committed openapi.yaml 必须等于 schemas/*.yaml 的合并结果。
+
+比较**解析后的字典**，不比较文本——文本比较会绑定 PyYAML 的输出格式，
+依赖升级即误报。也**不要**用 subprocess 调 main()：那会先覆写生成物再比较，
+测试将恒绿，正好失去意义。
+"""
+from contracts.tools.build_openapi import build
+
+def test_openapi_is_freshly_built_from_schemas(contract_doc):
+    assert contract_doc == build(), (
+        "contracts/openapi.yaml 与 contracts/schemas/*.yaml 不一致——"
+        "运行 python -m contracts.tools.build_openapi 并提交生成物")
 ```
 
 - [ ] **Step 5: 生成并运行**
 
 Run: `python -m contracts.tools.build_openapi && pytest tests/contracts -q`
-Expected: `wrote .../openapi.yaml with 10 schemas`；**4 passed**
+Expected: `wrote .../openapi.yaml with 11 schemas`；**6 passed**
 
 - [ ] **Step 6: Commit**
 
@@ -1375,7 +1406,7 @@ def test_every_degraded_field_refs_the_Degraded_component(contract_doc):
 - [ ] **Step 6: 运行确认通过**
 
 Run: `python -m contracts.tools.build_openapi && pytest tests/contracts -q`
-Expected: **21 passed**（4 公共 + 9 不变式 + 8 schema 形状）
+Expected: **23 passed**（6 公共 + 9 不变式 + 8 schema 形状）
 
 - [ ] **Step 7: Commit**
 
@@ -1593,7 +1624,7 @@ def test_ts_contains_all_required_enums():
 - [ ] **Step 3: 生成并运行**
 
 Run: `make contract-ts && pytest tests/contracts -q`
-Expected: `wrote .../web/src/types/contract.ts`；**24 passed**
+Expected: `wrote .../web/src/types/contract.ts`；**26 passed**
 
 - [ ] **Step 4: 校验 OpenAPI 文档本身（M0 验收第 1 条）**
 
@@ -1604,7 +1635,7 @@ Expected: `contracts/openapi.yaml: OK`（openapi-spec-validator 0.9.x 会打印�
 - [ ] **Step 5: 全量测试**
 
 Run: `make db-reset && make test`
-Expected: **53 passed**（29 + 21 + 1 + 2）
+Expected: **55 passed**（29 + 23 + 1 + 2）
 
 - [ ] **Step 6: Commit（M0 完成）**
 
