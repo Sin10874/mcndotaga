@@ -724,6 +724,7 @@ POST /v1/policy/next
 - `(next_ord, team, is_pick) == resolve(max_ord(draft)+1, first_pick_team)`，即 §6.0 的 `resolve()`
 - `candidates[].hero_id` 不得与 `draft` 中已出现的 hero 重复
 - `baseline.model_top1` 在模型未就绪时为 `null`（`// optional`，语义为"无模型"），前端须能渲染此态
+- `model` 为 `null`（模型未就绪）与 `baseline.frequency_top1` 为 `null`（本版本样本不足、无基准可言）都是**合法值**；两者都**必填但可空**——`null` 表达"无模型/无基准"，不得用省略字段或填 `0` 冒充（schema 已按 `["string","null"]` / `["number","null"]` 冻结）
 - `reasons` 非空（不得返回无依据的候选）
 
 ### 6.3 Playbook —— 剧本集（主输出）
@@ -836,6 +837,8 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
 - `consider[].if_we_leave_it_open` 与 `op_hero_decision[]` **同形**（`OpHeroOption`），不得各写一套。
 - `matchup.side_map` 必须含 `us`/`them` 两个键且取值互异（0 与 1 各一），并与 `first_pick_team` 一起用于上一条的自洽判定。
 - `series_id` 为 `// optional`；缺省时不返回 `series` 对象（而非返回 null 字段）。
+- `series.games[].note` 为 `// optional`（示例中"第 1 局的负者获得第 2 局先手权…"即此字段）；其缺省语义为"该局无附加说明"，不得用空字符串冒充。
+- `data_quality.oldest_pending_hours` 为 `null` **当且仅当** `n_pending_draft == 0`：没有 pending 场次时不存在"最老"的一笔，不得填 `0` 冒充有值（§6.0「绝不允许填 0 冒充有值」）。
 - 所有依赖回放的指标使用 §6.0 的统一降级形态，**不得**静默省略字段。
 
 ### 6.4 Profile —— 战队与选手画像
