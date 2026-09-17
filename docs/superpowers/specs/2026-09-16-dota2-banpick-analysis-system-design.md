@@ -770,6 +770,7 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
   "branches": [
     {
       "branch_id": "A",
+      "applies_to_game": 1,
       "condition": {"first_pick": "us", "their_opening": "teamfight"},
       "plans": [{
         "label": "A1",
@@ -783,16 +784,25 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
     },
     {
       "branch_id": "B",
+      "applies_to_game": 2,
       "condition": {"first_pick": "them", "their_opening": "push"},
-      "plans": [ /* 同形 */ ]
+      "plans": [{
+        "label": "B1",
+        "goal": "对手先手时抢下反制核心",
+        "key_picks": [{"priority": 1, "hero_id": 19, "by_ord": 12,
+                       "why": "...", "fallback": [67]}],
+        "expected_wr": 0.51, "n": 31,
+        "robustness_delta": 0.05,
+        "penalized_score": 0.51
+      }]
     }
   ],
   "series": {
     "series_id": 1141522,
     "games": [
       {"game_no": 1, "first_pick_team": 0},
-      {"game_no": 2, "first_pick_team": null,
-       "note": "先手权取决于第 1 局结果，赛前未知"}
+      {"game_no": 2, "first_pick_team": 1,
+       "note": "第 1 局的负者获得第 2 局先手权；该值在第 1 局结束后才能确定，未确定时为 null——此时不得产出指向该局的 them 分支"}
     ],
     "game1_plan": "...",
     "adjustment_rules": [{"if": "对手第 1 局暴露推进体系", "then": "..."}]
@@ -810,8 +820,8 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
 - `branches[].condition.first_pick` ∈ {`"us"`,`"them"`}，且所有（2 先手 × 7 体系）组合必须被覆盖或有显式 `unknown` 分支。
 - **先手方与 side_map 的自洽规则（可判定）**：定义 `us_has_first_pick := (side_map["us"] == first_pick_team)`，并记 `expected := "us" if us_has_first_pick else "them"`。该字段的合法性分两种情形：
   - **单局剧本**（响应不含 `series`）：`matchup.first_pick_team` 是本局已知值，故**所有**分支必须 `condition.first_pick == expected`。
-  - **系列赛剧本**（响应含 `series`）：BO3/BO5 中先手权会易手，故分支**允许**取 `us` 与 `them` 两者，但此时每个分支必须带 `applies_to_game`（整数，≥1）指向 `series.games[]` 中的某一局，且该局的 `first_pick_team` 推导出的 `expected` 必须与该分支一致。
-  **示例验算**：`side_map.us = 0`、`first_pick_team = 0` → `expected = "us"`。示例中分支 A 标 `"us"` ✓；分支 B 标 `"them"`，因此**该示例必须带 `series` 与 `applies_to_game`**，否则不合法。
+  - **系列赛剧本**（响应含 `series`）：BO3/BO5 中先手权会易手，故分支**允许**取 `us` 与 `them` 两者，但此时每个分支必须带 `applies_to_game`（整数，≥1）指向 `series.games[]` 中的某一局，且该局的 `first_pick_team` 推导出的 `expected` 必须与该分支一致；该局 `first_pick_team` 为 `null` 时无法推导，**不得**作为 `applies_to_game` 的目标。
+  - **示例验算**：`side_map.us = 0`、`first_pick_team = 0` → `expected = "us"`。分支 A 标 `"us"` 且 `applies_to_game = 1`（第 1 局 `first_pick_team = 0` → `expected = "us"` ✓）；分支 B 标 `"them"` 且 `applies_to_game = 2`（第 2 局 `first_pick_team = 1` → `expected = "them"` ✓）。两分支的 `key_picks[].by_ord` 亦与所属局自洽：ord 13 在 `first_pick_team = 0` 时属我方，ord 12 在 `first_pick_team = 1` 时属我方 ✓。本示例同时由 `Playbook` schema 与 `contracts/tools/invariants.py` 的 `check_playbook` 校验（Task 6 起）；**示例与规则冲突时一律以规则为准**。
 - **`by_ord` 是绝对手数（0–23），不是分支内的相对序号。** 其归属方由 §6.0 的 `resolve(by_ord, first_pick_team)` 确定性决定，且**必须与所属分支自洽**：`first_pick: "us"` 的分支里，每个 `by_ord` 按 `resolve()` 都必须落在我方手上。示例验算：`first_pick_team = 0` 时 `resolve(13) = (pick, team 0)` = 我方 ✓（真实数据里 ord 13 正是 team 0 选 Techies）。不自洽则该 plan 为 `invalid_request`。
 - `op_hero_decision[].recommendation` ∈ §6.0 枚举；`n` 不足以支撑时必须是 `insufficient_data` 而非猜测。
 - `if_we_leave` 中 `our_wr + their_wr == 1.0`（±0.001）——这是**同一批比赛的两个视角**，我方赢了就是对方输了。`n` 为此批比赛的场次数，两个比率共用。示例：`0.58 + 0.42 = 1.0` ✓
@@ -1264,7 +1274,7 @@ else:                                   -> leave_and_counter
 | fixture | 覆盖的契约字段 |
 |---|---|
 | `value__low_confidence.json` | `confidence: "low"`、`n_samples < 30` |
-| `profile__map_vision_counts_only.json` | `map_vision` **在 Phase A 返回真实数量口径的百分位**（非降级），同时 `notes[].kind="ward"` 的坐标条目返回 `needs_replay` 降级——两者并存，用于证明"指标可用、坐标待 Phase B"这一区分 |
+| `profile__map_vision_counts_only.json` | `map_vision` **在 Phase A 返回真实数量口径的百分位**（非降级），且与 `coverage.n_position_unknown > 0` 并存，证明"位置未知不降级数量口径指标"。**坐标条目的 `needs_replay` 降级由 `playbook__positions_phase_b.json` 覆盖**（§6.4 的字段表是穷尽性的、§6.5 又把眼位坐标列为 Phase A 禁止字段，故 Profile 响应不含 `notes[]`——本行此前误把 Playbook 的 `positions[].notes[]` 写进了 Profile fixture） |
 | `profile__position_unknown.json` | `coverage.n_position_unknown > 0`；**五个位置相关维度**为 `insufficient_samples`，而 **`hero_archetype` 仍返回六项且和为 1.0**（§7.3：该维度不依赖位置）。此 fixture 专门锁住这个区分，防止实现者把六维一起降级 |
 | `playbook__draft_incomplete.json` | `data_quality.n_pending_draft > 0` 与 `n_unavailable_draft > 0`（这是 §12 R1 承诺的"UI 标注数据不完整"的载体） |
 | `playbook__anomalous.json` | `data_quality.n_anomalous_draft > 0` |
