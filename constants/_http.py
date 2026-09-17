@@ -17,7 +17,8 @@ def _refresh() -> bool:
 
     **不能**用 os.environ.get(...) 的真值判断：那样 REFRESH_NETWORK=0 与
     =false 都会被当成「开启刷新」——把「关」写成 0 是最自然的写法，后果却是
-    每次跑测试都打网络，且覆盖掉已提交的缓存字节。""/0/false/no 一律是关闭。
+    每次跑测试都打网络，且覆盖掉已提交的缓存字节。故只有 1/true/yes 算刷新，
+    空串与 0/false/no 一律是关闭。
     """
     return os.environ.get("REFRESH_NETWORK", "").strip().lower() in _TRUTHY
 
@@ -32,6 +33,8 @@ def fetch_json(url: str, cache_name: str) -> dict | list:
     `follow_redirects=True` 是**必须**的：上游若把 canonical URL 302 到别处（raw → CDN 镜像这一类），
     跟随才拿得到 JSON；不跟随时 `raise_for_status()` 会抛一个只说「302 Found」的 HTTPStatusError，
     把"这个 URL 只是转发"伪装成一次真实的上游故障。
+    副作用：跟随重定向后**原始来源不可辨** —— raw 被 302 到镜像时，落盘的字节来自镜像而不是 `url`
+    参数，故缓存文件记录的是「谁最终返回了 JSON」，不能当作「canonical URL 可达」的证据。
     """
     path = _cache_dir() / cache_name
     if path.exists() and not _refresh():
