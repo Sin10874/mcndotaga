@@ -249,6 +249,17 @@ def _base_dsn() -> str:
     return os.environ.get("DATABASE_URL", "postgresql://dota:dota@localhost:5432/dota") \
         .replace("postgresql+psycopg://", "postgresql://")
 
+def _test_dsn_from(base: str) -> str:
+    """把 <db> 派生成 <db>_test，保留查询串。
+
+    必须先把 "?" 之后切掉再拼后缀：否则
+    `.../dota?sslmode=disable` 会推出 `dota?sslmode=disable_test`，
+    PG 报 `invalid sslmode value: "disable_test"`。
+    """
+    dsn, sep, query = base.partition("?")
+    head, dbname = dsn.rsplit("/", 1)
+    return f"{head}/{dbname}_test{sep}{query}"
+
 @pytest.fixture(scope="session")
 def dsn() -> str:
     """每 session 重建 <db>_test 并跑迁移，使测试不污染开发库（规格 §15）。
@@ -258,25 +269,39 @@ def dsn() -> str:
     旧 schema 上（改了 DDL 却依然全绿）。Task 3 起会频繁改 schema，这个坑
     必然再踩，故每次 session 都从零重建以换取「schema 永远对应当前迁移」。
 
-    两点取舍（有意为之，不是疏忽）：
+    三点取舍（有意为之，不是疏忽）：
     - WITH (FORCE) 需要 PG 13+（本机 16.14）。它会**踢掉连到该库的其他会话**，
       因此两个 pytest 会话并行跑会互相 DROP/CREATE。当前依赖**串行执行**；
       将来若要并行（pytest-xdist），必须改为每 worker 一个库名。
     - DROP/CREATE 每次 session 多花几百毫秒，换来"schema 永远对应当前迁移"。
+    - **库名必须以 `_test` 结尾**，否则 pytest.exit 中止整个会话。本 fixture 会
+      无条件 DROP 目标库，而 TEST_DATABASE_URL 恰恰是人手设置、最容易打错的
+      旋钮：打错到真库上不会报错，只会静默销毁它。护栏宁可误拒，不可误删。
     """
     base = os.environ.get("TEST_DATABASE_URL")
     if not base:
-        head, dbname = _base_dsn().rsplit("/", 1)
-        base = f"{head}/{dbname}_test"
-    head, test_name = base.rsplit("/", 1)
+        base = _test_dsn_from(_base_dsn())
+    # 查询串（?sslmode=... 等）必须在解析库名之前切掉：否则 test_name 会变成
+    # 'dota_test?sslmode=disable'，既过不了下面的 _test 护栏，也会让 ident 带上 '?'。
+    dsn_only, sep, query = base.partition("?")
+    head, test_name = dsn_only.rsplit("/", 1)
     # 库名是标识符，不能参数化（%s 只能用在值的位置），故手工转义双引号
     ident = test_name.replace('"', '""')
+    # 护栏必须在 DROP 之前：这是配置错误，应整体停下并给出可操作提示，
+    # 而不是让每个测试各报一个莫名其妙的断言失败。
+    if not test_name.endswith("_test"):
+        pytest.exit(
+            f"拒绝操作测试库 {test_name!r}：库名必须以 '_test' 结尾。"
+            f"本 fixture 会 DROP + CREATE 该库，误配会静默销毁真实数据库。"
+            f"请检查 TEST_DATABASE_URL / DATABASE_URL。",
+            returncode=1,
+        )
     with psycopg.connect(f"{head}/postgres", autocommit=True) as c:
         c.execute(f'DROP DATABASE IF EXISTS "{ident}" WITH (FORCE)')
         c.execute(f'CREATE DATABASE "{ident}"')
     from db.migrate import apply
     apply(base)
-    return base
+    return base   # 保留查询串，供测试连接使用
 
 @pytest.fixture
 def db(dsn):
@@ -359,14 +384,18 @@ def test_full_ten_player_match_inserts(db, seeded):
 def test_duplicate_player_slot_is_rejected(db, seeded):
     """规格 §5.1：主键是 (match_id, player_slot)。同一场同一 slot 不能有两行。
 
-    第二个 account_id 必须先存在于 players，否则这一句会被 FK（23503）拒绝，
-    测试就变成恒绿的空断言——而它声称守护的正是主键选择。故此处同时钉住
-    23505（unique_violation），确保拒绝来自 (match_id, player_slot) 的唯一性。
+    必须钉住 constraint="match_players_pkey"，光钉 23505 不够：本测试存在多种
+    都能骗过 SQLSTATE-only 版本的变形——把主键换成 UNIQUE(match_id, player_slot)、
+    换成三列唯一、或给主键改名，SQLSTATE 都仍是 23505 而测试照绿，于是规格明确
+    论证过的那个主键其实无人守护（实测：这几种变形下仅钉 SQLSTATE 均为 16 passed）。
+
+    先插入 players(111) 是为了让**唯一**被违反的约束就是主键：若该 account 不存在，
+    同一条语句会同时踩 FK 与主键，PG 只报其一，剔除 FK 变量才能确认拒绝来自主键。
     """
     db.execute("INSERT INTO players(account_id, name) VALUES (111, 'p')")
     db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                   VALUES (1,3,NULL,0,80)""")
-    with expect_violation(db, sqlstate="23505"):
+    with expect_violation(db, sqlstate="23505", constraint="match_players_pkey"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,3,111,0,80)""")   # 同 slot，不同 account
 
@@ -379,19 +408,34 @@ def test_two_anonymous_players_coexist(db, seeded):
     ).fetchone()[0] == 2
 
 def test_raw_mod_128_normalization_is_rejected(db, seeded):
-    """规格 §16.2：raw%128 把 Dire 的 128..132 塌缩成 0..4。"""
+    """规格 §16.2：raw%128 把 Dire 的 128..132 塌缩成 0..4。
+
+    已钉住约束名（见下），故此处 23514 来自 slot_team_agree。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="slot_team_agree"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,0,NULL,1,80)""")
 
 def test_slot_team_mismatch_is_rejected(db, seeded):
-    """slot 的 0-4/5-9 分段必须与 team 自洽（与 raw%128 同为 slot_team_agree 守护）。"""
+    """slot 的 0-4/5-9 分段必须与 team 自洽（与 raw%128 同为 slot_team_agree 守护）。
+
+    已钉住约束名（见下），故此处 23514 来自 slot_team_agree。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="slot_team_agree"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,5,NULL,0,80)""")
 
 def test_metric_weights_rejects_undefined_metric(db, seeded):
-    """规格 §7：只认六个指标键；'laning' 不是其中之一。"""
+    """规格 §7：只认六个指标键；'laning' 不是其中之一。
+
+    已钉住约束名（见下），故此处 23514 来自 metric_weights_metric_check。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="metric_weights_metric_check"):
         db.execute("INSERT INTO metric_weights VALUES ('laning','pro_match',1.0,NULL)")
 
@@ -400,24 +444,44 @@ def test_metric_weights_accepts_all_six_spec_keys(db, seeded):
         db.execute("INSERT INTO metric_weights VALUES (%s,'pro_match',1.0,NULL)", (m,))
 
 def test_data_source_rejects_undefined_value(db, seeded):
-    """规格 §5.4：只有 pro_match/pub_match/scrim 三种来源，'ranked' 不合法。"""
+    """规格 §5.4：只有 pro_match/pub_match/scrim 三种来源，'ranked' 不合法。
+
+    已钉住约束名（见下），故此处 23514 来自 matches_data_source_check。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="matches_data_source_check"):
         db.execute("""INSERT INTO matches(match_id,data_source,started_at,draft_state)
                       VALUES (9,'ranked',now(),'complete')""")
 
 def test_draft_state_rejects_undefined_value(db, seeded):
-    """状态机只有 pending/complete/unavailable，'partial' 不合法。"""
+    """状态机只有 pending/complete/unavailable，'partial' 不合法。
+
+    已钉住约束名（见下），故此处 23514 来自 matches_draft_state_check。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="matches_draft_state_check"):
         db.execute("""INSERT INTO matches(match_id,data_source,started_at,draft_state)
                       VALUES (9,'pro_match',now(),'partial')""")
 
 def test_draft_actions_rejects_unknown_hero(db, seeded):
-    """hero_id 外键：不存在的英雄必须被 FK 拒绝（不是 CHECK）。"""
+    """hero_id 外键：不存在的英雄必须被 FK 拒绝（不是 CHECK）。
+
+    已钉住约束名（见下），故此处 23503 来自 draft_actions_hero_id_fkey。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23503", constraint="draft_actions_hero_id_fkey"):
         db.execute("INSERT INTO draft_actions VALUES (1,0,false,0,999)")
 
 def test_draft_actions_rejects_ord_out_of_range(db, seeded):
-    """24 手模板：ord 合法区间是 0..23。"""
+    """24 手模板：ord 合法区间是 0..23。
+
+    已钉住约束名（见下），故此处 23514 来自 draft_actions_ord_check。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="draft_actions_ord_check"):
         db.execute("INSERT INTO draft_actions VALUES (1,24,false,0,80)")
 
@@ -517,11 +581,32 @@ slot_team_agree，预期 2 failed, 13 passed"——数字对不上，且理由�
 `expect_violation` 不传参数时接受**任何** `psycopg.Error`，这是个很宽的网：一条被
 FK 拒绝的语句同样能让 `with` 块通过，于是测试名声称在守护 X、实际什么都没守护。
 本项目已实测踩到（一条声称守护 `(match_id, player_slot)` 主键的测试，实际可以被
-FK 拒绝而恒绿）。故**所有负向测试都必须显式传 `sqlstate`**；同一 SQLSTATE 下有
-歧义风险时再传 `constraint`。
+FK 拒绝而恒绿）。
 
-下表 SQLSTATE 与约束名**全部为实测值**（PG 16.14，逐条探测 `exc.sqlstate` 与
-`exc.diag.constraint_name`），不是照抄标准：
+**结论：11 条负向测试全部同时钉住 `sqlstate` 与 `constraint`**（下表为实测值，
+由逐条探测 `exc.sqlstate` 与 `exc.diag.constraint_name` 得到，不是照抄标准）。
+
+**为什么连 `constraint` 也钉——实测证明必须钉。** 下列两个变形都**保持 DDL 合法**
+（唯一性仍在，故 `item_timings` 的 FK 仍满足），且 SQLSTATE 仍是 23505：只看
+SQLSTATE 时它们**全部 16 passed**，即规格明确论证过的那个主键其实无人守护。
+
+| 变形 | SQLSTATE | 只钉 sqlstate | 同时钉 constraint |
+|---|---|---|---|
+| 主键换成 `UNIQUE(match_id, player_slot)` | 23505 | 照绿 ❌ | **1 failed** ✅ |
+| 给主键改名（`CONSTRAINT mp_pk PRIMARY KEY ...`） | 23505 | 照绿 ❌ | **1 failed** ✅ |
+
+实测失败信息：`期望约束 ('match_players_pkey',)，实际为
+'match_players_match_id_player_slot_key'`（变形 1）与 `实际为 'mp_pk'`（变形 2）。
+
+> 注：另一个看似更隐蔽的变形"把主键换成三列唯一
+> `UNIQUE(match_id, player_slot, account_id)`"其实**到不了断言**——它使
+> `item_timings` 的 FK 失去 `(match_id, player_slot)` 唯一性依托，DDL 直接
+> `InvalidForeignKey`，得到 **16 errors**（与实验 B1 同因）。故它不构成对
+> SQLSTATE-only 版本的绕过，列在这里只为避免后人重复踩。
+
+**代价（有意接受）**：约束名由 PG 自动生成，**改名会让这些测试变红**。这是刻意
+选择的耦合方向——"目标约束真的被触发"只有靠约束名才能验证；而一个会让测试变红
+的改名，恰恰值得人来确认一次。
 
 | 测试 | sqlstate | constraint |
 |---|---|---|
@@ -540,16 +625,31 @@ FK 拒绝而恒绿）。故**所有负向测试都必须显式传 `sqlstate`**�
 两个易错点：
 - **未命名约束的自动命名**：`CHECK (metric IN (...))` 这类内联约束 PG 会命名为
   `<表>_<列>_check`；`CREATE UNIQUE INDEX` 报的是**索引名**而非约束名
-  （故 `rosters` 那条是 `..._idx`，`constraint` 参数因此也要接受索引名）。
+  （故 `rosters` 那条是 `..._idx`，`constraint` 参数因此也接受索引名）。
 - **同一 SQLSTATE 下的歧义**：`hero_token_index` 两条测试都是 `23505`，靠
   `constraint` 区分主键与 `UNIQUE(snapshot_version, hero_id)`。
 
-破坏-恢复验证（实测，各 1 failed / 15 passed，失败者即目标测试）：
+破坏-恢复验证（各 1 failed / 15 passed，失败者即目标测试）：
 - 删 `(match_id, player_slot)` 唯一性（连带删 `item_timings` 的 FK，见实验 B2）→
   `test_duplicate_player_slot_is_rejected` 红
+- 把主键换成 `UNIQUE(match_id, player_slot)` → 该测试红（只钉 SQLSTATE 时为 16 passed）
 - 把 `'laning'` 加进 `metric_weights` 的 CHECK 白名单 → 该测试红
-- 只把 `metric_weights_metric_check` 改名（SQLSTATE 仍是 `23514`）→ 该测试红，
-  报 `期望约束 (...)，实际为 '..._renamed'`，证明约束名钉死确实在起作用
+- 只把 `metric_weights_metric_check` 改名（SQLSTATE 仍 `23514`）→ 该测试红
+
+#### `dsn` 的两道安全护栏（DROP 是不可逆的）
+
+`dsn` 会**无条件** `DROP DATABASE ... WITH (FORCE)` 后重建。`TEST_DATABASE_URL`
+恰恰是人手设置、最容易打错的旋钮：打错到真库上**不会报错，只会静默销毁它**。
+故加两道护栏，实测行为如下：
+
+1. **库名必须以 `_test` 结尾**，否则 `pytest.exit`（配置错误应整体停下并给出可
+   操作提示，而非让每个测试各报一个莫名其妙的断言失败）。
+   实测：`TEST_DATABASE_URL=.../devdb`（含 `precious` 表）→ 会话中止、exit 1、
+   `precious` 数据完好。反过来，`_test` 结尾的库**会**被 DROP 重建，这是设计意图。
+2. **查询串必须先切掉再拼后缀**：否则 `.../dota?sslmode=disable` 会推出
+   `dota?sslmode=disable_test`，PG 报 `invalid sslmode value: "disable_test"`。
+   实测：`.../mydb?application_name=x` → 推导出 `mydb_test?application_name=x`
+   （库名正确、查询串保留）；带查询串的非 `_test` 库被正确识别并拒绝。
 
 **请实际执行一次这个反向验证再继续。**
 

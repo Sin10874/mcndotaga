@@ -7,6 +7,17 @@ def _base_dsn() -> str:
     return os.environ.get("DATABASE_URL", "postgresql://dota:dota@localhost:5432/dota") \
         .replace("postgresql+psycopg://", "postgresql://")
 
+def _test_dsn_from(base: str) -> str:
+    """把 <db> 派生成 <db>_test，保留查询串。
+
+    必须先把 "?" 之后切掉再拼后缀：否则
+    `.../dota?sslmode=disable` 会推出 `dota?sslmode=disable_test`，
+    PG 报 `invalid sslmode value: "disable_test"`。
+    """
+    dsn, sep, query = base.partition("?")
+    head, dbname = dsn.rsplit("/", 1)
+    return f"{head}/{dbname}_test{sep}{query}"
+
 @pytest.fixture(scope="session")
 def dsn() -> str:
     """每 session 重建 <db>_test 并跑迁移，使测试不污染开发库（规格 §15）。
@@ -16,25 +27,39 @@ def dsn() -> str:
     旧 schema 上（改了 DDL 却依然全绿）。Task 3 起会频繁改 schema，这个坑
     必然再踩，故每次 session 都从零重建以换取「schema 永远对应当前迁移」。
 
-    两点取舍（有意为之，不是疏忽）：
+    三点取舍（有意为之，不是疏忽）：
     - WITH (FORCE) 需要 PG 13+（本机 16.14）。它会**踢掉连到该库的其他会话**，
       因此两个 pytest 会话并行跑会互相 DROP/CREATE。当前依赖**串行执行**；
       将来若要并行（pytest-xdist），必须改为每 worker 一个库名。
     - DROP/CREATE 每次 session 多花几百毫秒，换来"schema 永远对应当前迁移"。
+    - **库名必须以 `_test` 结尾**，否则 pytest.exit 中止整个会话。本 fixture 会
+      无条件 DROP 目标库，而 TEST_DATABASE_URL 恰恰是人手设置、最容易打错的
+      旋钮：打错到真库上不会报错，只会静默销毁它。护栏宁可误拒，不可误删。
     """
     base = os.environ.get("TEST_DATABASE_URL")
     if not base:
-        head, dbname = _base_dsn().rsplit("/", 1)
-        base = f"{head}/{dbname}_test"
-    head, test_name = base.rsplit("/", 1)
+        base = _test_dsn_from(_base_dsn())
+    # 查询串（?sslmode=... 等）必须在解析库名之前切掉：否则 test_name 会变成
+    # 'dota_test?sslmode=disable'，既过不了下面的 _test 护栏，也会让 ident 带上 '?'。
+    dsn_only, sep, query = base.partition("?")
+    head, test_name = dsn_only.rsplit("/", 1)
     # 库名是标识符，不能参数化（%s 只能用在值的位置），故手工转义双引号
     ident = test_name.replace('"', '""')
+    # 护栏必须在 DROP 之前：这是配置错误，应整体停下并给出可操作提示，
+    # 而不是让每个测试各报一个莫名其妙的断言失败。
+    if not test_name.endswith("_test"):
+        pytest.exit(
+            f"拒绝操作测试库 {test_name!r}：库名必须以 '_test' 结尾。"
+            f"本 fixture 会 DROP + CREATE 该库，误配会静默销毁真实数据库。"
+            f"请检查 TEST_DATABASE_URL / DATABASE_URL。",
+            returncode=1,
+        )
     with psycopg.connect(f"{head}/postgres", autocommit=True) as c:
         c.execute(f'DROP DATABASE IF EXISTS "{ident}" WITH (FORCE)')
         c.execute(f'CREATE DATABASE "{ident}"')
     from db.migrate import apply
     apply(base)
-    return base
+    return base   # 保留查询串，供测试连接使用
 
 @pytest.fixture
 def db(dsn):

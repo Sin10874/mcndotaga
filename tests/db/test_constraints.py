@@ -10,14 +10,18 @@ def test_full_ten_player_match_inserts(db, seeded):
 def test_duplicate_player_slot_is_rejected(db, seeded):
     """规格 §5.1：主键是 (match_id, player_slot)。同一场同一 slot 不能有两行。
 
-    第二个 account_id 必须先存在于 players，否则这一句会被 FK（23503）拒绝，
-    测试就变成恒绿的空断言——而它声称守护的正是主键选择。故此处同时钉住
-    23505（unique_violation），确保拒绝来自 (match_id, player_slot) 的唯一性。
+    必须钉住 constraint="match_players_pkey"，光钉 23505 不够：本测试存在多种
+    都能骗过 SQLSTATE-only 版本的变形——把主键换成 UNIQUE(match_id, player_slot)、
+    换成三列唯一、或给主键改名，SQLSTATE 都仍是 23505 而测试照绿，于是规格明确
+    论证过的那个主键其实无人守护（实测：这几种变形下仅钉 SQLSTATE 均为 16 passed）。
+
+    先插入 players(111) 是为了让**唯一**被违反的约束就是主键：若该 account 不存在，
+    同一条语句会同时踩 FK 与主键，PG 只报其一，剔除 FK 变量才能确认拒绝来自主键。
     """
     db.execute("INSERT INTO players(account_id, name) VALUES (111, 'p')")
     db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                   VALUES (1,3,NULL,0,80)""")
-    with expect_violation(db, sqlstate="23505"):
+    with expect_violation(db, sqlstate="23505", constraint="match_players_pkey"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,3,111,0,80)""")   # 同 slot，不同 account
 
@@ -30,19 +34,34 @@ def test_two_anonymous_players_coexist(db, seeded):
     ).fetchone()[0] == 2
 
 def test_raw_mod_128_normalization_is_rejected(db, seeded):
-    """规格 §16.2：raw%128 把 Dire 的 128..132 塌缩成 0..4。"""
+    """规格 §16.2：raw%128 把 Dire 的 128..132 塌缩成 0..4。
+
+    已钉住约束名（见下），故此处 23514 来自 slot_team_agree。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="slot_team_agree"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,0,NULL,1,80)""")
 
 def test_slot_team_mismatch_is_rejected(db, seeded):
-    """slot 的 0-4/5-9 分段必须与 team 自洽（与 raw%128 同为 slot_team_agree 守护）。"""
+    """slot 的 0-4/5-9 分段必须与 team 自洽（与 raw%128 同为 slot_team_agree 守护）。
+
+    已钉住约束名（见下），故此处 23514 来自 slot_team_agree。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="slot_team_agree"):
         db.execute("""INSERT INTO match_players(match_id,player_slot,account_id,team,hero_id)
                       VALUES (1,5,NULL,0,80)""")
 
 def test_metric_weights_rejects_undefined_metric(db, seeded):
-    """规格 §7：只认六个指标键；'laning' 不是其中之一。"""
+    """规格 §7：只认六个指标键；'laning' 不是其中之一。
+
+    已钉住约束名（见下），故此处 23514 来自 metric_weights_metric_check。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="metric_weights_metric_check"):
         db.execute("INSERT INTO metric_weights VALUES ('laning','pro_match',1.0,NULL)")
 
@@ -51,24 +70,44 @@ def test_metric_weights_accepts_all_six_spec_keys(db, seeded):
         db.execute("INSERT INTO metric_weights VALUES (%s,'pro_match',1.0,NULL)", (m,))
 
 def test_data_source_rejects_undefined_value(db, seeded):
-    """规格 §5.4：只有 pro_match/pub_match/scrim 三种来源，'ranked' 不合法。"""
+    """规格 §5.4：只有 pro_match/pub_match/scrim 三种来源，'ranked' 不合法。
+
+    已钉住约束名（见下），故此处 23514 来自 matches_data_source_check。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="matches_data_source_check"):
         db.execute("""INSERT INTO matches(match_id,data_source,started_at,draft_state)
                       VALUES (9,'ranked',now(),'complete')""")
 
 def test_draft_state_rejects_undefined_value(db, seeded):
-    """状态机只有 pending/complete/unavailable，'partial' 不合法。"""
+    """状态机只有 pending/complete/unavailable，'partial' 不合法。
+
+    已钉住约束名（见下），故此处 23514 来自 matches_draft_state_check。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="matches_draft_state_check"):
         db.execute("""INSERT INTO matches(match_id,data_source,started_at,draft_state)
                       VALUES (9,'pro_match',now(),'partial')""")
 
 def test_draft_actions_rejects_unknown_hero(db, seeded):
-    """hero_id 外键：不存在的英雄必须被 FK 拒绝（不是 CHECK）。"""
+    """hero_id 外键：不存在的英雄必须被 FK 拒绝（不是 CHECK）。
+
+    已钉住约束名（见下），故此处 23503 来自 draft_actions_hero_id_fkey。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23503", constraint="draft_actions_hero_id_fkey"):
         db.execute("INSERT INTO draft_actions VALUES (1,0,false,0,999)")
 
 def test_draft_actions_rejects_ord_out_of_range(db, seeded):
-    """24 手模板：ord 合法区间是 0..23。"""
+    """24 手模板：ord 合法区间是 0..23。
+
+    已钉住约束名（见下），故此处 23514 来自 draft_actions_ord_check。
+    取舍：约束名由 PG 自动生成，改名会让本测试变红——接受这种耦合，
+    因为「目标约束真的被触发」只有靠约束名才能验证（详见计划文档
+    「每条负向测试必须钉死拒绝来源」一节）。"""
     with expect_violation(db, sqlstate="23514", constraint="draft_actions_ord_check"):
         db.execute("INSERT INTO draft_actions VALUES (1,24,false,0,80)")
 
