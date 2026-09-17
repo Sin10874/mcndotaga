@@ -311,7 +311,7 @@ def test_every_fixture_covers_its_declared_boundary():
     """每个 fixture 必须真的覆盖它声明的那条边界（防止 fixture 被漂白）。
 
     实现为**表驱动 + 逐行独立判定**（而不是 17 个 parametrize 用例）是刻意的：
-    计划 Task 7/8 的计数（Step 5「2 passed」、Task 8「84 / 117 passed」）以本文件
+    计划 Task 7/8 的计数（Step 5「2 passed」、Task 8「87 / 120 passed」）以本文件
     恰好两条测试为前提；逐行判定还能一次性报出**所有**丢覆盖的 fixture，
     而不是修一个跑一次。
     """

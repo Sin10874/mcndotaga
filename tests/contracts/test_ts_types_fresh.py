@@ -102,6 +102,3 @@ def test_ts_enum_members_match_the_contract(contract_doc):
             f"{name} 生成成员与冻结基线不符（顺序也算）——生成器漏值/多值/取错 "
             f"schema，或契约改了而 contract.ts 未重新生成：\n"
             f"  基线: {want}\n  生成: {enums[name]}")
-
-
-

@@ -26,6 +26,12 @@
 
 **依赖方向**：Chunk 2 只依赖 Chunk 1 的仓库骨架；Chunk 3 依赖 Chunk 1 的 DDL 与 `conftest.py`。三块中 **Chunk 1 → Chunk 2** 是关键路径（交付 fixture 后前端即可开工），Chunk 3 可与 Chunk 2 并行。
 
+**已实现任务（Task 1–8）的权威来源是提交，不是本文的代码块。** 下面 Task 1–8 里嵌入的代码块
+只是**首版草稿**：复核发现的修复**不一定**回贴到本文，所以逐字重放这些块会悄悄复活已修好的缺陷
+（已有实例：Task 6 的 `check_profile` 缺 §7.3 同侪下限、Task 7 的 fixture 谓词偏宽，二者都由
+`5e02f74` 修好，本文对应块**未**回贴）。以 `git log -p -- <path>` 与工作树里的已提交文件为准；
+本文的代码块只用于理解意图与实现顺序。
+
 **交付后即可并行的三条 worktree：**
 - 线 A（画像引擎）→ `analysis/`：依赖 `db/` + `contracts/`（即 Chunk 1 + 2 + 3）
 - 线 C（序列模型）→ `models/`：依赖 `contracts/` + `shared/draft_template.py`。
@@ -2542,7 +2548,7 @@ def test_every_fixture_covers_its_declared_boundary():
     """每个 fixture 必须真的覆盖它声明的那条边界（防止 fixture 被漂白）。
 
     实现为**表驱动 + 逐行独立判定**（而不是 17 个 parametrize 用例）是刻意的：
-    计划 Task 7/8 的计数（Step 5「2 passed」、Task 8「84 / 117 passed」）以本文件
+    计划 Task 7/8 的计数（Step 5「2 passed」、Task 8「87 / 120 passed」）以本文件
     恰好两条测试为前提；逐行判定还能一次性报出**所有**丢覆盖的 fixture，
     而不是修一个跑一次。
     """
@@ -2744,26 +2750,145 @@ if __name__ == "__main__":
 - [ ] **Step 2: 写新鲜度与完整性测试**
 
 ```python
-import pathlib, subprocess, sys
+"""TS 生成物的新鲜度与完整性。
+
+路径一律由 ``__file__`` 推出仓库根，**不依赖 cwd**：从 ``tests/`` 里跑
+pytest 与从仓库根跑必须同结果（仓库内其余测试同样 cwd 无关）。
+"""
+import pathlib, re, subprocess, sys
+
+ROOT = pathlib.Path(__file__).parents[2]
+TS = ROOT / "web" / "src" / "types" / "contract.ts"
+GENERATOR = "contracts.tools.gen_ts_types"
+
+# 生成器要求存在、前端需要引用的枚举（contracts/tools/gen_ts_types.REQUIRED_ENUMS
+# 的超集检查见 test_ts_enum_members_match_the_contract：契约里的**每个**枚举都比对）
+REQUIRED_ENUMS = ["Confidence", "Recommendation", "TheirOpening", "NoteKind",
+                  "UnavailableReason", "ErrorCode", "Side"]
+
+# 冻结的枚举成员基线——**前端可见枚举面的唯一权威期望**。
+#
+# 为什么不从 openapi.yaml 现算：契约与生成物可能被同一次改动一起重建，
+# 那样两边的「一致」是自洽的退化，漏值不会被发现（实测：删掉
+# TheirOpening.unknown 后重建两边，只比对二者的测试全绿）。基线把期望钉在
+# 评审过的字面量上，删成员必须连带改这里，于是**必然**出现在 diff 里。
+# 改名/增删成员的步骤：改契约 → 重建 → 改这里 → 重生成 → 一起提交。
+ENUM_MEMBERS: dict[str, list[str]] = {
+    "Confidence": ["low", "medium", "high"],
+    "ErrorCode": ["insufficient_data", "invalid_request", "source_not_allowed",
+                  "not_found", "upstream_unavailable"],
+    "Factor": ["patch_strength", "counter_matchup", "player_comfort", "first_pick"],
+    "NoteKind": ["ward", "timing", "lane", "smoke", "combat", "resource", "communication"],
+    "Recommendation": ["pick", "ban", "leave_and_counter", "insufficient_data"],
+    "Side": ["us", "them"],
+    "Team": ["0", "1"],
+    "TheirOpening": ["teamfight", "push", "pickoff", "splitpush", "protect",
+                     "initiate", "unknown"],
+    "UnavailableReason": ["needs_replay", "insufficient_samples", "source_not_allowed",
+                          "stat_unavailable"],
+}
+
+# 「export type X = A | B;」一行一条，无嵌套、无换行——小显式解析器足够。
+_ENUM_DECL = re.compile(r"^export type (\w+) = (.+);$", re.M)
+_QUOTED = re.compile(r"""^(?:"[^"]*"|'[^']*')$""")   # 字符串枚举成员（生成器用 "…"，Resource 用 '…'）
+_NUMERIC = re.compile(r"^\d+$")                       # 整数枚举成员（Team）
+
+
+def ts_enums() -> dict[str, list[str]]:
+    """{枚举名: [成员裸值]}——解析 ``export type X = A | B;``，按生成顺序保留。"""
+    out: dict[str, list[str]] = {}
+    for name, body in _ENUM_DECL.findall(TS.read_text(encoding="utf-8")):
+        members = [m.strip() for m in body.split("|")]
+        assert all(_QUOTED.match(m) or _NUMERIC.match(m) for m in members), (
+            f"{name} 含非法成员（既不是字符串字面量也不是整数）: {members}")
+        out[name] = [m[1:-1] if _QUOTED.match(m) else m for m in members]  # 去引号
+    return out
+
+
+def _contract_members(values: list) -> list[str]:
+    """契约枚举值 → 裸值形式（与 ``ts_enums()`` 的输出同形）。"""
+    return [str(v) for v in values]
+
 
 def test_generated_ts_is_up_to_date():
-    p = pathlib.Path("web/src/types/contract.ts")
-    before = p.read_text(encoding="utf-8")
-    subprocess.run([sys.executable, "-m", "contracts.tools.gen_ts_types"], check=True)
-    assert before == p.read_text(encoding="utf-8"), "contract.ts 已过期，运行 make contract-ts 并提交"
+    before = TS.read_text(encoding="utf-8")
+    subprocess.run([sys.executable, "-m", GENERATOR], check=True, cwd=ROOT)
+    assert before == TS.read_text(encoding="utf-8"), "contract.ts 已过期，运行 make contract-ts 并提交"
+
 
 def test_ts_contains_all_required_enums():
     """生成器漏掉 §6.0 的枚举时失败。"""
-    ts = pathlib.Path("web/src/types/contract.ts").read_text(encoding="utf-8")
-    for name in ["Confidence","Recommendation","TheirOpening","NoteKind",
-                 "UnavailableReason","ErrorCode","Side"]:
+    ts = TS.read_text(encoding="utf-8")
+    for name in REQUIRED_ENUMS:
         assert f"export type {name} =" in ts, f"{name} 未生成"
+
+
+def test_ts_enum_members_match_the_contract(contract_doc):
+    """逐成员比对契约、生成物与冻结基线——漏值/多值/取错 schema 都必须变红。
+
+    ``test_ts_contains_all_required_enums`` 只断言 ``export type X =`` 存在，
+    对「成员被静默丢掉」或「成员来自另一个 schema」无能为力；本测试补上。
+    比对范围是**契约里全部带 enum 的 schema**（REQUIRED_ENUMS 只是其中前端
+    硬依赖的子集），外加生成器固定输出的 ``Resource``。
+    """
+    enums = ts_enums()
+    assert set(enums) == set(ENUM_MEMBERS) | {"Resource"}, (
+        f"contract.ts 的导出枚举与冻结基线不一致：\n"
+        f"  仅 TS 有: {sorted(set(enums) - set(ENUM_MEMBERS) - {'Resource'})}\n"
+        f"  仅基线有: {sorted(set(ENUM_MEMBERS) - set(enums))}")
+    schemas = contract_doc["components"]["schemas"]
+    for name in REQUIRED_ENUMS:                     # 前端依赖的枚举，缺席即失败
+        assert name in schemas, f"契约缺少必需枚举 {name}"
+    from_contract = {n: _contract_members(s["enum"])
+                     for n, s in schemas.items() if s.get("enum")}
+    assert set(from_contract) == set(ENUM_MEMBERS), (
+        f"契约的枚举面与冻结基线不一致：\n"
+        f"  仅契约有: {sorted(set(from_contract) - set(ENUM_MEMBERS))}\n"
+        f"  仅基线有: {sorted(set(ENUM_MEMBERS) - set(from_contract))}")
+    for name in sorted(ENUM_MEMBERS):
+        want = ENUM_MEMBERS[name]
+        assert from_contract[name] == want, (
+            f"{name} 契约成员与冻结基线不符（顺序也算）：\n"
+            f"  基线: {want}\n  契约: {from_contract[name]}")
+        assert enums[name] == want, (
+            f"{name} 生成成员与冻结基线不符（顺序也算）——生成器漏值/多值/取错 "
+            f"schema，或契约改了而 contract.ts 未重新生成：\n"
+            f"  基线: {want}\n  生成: {enums[name]}")
 ```
 
 - [ ] **Step 3: 生成并运行**
 
 Run: `make contract-ts && pytest tests/contracts -q`
-Expected: `wrote .../web/src/types/contract.ts`；**86 passed**（82 既有 + 2 fixtures + 2 TS）
+Expected: `wrote .../web/src/types/contract.ts`；**87 passed**（82 既有 + 2 fixtures + 3 TS）
+
+**实测（Task 8 落地时）**：87 passed ✓（`.venv/bin/pytest tests/contracts -q` → `87 passed in 0.18s`）。
+生成器**确定性**：连跑两次 `contracts.tools.gen_ts_types`，`git status` 保持干净、
+`shasum -a 256 web/src/types/contract.ts` = `761ad13bc745f4ae033a0cbb84f25565c807620e406aaac1d4f0945e36600505` 不变。
+
+**TS 真实编译器验证（手工步骤，**不**做成测试——没有 tsc 的机器会误红）**：
+
+```bash
+/Users/xinzechao/node_modules/.bin/tsc --noEmit --strict --target es2020 \
+    --typeRoots /tmp/ts-empty-types web/src/types/contract.ts
+# → 无输出，exit 0（tsc 5.9.3 / node v24.13.0）
+```
+
+`--typeRoots` 指向空目录是必要的：repo 的父目录 `/Users/xinzechao/node_modules/@types/node`
+会被自动纳入，而它依赖未安装的 `undici-types`，不加该参数会报 5 条
+`TS2792 Cannot find module 'undici-types'`——与本生成物无关的噪声。反向对照：
+把 `"HIGH"` 赋给 `Confidence` 会得到
+`error TS2820: Type '"HIGH"' is not assignable to type 'Confidence'. Did you mean '"high"'?`，
+证明这份类型真的能约束前端。
+
+**环境偏差（本机无 Docker、venv 不在 PATH）**：本机 `make contract` / `make contract-ts` /
+`make lint-spec` 都以 `make: python: No such file or directory` 失败，`make db-reset` 需要
+Docker 也不可用。故上面三步分别改用 `.venv/bin/python -m contracts.tools.gen_ts_types`、
+`.venv/bin/python -m contracts.tools.validate_fixtures`、
+`.venv/bin/python -m openapi_spec_validator contracts/openapi.yaml`；
+全量测试用临时 PostgreSQL 16 集群 + 环境变量
+`TEST_DATABASE_URL=postgresql://dota@localhost:55432/dota_test`、
+`DATABASE_URL=postgresql://dota@localhost:55432/dota` 跑 `.venv/bin/pytest -q`。
+**Makefile 未改**——它在 venv/PATH 配好的机器上仍然正确，只是本机 PATH 里没有 `python`。
 
 - [ ] **Step 4: 校验 OpenAPI 文档本身（M0 验收第 1 条）**
 
@@ -2774,11 +2899,17 @@ Expected: `contracts/openapi.yaml: OK`（openapi-spec-validator 0.9.x 会打印�
 - [ ] **Step 5: 全量测试**
 
 Run: `make db-reset && make test`
-Expected: **119 passed**（33 + 82 + 2 + 2：db/shared + 既有契约 + Task 7 fixtures 两条
-+ Task 8 TS 两条。实测分解：db/shared 33 = db 22（16 约束 + 6 隔离）+ shared 11；
-既有契约 82 = 公共 6 + 不变式 45 + schema 形状 31。相对上一版的 117：Task 7 复核修复
-给 `test_invariants.py` 补了 2 条 §7.3 用例（43 → 45），既有契约由 80 变 82；此前
-「Task 7 由 1 条变 2 条」的 +1 仍计入，故比最初计划的 116 多 3）
+Expected: **120 passed**（33 + 82 + 2 + 3：db/shared + 既有契约 + Task 7 fixtures 两条
++ Task 8 TS **三**条。实测分解：db/shared 33 = db 22（16 约束 + 6 隔离）+ shared 11；
+既有契约 82 = 公共 6 + openapi 新鲜度 1 + 不变式 45 + schema 形状 31。相对上一版的 117：
+Task 7 复核修复给 `test_invariants.py` 补了 2 条 §7.3 用例（43 → 45），既有契约由 80 变 82；
+此前「Task 7 由 1 条变 2 条」的 +1 仍计入。Task 8 的 TS 由 2 条变 3 条（新增逐成员比对，
+见 Step 2 说明），故为 120）
+
+**实测（Task 8 落地时）**：120 passed ✓（临时 PostgreSQL 16 集群 + `TEST_DATABASE_URL`/
+`DATABASE_URL` 指向 55432 端口，`.venv/bin/pytest -q` → `120 passed in 0.36s`；
+`--collect-only` 逐文件核对：invariants 45、schema_shape 31、constraints 16、
+draft_template 11、isolation 6、common_schema 5、ts_types 3、fixtures 2、openapi_fresh 1）
 
 - [ ] **Step 6: Commit（M0 完成）**
 
