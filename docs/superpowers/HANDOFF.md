@@ -11,7 +11,29 @@
 
 打开新会话，说：
 
-> 按 `docs/superpowers/plans/2026-09-16-contract-freeze-and-data-foundation.md` 从 Task 3 继续。工作区在 `.worktrees/plan-1-contract-and-data-foundation`，分支同名。用 subagent-driven-development：每个任务派实施者子代理，然后规格评审 + 质量评审。
+> 按 `docs/superpowers/plans/2026-09-16-contract-freeze-and-data-foundation.md` 从 Task 3 继续。在 `.worktrees/plan-1-contract-and-data-foundation` 里干活（`.venv` 已装好，`main` 也已同步到同一提交）。用 subagent-driven-development：每个任务派实施者子代理，然后规格评审 + 质量评审。
+
+## 目录情况
+
+| 位置 | 状态 |
+|---|---|
+| `/Users/xinzechao/MCNDOTAGA`（`main`） | 已含 Task 1–2 的全部产出（快进合并） |
+| `.worktrees/plan-1-contract-and-data-foundation`（同名分支） | **在这里继续**。`.venv/` 已装好、依赖齐全 |
+| `/tmp/taskN.md` | 上一会话抽取的任务文本，**新会话不存在，需重新抽取** |
+
+**在主目录（`main`）里没有 `.venv`**，直接跑 pytest 会找不到 psycopg。所以要么在 worktree 里干活，要么先在主目录建 venv。
+
+抽取任务文本的方式（新会话用）：
+
+```bash
+python3 -c "
+import pathlib
+s = pathlib.Path('docs/superpowers/plans/2026-09-16-contract-freeze-and-data-foundation.md').read_text(encoding='utf-8')
+a = s.index('### Task 3:'); b = s.index('### Task 4:')
+pathlib.Path('/tmp/task3.md').write_text(s[a:b], encoding='utf-8')
+print(f'Task 3 = {len(s[a:b].splitlines())} 行')
+"
+```
 
 ---
 
