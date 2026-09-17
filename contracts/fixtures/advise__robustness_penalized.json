@@ -1,0 +1,25 @@
+{
+  "next_ord": 13,
+  "team": 0,
+  "is_pick": true,
+  "options": [
+    {"hero_id": 105, "expected_wr": 0.552, "robustness_delta": 0.04,
+     "penalized_score": 0.552,
+     "why": "对手按预测分布应对时最优；换招后仍不劣于 0.51",
+     "fallback": [67, 19],
+     "counterparty_plan": "对手若抢 105，我方案转为 67 起手的推进体系"},
+    {"hero_id": 67,  "expected_wr": 0.548, "robustness_delta": 0.03,
+     "penalized_score": 0.548,
+     "why": "对换招不敏感，原始胜率与 105 相差在噪声内",
+     "fallback": [19, 105],
+     "counterparty_plan": "对手若抢 67，我方案转为 105 先手"},
+    {"hero_id": 19,  "expected_wr": 0.600, "robustness_delta": 0.35,
+     "penalized_score": 0.350,
+     "risk_note": "原始胜率最高（0.600），但对手一旦不按预测出牌，本方案会明显劣化——降权后不应作为第一选择展示",
+     "why": "对手按预测分布应对时期望最高，代价是对预测准确度极度敏感",
+     "fallback": [67, 105],
+     "counterparty_plan": "对手若抢 19，我方案退回到 105 起手的稳健分支"}
+  ],
+  "assumptions": {"opponent_model": "sequence-v1", "value_model": "value-v1"},
+  "sources_used": ["pro_match"]
+}

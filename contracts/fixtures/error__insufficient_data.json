@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "insufficient_data",
+    "message": "对手在本版本仅 4 场有效比赛，低于 30 场门槛",
+    "detail": {"n_samples": 4, "required": 30}
+  }
+}

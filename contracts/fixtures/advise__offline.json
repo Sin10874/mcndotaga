@@ -1,0 +1,45 @@
+{
+  "branches": [
+    {
+      "branch_id": "us:teamfight",
+      "condition": {"first_pick": "us", "their_opening": "teamfight"},
+      "plans": [
+        {
+          "label": "A1",
+          "goal": "拖到中后期，靠分推拉扯",
+          "key_picks": [{"priority": 1, "hero_id": 105, "by_ord": 13,
+                         "why": "本版本我方胜率最高的先手核心", "fallback": [67, 19]}],
+          "expected_wr": 0.520, "n": 31,
+          "robustness_delta": 0.04,
+          "penalized_score": 0.520
+        },
+        {
+          "label": "A2",
+          "goal": "对手不按预测换招时的稳健方案",
+          "key_picks": [{"priority": 1, "hero_id": 67, "by_ord": 14,
+                         "why": "对换招不敏感，但原始胜率略低", "fallback": [19, 105]}],
+          "expected_wr": 0.515, "n": 27,
+          "robustness_delta": 0.16,
+          "penalized_score": 0.455,
+          "risk_note": "原始胜率与 A1 接近，但对手一旦不按预测出牌，本方案降幅明显"
+        }
+      ]
+    },
+    {
+      "branch_id": "them:push",
+      "condition": {"first_pick": "them", "their_opening": "push"},
+      "plans": [
+        {
+          "label": "B1",
+          "goal": "对手先手时抢下反制核心",
+          "key_picks": [{"priority": 1, "hero_id": 19, "by_ord": 12,
+                         "why": "反推进体系的核心，后手方第 12 手可稳定拿到", "fallback": [67]}],
+          "expected_wr": 0.510, "n": 31,
+          "robustness_delta": 0.05,
+          "penalized_score": 0.510
+        }
+      ]
+    }
+  ],
+  "sources_used": ["pro_match"]
+}

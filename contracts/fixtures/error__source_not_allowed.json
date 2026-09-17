@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "source_not_allowed",
+    "message": "对手画像路径不允许使用 scrim 来源（§4.1 数据隔离）",
+    "detail": {"source": "scrim", "allowed_sources": ["pro_match", "pub_match"]}
+  }
+}

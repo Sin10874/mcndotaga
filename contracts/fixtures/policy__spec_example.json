@@ -1,0 +1,15 @@
+{
+  "next_ord": 12,
+  "team": 1,
+  "is_pick": true,
+  "candidates": [
+    {"hero_id": 112, "prob": 0.180,
+     "reasons": ["该队在此阶段的历史首选", "克制对方已选核心"],
+     "evidence_match_ids": [8996973546, 8988636430]}
+  ],
+  "top_n": 10,
+  "other_prob": 0.820,
+  "model": "sequence-v1",
+  "baseline": {"frequency_top1": 0.041, "model_top1": null},
+  "sources_used": ["pro_match"]
+}

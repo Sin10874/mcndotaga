@@ -1,0 +1,12 @@
+{
+  "radiant_win_prob": 0.530,
+  "confidence": "high",
+  "n_samples": 412,
+  "contributions": [
+    {"factor": "patch_strength",  "delta":  0.011},
+    {"factor": "counter_matchup", "delta": -0.014},
+    {"factor": "player_comfort",  "delta":  0.024},
+    {"factor": "first_pick",      "delta":  0.009}
+  ],
+  "sources_used": ["pro_match"]
+}

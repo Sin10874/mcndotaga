@@ -1,0 +1,36 @@
+{
+  "team_id": 10232231,
+  "patch": "7.41e",
+  "as_of": "2026-09-16",
+  "sources_used": ["pro_match", "pub_match"],
+  "coverage": {"pro_match": {"n_matches": 42, "n_stat_available": 38,
+                             "n_position_unknown": 5},
+               "pub_match": {"n_matches": 310, "n_stat_available": 298,
+                             "n_position_unknown": 12}},
+  "players": [{
+    "account_id": 123456,
+    "name": "示例选手",
+    "role": 4,
+    "hero_pool": {
+      "window_games": 48,
+      "signature":   [{"hero_id": 55, "games": 12, "wr": 0.75, "pct": 25}],
+      "comfortable": [{"hero_id": 77, "games": 8,  "wr": 0.50, "pct": 17}],
+      "effective_count": 14,
+      "presence_pick_rate": 0.81
+    },
+    "dimensions": {
+      "hero_pool":     {"percentile": 88, "n": 120},
+      "laning":        {"percentile": 71, "n": 120},
+      "combat":        {"percentile": 64, "n": 120},
+      "map_vision":    {"percentile": 47, "n": 120},
+      "tempo":         {"percentile": 55, "n": 120},
+      "hero_archetype":{"initiate": 0.24, "protect": 0.18, "push": 0.17,
+                        "teamfight": 0.19, "pickoff": 0.13, "splitpush": 0.09}
+    }
+  }],
+  "team_bp_tendency": {
+    "first_phase_ban_freq": [{"hero_id": 55, "freq": 0.42, "n": 31}],
+    "first_pick_freq":      [{"hero_id": 123, "freq": 0.28, "n": 25}],
+    "ban_by_phase":         [{"ord": 9, "hero_id": 53, "freq": 0.31, "n": 29}]
+  }
+}

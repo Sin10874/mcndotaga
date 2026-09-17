@@ -1,0 +1,18 @@
+{
+  "next_ord": 0,
+  "team": 0,
+  "is_pick": false,
+  "candidates": [
+    {"hero_id": 80, "prob": 0.062,
+     "reasons": ["该队近 90 天首 ban 频率最高（31 场中 9 场）"],
+     "evidence_match_ids": [8996973546]},
+    {"hero_id": 62, "prob": 0.055,
+     "reasons": ["全局频率基线的前 3 名，且不在对手舒适英雄池内"],
+     "evidence_match_ids": []}
+  ],
+  "top_n": 5,
+  "other_prob": 0.883,
+  "model": null,
+  "baseline": {"frequency_top1": 0.041, "model_top1": null},
+  "sources_used": ["pro_match"]
+}

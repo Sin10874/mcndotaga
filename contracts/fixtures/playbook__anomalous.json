@@ -1,0 +1,73 @@
+{
+  "matchup": {
+    "us":   {"team_id": 10251056, "name": "Dawn Bulls", "tag": "DB"},
+    "them": {"team_id": 10232231, "name": "Klim Sani4", "tag": "KS"},
+    "patch": "7.41e",
+    "first_pick_team": 0,
+    "side_map": {"us": 0, "them": 1}
+  },
+  "sources_used": ["pro_match"],
+  "coverage": {
+    "pro_match": {"n_matches": 42, "n_stat_available": 38},
+    "pub_match": {"n_matches": 0,  "n_stat_available": 0}
+  },
+  "data_quality": {
+    "n_pending_draft": 0,
+    "n_unavailable_draft": 0,
+    "n_anomalous_draft": 3,
+    "oldest_pending_hours": null,
+    "note": "3 场 BP 手序与 §8① 模板不一致（同一英雄被重复 ban、ord 乱序），已整场剔除统计"
+  },
+  "bans": {
+    "must_ban": [{"hero_id": 55, "why": "对手签名英雄，我方无人擅长应对",
+                  "their_wr": 0.71, "our_wr_against": 0.29, "n": 24}],
+    "consider": [{"hero_id": 77, "why": "放给他会显著抬高对手中期节奏",
+                  "if_we_leave_it_open": {
+                    "hero_id": 77,
+                    "if_we_pick":  {"wr": 0.47, "n": 33},
+                    "if_we_ban":   {"wr": 0.49, "n": 58},
+                    "if_we_leave": {"our_wr": 0.55, "their_wr": 0.45, "n": 40,
+                                    "our_counter_options": [{"hero_id": 36, "wr": 0.61, "n": 31}]},
+                    "recommendation": "leave_and_counter"}}],
+    "bait_candidates": [{"hero_id": 90, "why": "双方都不擅长，浪费对手 ban 位"}]
+  },
+  "op_hero_decision": [{
+    "hero_id": 83,
+    "if_we_pick":  {"wr": 0.44, "n": 34},
+    "if_we_ban":   {"wr": 0.50, "n": 62},
+    "if_we_leave": {"our_wr": 0.58, "their_wr": 0.42, "n": 41,
+                    "our_counter_options": [{"hero_id": 36, "wr": 0.61, "n": 31}]},
+    "recommendation": "leave_and_counter"
+  }],
+  "branches": [
+    {
+      "branch_id": "A",
+      "applies_to_game": 1,
+      "condition": {"first_pick": "us", "their_opening": "teamfight"},
+      "plans": [{
+        "label": "A1",
+        "goal": "拖到中后期，靠分推拉扯",
+        "key_picks": [{"priority": 1, "hero_id": 105, "by_ord": 13,
+                       "why": "第 1 局先手时可稳定拿到", "fallback": [67, 19]}],
+        "expected_wr": 0.52, "n": 31,
+        "robustness_delta": 0.04,
+        "penalized_score": 0.52
+      }]
+    }
+  ],
+  "series": {
+    "series_id": 1141522,
+    "games": [
+      {"game_no": 1, "first_pick_team": 0},
+      {"game_no": 2, "first_pick_team": null,
+       "note": "第 1 局的负者获得第 2 局先手权；第 1 局结束后才能确定，未确定时为 null——此时不得产出指向该局的 them 分支"}
+    ],
+    "game1_plan": "第 1 局我方先手（Radiant 侧）：一抢 105，见 A1",
+    "adjustment_rules": [{"if": "对手第 1 局暴露推进体系", "then": "第 2 局一抢反推进核心 19"}]
+  },
+  "positions": [
+    {"side": "them", "role": 4,
+     "notes": [{"kind": "ward", "text": "...", "evidence": [],
+                "value": null, "reason": "needs_replay", "needs": "Phase B"}]}
+  ]
+}
