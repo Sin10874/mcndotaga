@@ -18,7 +18,7 @@ dev = ["pytest>=8.3", "openapi-spec-validator>=0.7"]
 #   error: Multiple top-level packages discovered in a flat-layout
 # 中止，`pip install -e ".[dev]"` 直接失败，后续所有 import 无从谈起。
 [tool.setuptools.packages.find]
-include = ["db*", "shared*", "contracts*", "analysis*", "models*"]
+include = ["db*", "shared*", "contracts*", "analysis*", "models*", "constants*", "ingest*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
