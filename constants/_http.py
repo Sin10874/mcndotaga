@@ -27,6 +27,12 @@ def _cache_dir() -> pathlib.Path:
     return pathlib.Path(override) if override else CACHE
 
 def fetch_json(url: str, cache_name: str) -> dict | list:
+    """拉取并解析 JSON；命中缓存则不碰网络。
+
+    `follow_redirects=True` 是**必须**的：上游若把 canonical URL 302 到别处（raw → CDN 镜像这一类），
+    跟随才拿得到 JSON；不跟随时 `raise_for_status()` 会抛一个只说「302 Found」的 HTTPStatusError，
+    把"这个 URL 只是转发"伪装成一次真实的上游故障。
+    """
     path = _cache_dir() / cache_name
     if path.exists() and not _refresh():
         try:
@@ -36,7 +42,7 @@ def fetch_json(url: str, cache_name: str) -> dict | list:
                 f"缓存文件已损坏，无法解析：{path}\n"
                 f"  恢复方式二选一：REFRESH_NETWORK=1 重新拉取，或删除该文件。\n"
                 f"  解析错误：{exc}") from exc
-    resp = httpx.get(url, headers={"User-Agent": UA}, timeout=60)
+    resp = httpx.get(url, headers={"User-Agent": UA}, timeout=60, follow_redirects=True)
     resp.raise_for_status()
     data = resp.json()          # 必须先于写盘：非 JSON 响应绝不落进缓存
     path.parent.mkdir(parents=True, exist_ok=True)   # 只在写路径上建目录

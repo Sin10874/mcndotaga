@@ -1,12 +1,17 @@
 """`constants/_http.py` 的缓存语义：命中不打网络、刷新走原始字节、坏缓存必须响亮报错。
 
 三个测试全部用 tmp_path + monkeypatch，既不碰真实缓存目录也不打网络。
+
+**必须同时 `delenv("MCNDOTAGA_CACHE_DIR")`**：`_cache_dir()` 优先读该环境变量，而 README 恰恰
+教只读 CI 的用户导出它——只 monkeypatch `_http.CACHE` 时，测试以为自己在 tmp_path 沙箱里，
+实际会读/写环境变量指向的目录（`test_cache_hit_*` 甚至因此真的打网络）。
 """
 import json, pytest
 from constants import _http
 
 def test_cache_hit_does_not_touch_the_network(tmp_path, monkeypatch):
     monkeypatch.setattr(_http, "CACHE", tmp_path)
+    monkeypatch.delenv("MCNDOTAGA_CACHE_DIR", raising=False)
     monkeypatch.delenv("REFRESH_NETWORK", raising=False)
     (tmp_path / "x.json").write_text('{"cached": 1}', encoding="utf-8")
     def boom(*a, **k): raise AssertionError("cache hit 仍然打了网络")
@@ -15,6 +20,7 @@ def test_cache_hit_does_not_touch_the_network(tmp_path, monkeypatch):
 
 def test_refresh_bypasses_cache_and_sends_the_custom_ua(tmp_path, monkeypatch):
     monkeypatch.setattr(_http, "CACHE", tmp_path)
+    monkeypatch.delenv("MCNDOTAGA_CACHE_DIR", raising=False)
     (tmp_path / "x.json").write_text('{"stale": 1}', encoding="utf-8")
     monkeypatch.setenv("REFRESH_NETWORK", "1")
     seen = {}
@@ -32,6 +38,7 @@ def test_refresh_bypasses_cache_and_sends_the_custom_ua(tmp_path, monkeypatch):
 
 def test_corrupt_cache_fails_loudly(tmp_path, monkeypatch):
     monkeypatch.setattr(_http, "CACHE", tmp_path)
+    monkeypatch.delenv("MCNDOTAGA_CACHE_DIR", raising=False)
     monkeypatch.delenv("REFRESH_NETWORK", raising=False)
     (tmp_path / "x.json").write_text('{"1": {"id": 1, "na', encoding="utf-8")
     with pytest.raises(RuntimeError, match="x.json"):
