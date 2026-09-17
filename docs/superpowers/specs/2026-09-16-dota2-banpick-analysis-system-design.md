@@ -756,7 +756,13 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
     "must_ban": [{"hero_id": 55, "why": "对手签名英雄，我方无人擅长应对",
                   "their_wr": 0.71, "our_wr_against": 0.29, "n": 24}],
     "consider": [{"hero_id": 77, "why": "...",
-                  "if_we_leave_it_open": { /* OpHeroOption，与 op_hero_decision[] 同形 */ }}],
+                  "if_we_leave_it_open": {
+                    "hero_id": 77,
+                    "if_we_pick":  {"wr": 0.47, "n": 33},
+                    "if_we_ban":   {"wr": 0.49, "n": 58},
+                    "if_we_leave": {"our_wr": 0.55, "their_wr": 0.45, "n": 40,
+                                    "our_counter_options": [{"hero_id": 36, "wr": 0.61, "n": 31}]},
+                    "recommendation": "leave_and_counter"}}],
     "bait_candidates": [{"hero_id": 90, "why": "双方都不擅长，浪费对手 ban 位"}]
   },
   "op_hero_decision": [{
