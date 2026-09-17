@@ -2,6 +2,18 @@ openapi: 3.1.0
 info: {title: MCNDOTAGA Contract, version: "1.0.0"}
 components:
   schemas:
+    # ── 可选字段约定（Task 7/8 作者必读）────────────────────────────────
+    # 规格 §6.0：「本节所有字段默认**必填**。可选字段一律显式标注 // optional，
+    # 且其缺省语义为"该维度无数据"，不得与"值为 0"混淆」。
+    # 本契约把这条落成机器可检的形式：**凡不进 `required` 的属性，一律标
+    # `x-optional: true`**。于是每个组件的 `required` 必须恰好等于
+    # 「未标 x-optional 的属性集」，由
+    # tests/contracts/test_schema_shape.py::test_required_matches_declared_optionality 锚定
+    # ——删掉 `required` 里的一项（或让 allOf 意外重新要求）都会立刻变红。
+    # `x-` 前缀是 OpenAPI 扩展关键字：build_openapi 原样合并，
+    # openapi-spec-validator 0.9 原样接受，jsonschema 忽略，不参与校验语义。
+    # 新增可选字段时：只在 properties 里声明 + 标 `x-optional: true`，**不要**写进 required。
+    # 其它四个 schema 文件头部有指向本块的指针。
     Team:   {type: integer, enum: [0, 1], description: "0=Radiant, 1=Dire；仅数值字段"}
     Side:   {type: string, enum: [us, them], description: "仅 Playbook 语义字段"}
     Confidence: {type: string, enum: [low, medium, high]}
@@ -27,7 +39,8 @@ components:
       properties:
         value:  {type: "null"}
         reason: {$ref: "#/components/schemas/UnavailableReason"}
-        needs:  {type: string, enum: ["Phase B"]}
+        # // optional：仅 reason == needs_replay 时必填（§6.0 降级契约第一层）
+        needs:  {type: string, enum: ["Phase B"], x-optional: true}
       allOf:
         - if:   {properties: {reason: {const: needs_replay}}, required: [reason]}
           then: {required: [needs]}

@@ -2,6 +2,8 @@ openapi: 3.1.0
 info: {title: MCNDOTAGA Contract, version: "1.0.0"}
 components:
   schemas:
+    # 可选字段一律标 `x-optional: true`（约定见 common.yaml 头部注释）；
+    # Value 全部字段必填，故本文件没有 x-optional。
     # §6.1 Value —— 局面评估。降级走 §6.0 第二层（整体 insufficient_data 错误信封），
     # 故本响应内没有字段级降级位。
     Value:

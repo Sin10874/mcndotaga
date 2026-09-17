@@ -2,6 +2,7 @@ openapi: 3.1.0
 info: {title: MCNDOTAGA Contract, version: "1.0.0"}
 components:
   schemas:
+    # 可选字段一律标 `x-optional: true`（约定见 common.yaml 头部注释）
     # §6.4 Profile —— 战队与选手画像（M3 与 A8 的对手画像卡底座）。
     Profile:
       type: object
@@ -33,7 +34,7 @@ components:
         team_id: {type: integer, minimum: 1}
         name:    {type: string}
         tag:     {type: string}
-        logo_url: {type: ["string", "null"]}   # // optional
+        logo_url: {type: ["string", "null"], x-optional: true}   # // optional
 
     Coverage:
       type: object
@@ -50,7 +51,8 @@ components:
       properties:
         n_matches:          {type: integer, minimum: 0}
         n_stat_available:   {type: integer, minimum: 0}   # stats_available=true 的场次
-        n_position_unknown: {type: integer, minimum: 0}   # §7.3；Profile 强制返回，见上
+        # §7.3；Profile 强制返回（见上），Playbook 的 coverage 不带 ⇒ 本组件里为可选
+        n_position_unknown: {type: integer, minimum: 0, x-optional: true}
 
     ProfilePlayer:
       type: object
@@ -61,7 +63,7 @@ components:
         name:       {type: string}
         # // optional（§6.4）：推断不出时为 null；此时五个依赖位置的维度降级为
         # insufficient_samples，而 hero_archetype 仍必须返回（§7.3）
-        role:       {type: ["integer", "null"], minimum: 1, maximum: 5}
+        role:       {type: ["integer", "null"], minimum: 1, maximum: 5, x-optional: true}
         hero_pool:  {$ref: "#/components/schemas/HeroPool"}
         dimensions: {$ref: "#/components/schemas/Dimensions"}
 
@@ -99,6 +101,10 @@ components:
         hero_archetype: {$ref: "#/components/schemas/HeroArchetype"}   # 不依赖位置，不降级
 
     # §7.3：同侪集合 < 30 时该指标返回 §6.0 降级形态，不返回百分位。
+    # `unevaluatedProperties:false` 包在 oneOf 外层：只有校验成功的分支贡献已求值属性，
+    # 故匹配 `$ref Degraded` 时多带的 percentile（绝对量）会被拒（I4）。
+    # 注意 **不得**给 Degraded 加 additionalProperties:false：PositionNote 用 $ref
+    # 复用它并追加 kind/text/evidence，那样会被误杀。
     PercentileDimension:
       oneOf:
         - type: object
@@ -108,6 +114,7 @@ components:
             percentile: {type: integer, minimum: 0, maximum: 100}
             n:          {type: integer, minimum: 0}
         - $ref: "#/components/schemas/Degraded"
+      unevaluatedProperties: false
 
     HeroArchetype:
       description: §6.4：六类原型权重（含 initiate），各项之和为 1.0（由 check_profile 守护）。

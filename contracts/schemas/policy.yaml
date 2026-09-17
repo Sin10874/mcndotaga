@@ -2,6 +2,7 @@ openapi: 3.1.0
 info: {title: MCNDOTAGA Contract, version: "1.0.0"}
 components:
   schemas:
+    # 可选字段一律标 `x-optional: true`（约定见 common.yaml 头部注释）
     # §6.2 Policy —— 对手下一手预测。next_ord/team/is_pick 由 §6.0 的 resolve() 确定性推出
     # （check_resolve 在 Plan 2+ 的集成测试里校验，fixture 层拿不到请求上下文）。
     Policy:
@@ -40,6 +41,8 @@ components:
       additionalProperties: false
       required: [frequency_top1]
       properties:
+        # frequency_top1 是必填但**可为 null**（§6.2：样本不足时无"最频繁首选"可言），
+        # 故它不进 x-optional —— required 与"可空"是两个正交的维度。
         frequency_top1: {type: ["number", "null"], minimum: 0, maximum: 1}
         # // optional（§6.2）：模型未就绪时为 null；缺省语义为"无模型"，与"准确率为 0"不同
-        model_top1:     {type: ["number", "null"], minimum: 0, maximum: 1}
+        model_top1:     {type: ["number", "null"], minimum: 0, maximum: 1, x-optional: true}

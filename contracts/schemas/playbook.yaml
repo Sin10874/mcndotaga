@@ -2,6 +2,7 @@ openapi: 3.1.0
 info: {title: MCNDOTAGA Contract, version: "1.0.0"}
 components:
   schemas:
+    # 可选字段一律标 `x-optional: true`（约定见 common.yaml 头部注释）
     # §6.3 Playbook —— 剧本集（主输出）。语义字段一律用 us/them，数值字段用 0/1，
     # 两者的对齐靠 matchup.side_map（§6.0 队伍编码）。
     Playbook:
@@ -19,7 +20,7 @@ components:
         branches: {type: array, minItems: 1, items: {$ref: "#/components/schemas/Branch"}}
         positions: {type: array, items: {$ref: "#/components/schemas/Position"}}
         # series_id 为 // optional（§6.3）：缺省时不返回 series 对象（而非返回 null 字段）
-        series: {$ref: "#/components/schemas/Series"}
+        series: {$ref: "#/components/schemas/Series", x-optional: true}
 
     Matchup:
       type: object
@@ -53,7 +54,9 @@ components:
         n_pending_draft:     {type: integer, minimum: 0}
         n_unavailable_draft: {type: integer, minimum: 0}
         n_anomalous_draft:   {type: integer, minimum: 0}
-        # 无 pending 场次时无"最老"可言 —— 用 null，不得填 0 冒充（§6.0）
+        # §6.3：oldest_pending_hours 为 null **当且仅当** n_pending_draft == 0 ——
+        # 无 pending 场次时无"最老"可言，不得填 0 冒充（§6.0）。
+        # （iff 跨字段，JSON Schema 无法表达；已在 §6.3 显式规定，尚未落成 check_playbook 的守护）
         oldest_pending_hours: {type: ["integer", "null"], minimum: 0}
         note: {type: string}
 
@@ -107,6 +110,12 @@ components:
         recommendation: {$ref: "#/components/schemas/Recommendation"}
 
     # §9.1 的 n >= 30 门槛逐量判定：任一量不足即该量降级（§6.0 第一层形态）
+    # 三个降级位（本组件与 LeaveEvaluation/CounterOption/PercentileDimension）统一用
+    # `unevaluatedProperties: false` 包在 oneOf 外层：**只有校验成功的那个分支**会贡献
+    # 已求值属性，故匹配 `$ref Degraded` 时它只认领 value/reason/needs，
+    # 多带的 percentile/wr/n 等绝对量无处安放 → 被拒（I4：降级位不得夹带绝对值）。
+    # 不能改成给 Degraded 加 additionalProperties:false —— 那样 PositionNote 这类
+    # 用 $ref 复用它再添字段的地方会被误杀。
     WinRateSample:
       oneOf:
         - type: object
@@ -116,6 +125,7 @@ components:
             wr: {type: number, minimum: 0, maximum: 1}
             n:  {type: integer, minimum: 0}
         - $ref: "#/components/schemas/Degraded"
+      unevaluatedProperties: false
 
     LeaveEvaluation:
       oneOf:
@@ -129,6 +139,7 @@ components:
             n:        {type: integer, minimum: 0}   # 两个比率共用此场次数
             our_counter_options: {type: array, items: {$ref: "#/components/schemas/CounterOption"}}
         - $ref: "#/components/schemas/Degraded"
+      unevaluatedProperties: false
 
     CounterOption:
       oneOf:
@@ -140,6 +151,7 @@ components:
             wr: {type: number, minimum: 0, maximum: 1}
             n:  {type: integer, minimum: 0}
         - $ref: "#/components/schemas/Degraded"
+      unevaluatedProperties: false
 
     # §6.6 的 offline 模式复用本形状：响应 branches[].plans[] 与 §6.3 完全相同
     Branch:
@@ -151,7 +163,7 @@ components:
         condition: {$ref: "#/components/schemas/BranchCondition"}
         # 系列赛剧本里分支覆盖两种先手权时必填（§6.3 自洽规则），
         # 该条件依赖 series.games[]，故由 check_playbook 守护而非 schema
-        applies_to_game: {type: integer, minimum: 1}
+        applies_to_game: {type: integer, minimum: 1, x-optional: true}
         plans: {type: array, minItems: 1, items: {$ref: "#/components/schemas/Plan"}}
 
     BranchCondition:
@@ -176,7 +188,8 @@ components:
         # 排序依据：expected_wr - λ × max(0, robustness_delta - 0.10)；λ 可配置，
         # 降权后可低于 0，故不设下界（等式由 check_advise 复算）
         penalized_score: {type: number, maximum: 1}
-        risk_note: {type: string}
+        # // optional：仅 robustness_delta > 0.10 时必填（下面的 allOf）
+        risk_note: {type: string, x-optional: true}
       allOf:   # §6.6：robustness_delta > 0.10 的项必须带 risk_note
         - if:   {properties: {robustness_delta: {exclusiveMinimum: 0.10}}, required: [robustness_delta]}
           then: {required: [risk_note]}
@@ -198,26 +211,28 @@ components:
     Position:
       type: object
       additionalProperties: false
-      required: [side, notes]
+      # role 必填且非 null：§6.0 默认规则（未标 // optional 即必填）+ §6.3 的
+      # positions[] 示例恒带 role。只有 ProfilePlayer.role 是 // optional（§6.4）。
+      required: [side, role, notes]
       properties:
         side: {$ref: "#/components/schemas/Side"}
-        role: {type: ["integer", "null"], minimum: 1, maximum: 5}   # // optional，同 §6.4
+        role: {type: integer, minimum: 1, maximum: 5}
         notes: {type: array, minItems: 1, items: {$ref: "#/components/schemas/PositionNote"}}
 
     # §6.5 的 Phase A 边界在这里是结构性的：note 恒为 §6.0 的降级形态
-    # （value 必为 null），且 additionalProperties:false 让眼位坐标一类的
-    # 回放字段无处可放。kind/text/evidence 是 note 的观测元数据，不是指标值。
-    # 注：$ref 与兄弟关键字并存是 JSON Schema 2020-12 的合法写法（OpenAPI 3.1），
-    # 用 allOf 会因 additionalProperties 看不到 Degraded 的字段而误杀。
+    # （value 必为 null），且封闭性让眼位坐标一类的回放字段无处可放。
+    # kind/text/evidence 是 note 的观测元数据，不是指标值。
+    # value/reason/needs 由 $ref Degraded 提供（不再重列一遍）；`$ref` 与兄弟关键字
+    # 并存是 JSON Schema 2020-12 的合法写法（OpenAPI 3.1），而**封闭必须用
+    # `unevaluatedProperties:false`**：`additionalProperties:false` 看不见 $ref
+    # 里的字段，会把 value/reason/needs 误判为多余（这正是上一版只能重列三者、
+    # 且无法真正封闭的原因）。
     PositionNote:
       $ref: "#/components/schemas/Degraded"
       type: object
-      additionalProperties: false
-      required: [kind, text, evidence, value, reason]
+      unevaluatedProperties: false
+      required: [kind, text, evidence]
       properties:
-        value:  {type: "null"}
-        reason: {$ref: "#/components/schemas/UnavailableReason"}
-        needs:  {type: string, enum: ["Phase B"]}
         kind:   {$ref: "#/components/schemas/NoteKind"}
         text:   {type: string}
         evidence:   # 与 §6.2 evidence_match_ids 同口径；Phase A 恒为空数组
@@ -242,7 +257,8 @@ components:
         game_no: {type: integer, minimum: 1}
         # 赛前未知时为 null（"先手权取决于第 1 局结果"），不得省略该字段
         first_pick_team: {type: ["integer", "null"], enum: [0, 1, null]}
-        note: {type: string}
+        # // optional（§6.3）：该局的附加说明；缺省语义为"无说明"，不是空字符串
+        note: {type: string, x-optional: true}
 
     AdjustmentRule:
       type: object
