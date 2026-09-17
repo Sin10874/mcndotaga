@@ -582,7 +582,7 @@ def resolve(ord, first_pick_team):
 | `recommendation` | `pick` \| `ban` \| `leave_and_counter` \| `insufficient_data` | 见 §9.1 |
 | `their_opening` | `teamfight` \| `push` \| `pickoff` \| `splitpush` \| `protect` \| `initiate` \| `unknown` | 由 §7 维度 6 的战队聚合取**权重最大项**；最大项 < 0.25 时归 `unknown` |
 | `notes[].kind` | `ward` \| `timing` \| `lane` \| `smoke` \| `combat` \| `resource` \| `communication` | — |
-| `contributions[].factor` | `patch_strength` \| `counter_matchup` \| `player_comfort` \| `first_pick` | 与 `metric_weights.metric` 是**不同**的枚举：前者是 Value 响应的加项分解（4 项），后者是三源权重配置的键（6 项）。**两者的交集恰好只有 `patch_strength` 一个**（`counter_matchup`≠`bp_tendency`，`player_comfort`≠`hero_pool`，`first_pick` 在 metric 侧无对应）。不得互相赋值、不得假设同名即同义 |
+| `Factor`（用于 `contributions[].factor`） | `patch_strength` \| `counter_matchup` \| `player_comfort` \| `first_pick` | 与 `metric_weights.metric` 是**不同**的枚举：前者是 Value 响应的加项分解（4 项），后者是三源权重配置的键（6 项）。**两者的交集恰好只有 `patch_strength` 一个**（`counter_matchup`≠`bp_tendency`，`player_comfort`≠`hero_pool`，`first_pick` 在 metric 侧无对应）。不得互相赋值、不得假设同名即同义 |
 | `unavailable_reason` | `needs_replay` \| `insufficient_samples` \| `source_not_allowed` \| `stat_unavailable` | 见下 |
 | `error.code` | `insufficient_data` \| `invalid_request` \| `source_not_allowed` \| `not_found` \| `upstream_unavailable` | — |
 
@@ -789,6 +789,11 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
   ],
   "series": {
     "series_id": 1141522,
+    "games": [
+      {"game_no": 1, "first_pick_team": 0},
+      {"game_no": 2, "first_pick_team": null,
+       "note": "先手权取决于第 1 局结果，赛前未知"}
+    ],
     "game1_plan": "...",
     "adjustment_rules": [{"if": "对手第 1 局暴露推进体系", "then": "..."}]
   },
@@ -801,9 +806,12 @@ GET /v1/playbook?us=10251056&them=10232231&patch=7.41e&series_id=1141522&sources
 ```
 
 **不变式（可测）**：
-- 每个 `plans[]` 必须有**非空** `fallback`（首选被 ban 的路径）。**无 fallback 的 plan 不得产出**——这是产品硬要求（§13 补充事项 2），不是建议。
+- 每个 `plans[]` 的 `key_picks` **非空**，且其中**每一项**都必须有非空 `fallback`（该首选的替代路径）。**无 fallback 的 key_pick 不得产出**——这是产品硬要求（§13 补充事项 2），不是建议。（`fallback` 位于 `key_picks[]` 内，不是 plan 级字段；上一版不变式误写成 plan 级，与本节示例自相矛盾。）
 - `branches[].condition.first_pick` ∈ {`"us"`,`"them"`}，且所有（2 先手 × 7 体系）组合必须被覆盖或有显式 `unknown` 分支。
-- **先手方与 side_map 的自洽规则（可判定）**：定义 `us_has_first_pick := (side_map["us"] == first_pick_team)`。则任一分支必须满足 `condition.first_pick == ("us" if us_has_first_pick else "them")`。**示例验算**：`side_map.us = 0`、`first_pick_team = 0` → `us_has_first_pick = true` → 分支只能是 `first_pick: "us"`。（上一版示例标成 `"them"`，违反此规则，已修。）
+- **先手方与 side_map 的自洽规则（可判定）**：定义 `us_has_first_pick := (side_map["us"] == first_pick_team)`，并记 `expected := "us" if us_has_first_pick else "them"`。该字段的合法性分两种情形：
+  - **单局剧本**（响应不含 `series`）：`matchup.first_pick_team` 是本局已知值，故**所有**分支必须 `condition.first_pick == expected`。
+  - **系列赛剧本**（响应含 `series`）：BO3/BO5 中先手权会易手，故分支**允许**取 `us` 与 `them` 两者，但此时每个分支必须带 `applies_to_game`（整数，≥1）指向 `series.games[]` 中的某一局，且该局的 `first_pick_team` 推导出的 `expected` 必须与该分支一致。
+  **示例验算**：`side_map.us = 0`、`first_pick_team = 0` → `expected = "us"`。示例中分支 A 标 `"us"` ✓；分支 B 标 `"them"`，因此**该示例必须带 `series` 与 `applies_to_game`**，否则不合法。
 - **`by_ord` 是绝对手数（0–23），不是分支内的相对序号。** 其归属方由 §6.0 的 `resolve(by_ord, first_pick_team)` 确定性决定，且**必须与所属分支自洽**：`first_pick: "us"` 的分支里，每个 `by_ord` 按 `resolve()` 都必须落在我方手上。示例验算：`first_pick_team = 0` 时 `resolve(13) = (pick, team 0)` = 我方 ✓（真实数据里 ord 13 正是 team 0 选 Techies）。不自洽则该 plan 为 `invalid_request`。
 - `op_hero_decision[].recommendation` ∈ §6.0 枚举；`n` 不足以支撑时必须是 `insufficient_data` 而非猜测。
 - `if_we_leave` 中 `our_wr + their_wr == 1.0`（±0.001）——这是**同一批比赛的两个视角**，我方赢了就是对方输了。`n` 为此批比赛的场次数，两个比率共用。示例：`0.58 + 0.42 = 1.0` ✓
