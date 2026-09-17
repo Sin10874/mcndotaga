@@ -4628,114 +4628,502 @@ git commit -m "feat(constants): 常量入库（127 英雄/501 道具/118 版本/
 - Create: `ingest/__init__.py`, `ingest/kaggle_subset.py`, `ingest/load_bootstrap.py`
 - Create: `tests/ingest/__init__.py`, `tests/ingest/conftest.py`
 - Test: `tests/ingest/test_bootstrap.py`
+- Edit: `pyproject.toml`（新增 `[project.optional-dependencies].ingest`）
+- Edit: `.gitignore`（排除 `tests/fixtures/kaggle/`）——**计划原文说"该目录已由 `.gitignore` 排除"，
+  实测没有**（`git check-ignore` 退出码 1），本轮补上；否则 506.7 MB 的 CSV 会被 `git add .` 收进去。
 
-- [ ] **Step 1: 写 `tests/ingest/conftest.py`（定义本 chunk 需要的两个 fixture）**
+- [x] **Step 0: 先真跑一次下载并逐列核对（本轮新增，它推翻了计划的三处假设）**
 
+计划的 Step 2/4 是照着"`main_metadata.csv` 里应该有 `start_time`/`league_name`、`picks_bans.csv`
+的 `order` 是整数"写的。实测（2026-09-18）三处都不成立，见下面的实测记录。**先核对再写代码**
+这一步不能省：照计划原文写出来的 loader 在真实数据上第一行就炸（`start_time` 列不存在）。
+
+- [x] **Step 1: `tests/ingest/conftest.py`（含会话级独占数据库与合成数据构造器）**
+
+会话级 fixture **不能**借用共享的 `dota_test`（计划原文的做法）。两条路都不通：
+`commit=True` 会把常量与 21 万场比赛提交进共享库，复现 Task 11 的 18 个
+`UniqueViolation: constants_snapshot_pkey`；改成 `commit=False` 则未提交事务会一直持有
+`heroes`/`patches` 的行锁到 session 结束，同 session 的 `load_constants(commit=False)`
+**锁等待挂死**（顺序执行也会挂）。故引导入库写进自己拥有的 `<db>_test_bootstrap`。
+
+<!-- FILE: tests/ingest/__init__.py -->
 ```python
-"""本 chunk 独有的 fixture。Chunk 1 的 tests/conftest.py 只有 dsn/db/seeded。"""
+```
+<!-- （空文件：与 `tests/constants/`、`tests/db/` 等既有测试包一致，仅为让 pytest 以包路径导入） -->
+
+<!-- FILE: tests/ingest/conftest.py -->
+```python
+"""Task 12（Kaggle 引导数据集）独有的 fixture、数据库隔离助手与**合成数据集**构造器。
+
+**合成数据刻意照抄真实 CSV 的形状**（2026-09-18 实测，见 `ingest/load_bootstrap.py` 的
+docstring）：`start_date_time` 朴素字符串、`order`/`team`/`hero_id` 是**浮点字符串**
+（`'0.0'`）、`main_metadata.csv` **没有** `league_name`/队名列、联赛名只在
+`Constants/Constants.Leagues.csv` 里、`picks_bans.csv` 在 2016/2018 带 BOM + 首列空名。
+照着计划里的列名（`start_time`/`league_name`）造合成数据能全绿，却与真实数据毫无关系 ——
+那正是 Task 12 要避免的"写了没验"。
+
+**为什么会话级 fixture 必须独占一个数据库**：计划原文的 `db_after_bootstrap` 直接在共享的
+`dota_test` 上跑 `load_constants(conn)`（默认 `commit=True`）+ 引导入库。两条路都不通：
+
+1. 原样（提交）：常量与几万场比赛被**提交**进共享测试库，后面 `tests/db` 的 `seeded`
+   fixture 在 `constants_snapshot(snapshot_version=1)` / `heroes(80)` 上主键冲突 ——
+   Task 11 已实测 145 passed / 18 errors，18 个 error 全是跨套件污染。
+2. 改成 `commit=False`：psycopg 的未提交事务会**一直持有** `heroes`/`patches`/`matches` 行的
+   写锁到 session 结束；同一 session 里 `tests/constants/test_load.py` 会去 upsert 同一批
+   `heroes`/`patches` 行 —— 直接**锁等待挂死**（PostgreSQL 默认无 statement_timeout，
+   顺序执行也会挂）。挂死比变红更糟：没有失败信息，CI 只是永远不结束。
+
+故本 fixture 走第三条路：引导入库写进**自己拥有的兄弟库** `<db>_test_bootstrap`
+（DROP + CREATE + 跑迁移 + 一次性提交），共享的 `dota_test` 一个字节都不写、一把锁都不加。
+隔离性不是靠注释保证的：`tests/ingest/test_bootstrap.py` 里
+`test_session_bootstrap_owns_its_own_database_and_leaves_the_shared_test_db_clean`
+用合成数据实际跑一次 `open_bootstrap_connection()`，再从另一个连接确认共享库 11 张表全为 0 行。
+"""
 from __future__ import annotations
-import csv, os, pathlib
-import psycopg, pytest
+
+import csv
+import pathlib
+
+import psycopg
+import pytest
 
 REPO = pathlib.Path(__file__).parents[2]
 CACHE = REPO / "tests" / "fixtures" / "kaggle"
 
-@pytest.fixture(scope="session")
-def db_after_bootstrap(dsn):
-    """跑完常量入库 + Kaggle 引导入库的**独立数据库连接**。
+#: 派生库后缀。共享库必须叫 `<...>_test`，派生库因此叫 `<...>_test_bootstrap`。
+BOOTSTRAP_SUFFIX = "_bootstrap"
 
-    会话级：引导入库很慢，不能每个测试重跑一次。
+# --- 真实 2016/2018 形状：首列是空名（pandas 的 index 列）、列里没有 league_name/队名 ---
+METADATA_HEADER = ["", "match_id", "duration", "leagueid", "lobby_type", "radiant_win",
+                   "start_date_time", "series_id", "series_type", "patch", "region",
+                   "dire_team_id", "radiant_team_id"]
+# --- 真实 2016/2018 形状：带 OpenDota 自己的 ord 列，值是浮点字符串 ---
+ACTIONS_HEADER_OLD = ["", "is_pick", "hero_id", "team", "order", "ord", "match_id", "leagueid"]
+# --- 真实 2025 形状：没有首列、没有 ord 列，值是整数串 ---
+ACTIONS_HEADER_NEW = ["is_pick", "hero_id", "team", "order", "match_id", "leagueid"]
+
+LEAGUES_HEADER = ["leagueid", "leaguename", "tier"]
+SYNTHETIC_LEAGUES = {4194: ("Synthetic League One", "professional"),
+                     9584: ("Synthetic League Two", "premium")}
+
+#: 目录形状：2016 用旧表头 + BOM + 1-based order；2025 用新表头 + 整数串。
+FOLDER_STYLE = {"2016": {"header": ACTIONS_HEADER_OLD, "bom": True, "one_based": True},
+                "2018": {"header": ACTIONS_HEADER_OLD, "bom": False, "one_based": False},
+                "2025": {"header": ACTIONS_HEADER_NEW, "bom": False, "one_based": False}}
+
+#: 8 场合成比赛，覆盖：三种顺序族、24/22/23/0 手、2018 边界当天/前一秒、pre-2018、
+#: 无 picks_bans（pending）、`patch` 列吻合与不吻合。
+MATCHES: list[dict] = [
+    {"folder": "2018", "match_id": 900000001, "start_date_time": "2018-02-01 08:00:00",
+     "duration": 2400, "leagueid": 4194, "series_id": 5001, "series_type": 1,
+     "radiant_team_id": 101, "dire_team_id": 102, "radiant_win": True, "lobby_type": 1,
+     "patch": 27, "family": "spec_6_0_24", "first_pick": 0},
+    {"folder": "2018", "match_id": 900000002, "start_date_time": "2018-02-01 08:00:01",
+     "duration": 2500, "leagueid": 4194, "series_id": 5002, "series_type": 1,
+     "radiant_team_id": 103, "dire_team_id": 104, "radiant_win": False, "lobby_type": 1,
+     "patch": 27, "family": "cm24_a", "first_pick": 1},
+    # ord=3 的归属方写反 → type_deviation（24 手但不符合任何族）
+    {"folder": "2018", "match_id": 900000003, "start_date_time": "2018-02-01 08:00:02",
+     "duration": 2600, "leagueid": 9584, "series_id": 5003, "series_type": 1,
+     "radiant_team_id": 101, "dire_team_id": 102, "radiant_win": True, "lobby_type": 0,
+     "patch": 27, "family": "cm24_a", "first_pick": 0, "flip_ord": 3},
+    # pre-2018：22 手 cm22_a，patch_id 必须 NULL
+    {"folder": "2018", "match_id": 900000004, "start_date_time": "2016-01-01 00:00:00",
+     "duration": 2700, "leagueid": 4194, "series_id": 5004, "series_type": 1,
+     "radiant_team_id": 101, "dire_team_id": 102, "radiant_win": True, "lobby_type": 1,
+     "patch": 16, "family": "cm22_a", "first_pick": 1},
+    # 边界**前一秒**：22 手 cm22_c，patch_id 必须 NULL（反钳位）
+    {"folder": "2018", "match_id": 900000005, "start_date_time": "2018-02-01 07:59:59",
+     "duration": 2800, "leagueid": 9584, "series_id": 5005, "series_type": 1,
+     "radiant_team_id": 101, "dire_team_id": 102, "radiant_win": False, "lobby_type": 0,
+     "patch": 27, "family": "cm22_c", "first_pick": 0},
+    # 23 手 → short_draft；patch 列刻意写错 → 交叉校验要能报出不吻合
+    {"folder": "2018", "match_id": 900000006, "start_date_time": "2018-02-01 08:00:03",
+     "duration": 2900, "leagueid": 4194, "series_id": 5006, "series_type": 1,
+     "radiant_team_id": 103, "dire_team_id": 104, "radiant_win": True, "lobby_type": 1,
+     "patch": 999, "family": "cm24_a", "first_pick": 1, "drop_last": 1},
+    # 只有 metadata、没有 picks_bans → pending，不是 anomaly（规格 §5.2）
+    {"folder": "2018", "match_id": 900000007, "start_date_time": "2018-02-01 08:00:04",
+     "duration": 3000, "leagueid": 4194, "series_id": 5007, "series_type": 1,
+     "radiant_team_id": 103, "dire_team_id": 104, "radiant_win": True, "lobby_type": 1,
+     "patch": 27, "family": None, "first_pick": None},
+    # 1-based + BOM 的旧表头目录
+    {"folder": "2016", "match_id": 900000008, "start_date_time": "2016-01-01 00:00:01",
+     "duration": 3100, "leagueid": 4194, "series_id": 5008, "series_type": 1,
+     "radiant_team_id": 101, "dire_team_id": 102, "radiant_win": True, "lobby_type": 1,
+     "patch": 16, "family": "cm22_a", "first_pick": 0},
+]
+
+MATCH_WITHOUT_ACTIONS = 900000007
+POST_2018_MATCHES = (900000001, 900000002, 900000003, 900000006, 900000007)
+PRE_2018_MATCHES = (900000004, 900000005, 900000008)
+
+
+def missing_dataset_message() -> str:
+    """数据/凭证缺失时的 skip 文案：写明缺什么、怎么补、补完跑什么。"""
+    return (
+        f"缺少 Kaggle 引导数据集缓存 {CACHE}（本机也没有 Kaggle 凭证："
+        f"KAGGLE_USERNAME/KAGGLE_KEY 未设置、~/.kaggle/kaggle.json 不存在）。"
+        f"补齐凭证（kaggle.com → Account → Create New API Token）后运行 "
+        f"`python -m ingest.kaggle_subset` 下载 506.7 MB 子集；"
+        f"或把已有的 CSV 放到 {CACHE}/<年度>/。"
+    )
+
+
+# ---------------------------------------------------------------- 合成数据集
+
+#: 合成手数用的 hero_id：**必须都是 heroes 里真实存在的 id**（`draft_actions.hero_id` 有外键）。
+#: 实测空位 = 24 / 115–118 / 122 / 124 / 125（Task 11 记录），故 1..23 + 25 全部有效。
+SYNTHETIC_HERO_IDS = [*range(1, 24), 25]
+
+
+def draft_actions_for(family: str, first_pick: int) -> list[tuple[int, bool, int, int]]:
+    """按**实测顺序族**生成 `(order, is_pick, team, hero_id)`（order 一律 0-based）。"""
+    from ingest.load_bootstrap import DRAFT_ORDERS, resolve_in
+    return [(ord_, *resolve_in(family, ord_, first_pick), SYNTHETIC_HERO_IDS[ord_])
+            for ord_ in range(len(DRAFT_ORDERS[family]))]
+
+
+def canonical_metadata() -> list[dict]:
+    return [dict(row) for row in MATCHES]
+
+
+def canonical_actions() -> dict[int, list[tuple[int, bool, int, int]]]:
+    """match_id → 动作行（`order` 0-based；1-based 由 `write_dataset` 统一 +1）。"""
+    out: dict[int, list[tuple[int, bool, int, int]]] = {}
+    for row in MATCHES:
+        family = row["family"]
+        if family is None:
+            out[row["match_id"]] = []
+            continue
+        actions = draft_actions_for(family, row["first_pick"])
+        for ord_ in ([row["flip_ord"]] if "flip_ord" in row else []):
+            actions[ord_] = (actions[ord_][0], not actions[ord_][1],
+                             actions[ord_][2], actions[ord_][3])
+        drop = row.get("drop_last", 0)
+        out[row["match_id"]] = actions[:len(actions) - drop] if drop else actions
+    return out
+
+
+def write_dataset(root, *, metadata=None, actions=None) -> pathlib.Path:
+    """把合成数据写进 `<root>`：`<folder>/main_metadata.csv`、`<folder>/picks_bans.csv`、
+    `Constants/Constants.Leagues.csv`。"""
+    root = pathlib.Path(root)
+    metadata = canonical_metadata() if metadata is None else metadata
+    actions = canonical_actions() if actions is None else actions
+
+    constants = root / "Constants"
+    constants.mkdir(parents=True, exist_ok=True)
+    with open(constants / "Constants.Leagues.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(LEAGUES_HEADER)
+        for league_id, (name, tier) in sorted(SYNTHETIC_LEAGUES.items()):
+            writer.writerow([league_id, name, tier])
+
+    by_folder: dict[str, list[dict]] = {}
+    for row in metadata:
+        by_folder.setdefault(row["folder"], []).append(row)
+
+    for folder, rows in sorted(by_folder.items()):
+        style = FOLDER_STYLE.get(folder, {"header": ACTIONS_HEADER_NEW, "bom": False,
+                                          "one_based": False})
+        folder_path = root / folder
+        folder_path.mkdir(parents=True, exist_ok=True)
+        encoding = "utf-8-sig" if style["bom"] else "utf-8"
+
+        with open(folder_path / "main_metadata.csv", "w", newline="", encoding=encoding) as f:
+            writer = csv.DictWriter(f, fieldnames=METADATA_HEADER, extrasaction="ignore")
+            writer.writeheader()
+            for row in rows:
+                # 真实 2016/2018 的浮点导出口味：整数字段带 `.0`
+                writer.writerow({"": 0, **{k: (f"{v}.0" if isinstance(v, int) and not isinstance(v, bool)
+                                               else v) for k, v in row.items()},
+                                 "radiant_win": "True" if row["radiant_win"] else "False"})
+
+        offset = 1 if style["one_based"] else 0
+        with open(folder_path / "picks_bans.csv", "w", newline="", encoding=encoding) as f:
+            writer = csv.writer(f)
+            writer.writerow(style["header"])
+            for row in rows:
+                for (ord_, is_pick, team, hero_id) in actions.get(row["match_id"], []):
+                    order = ord_ + offset
+                    if style["header"] is ACTIONS_HEADER_OLD:
+                        writer.writerow(["", is_pick, f"{hero_id}.0", f"{team}.0",
+                                         f"{order}.0", f"{order}.0", row["match_id"],
+                                         row["leagueid"]])
+                    else:
+                        writer.writerow([is_pick, hero_id, team, order, row["match_id"],
+                                         row["leagueid"]])
+    return root
+
+
+@pytest.fixture
+def synthetic_cache(tmp_path) -> pathlib.Path:
+    """一份**完全合成**的迷你数据集（无凭证、无网络）：8 场比赛 / 三个年度目录。"""
+    return write_dataset(tmp_path / "kaggle")
+
+
+# ------------------------------------------------- 会话级引导库（独占数据库）
+
+def bootstrap_dsn(test_dsn: str) -> str:
+    """把 `<db>_test` 派生成 `<db>_test_bootstrap`（保留查询串）。"""
+    dsn, sep, query = test_dsn.partition("?")
+    head, name = dsn.rsplit("/", 1)
+    if not name.endswith("_test"):
+        raise RuntimeError(
+            f"拒绝从 {name!r} 派生引导库：基库名必须以 '_test' 结尾"
+            f"（本模块会对派生库 DROP + CREATE）。请检查 TEST_DATABASE_URL / DATABASE_URL。")
+    return f"{head}/{name}{BOOTSTRAP_SUFFIX}{sep}{query}"
+
+
+def _admin_exec(dsn: str, sql: str) -> None:
+    dsn_only, _, _ = dsn.partition("?")
+    head, name = dsn_only.rsplit("/", 1)
+    ident = name.replace('"', '""')          # 标识符不能参数化，只能手工转义
+    with psycopg.connect(f"{head}/postgres", autocommit=True) as c:
+        c.execute(sql.format(ident=ident))
+
+
+def reset_database(dsn: str) -> None:
+    """从零重建该库并跑迁移（与 `tests/conftest.py::dsn` 同一口径：改 DDL 必须生效）。"""
+    _admin_exec(dsn, 'DROP DATABASE IF EXISTS "{ident}" WITH (FORCE)')
+    _admin_exec(dsn, 'CREATE DATABASE "{ident}"')
+    from db.migrate import apply
+    apply(dsn)
+
+
+def drop_database(dsn: str) -> None:
+    _admin_exec(dsn, 'DROP DATABASE IF EXISTS "{ident}" WITH (FORCE)')
+
+
+def open_bootstrap_connection(test_dsn: str, cache_dir) -> psycopg.Connection:
+    """在**自己拥有的** `<db>_test_bootstrap` 上跑常量 + 引导入库（提交），返回该库的连接。
+
+    调用方负责 `conn.close()` 与 `drop_database(bootstrap_dsn(test_dsn))`。
+    共享的 `dota_test` 不参与，故与 `tests/constants`、`tests/db` 的写入顺序完全无关。
     """
     from constants.load import load_constants
     from ingest.load_bootstrap import load_bootstrap
-    with psycopg.connect(dsn) as conn:
-        load_constants(conn)
-        load_bootstrap(conn, cache_dir=CACHE)
-    return psycopg.connect(dsn)
+
+    dsn = bootstrap_dsn(test_dsn)
+    reset_database(dsn)
+    conn = psycopg.connect(dsn)
+    try:
+        load_constants(conn)                       # 自己的库：默认 commit=True 正是想要的
+        load_bootstrap(conn, cache_dir=cache_dir)
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
+@pytest.fixture(scope="session")
+def db_after_bootstrap(dsn):
+    """跑完常量入库 + Kaggle 引导入库的**独占数据库连接**（凭证/数据缺失则 skip）。
+
+    会话级：引导入库很慢，不能每个测试重跑一次。**不碰共享的 `dota_test`**（理由见模块
+    docstring）：这既避免 Task 11 的 18 个主键冲突，也避免未提交事务的锁把同 session 的
+    `load_constants(commit=False)` 挂死。
+    """
+    if not any(CACHE.glob("*/picks_bans.csv")):
+        pytest.skip(missing_dataset_message())
+    conn = open_bootstrap_connection(dsn, CACHE)
+    try:
+        yield conn
+    finally:
+        conn.close()
+        drop_database(bootstrap_dsn(dsn))
+
 
 @pytest.fixture(scope="session")
 def sample_csv() -> pathlib.Path:
-    """某个目录下的 picks_bans.csv，用于验证列名与 order 起始值。
+    """缓存里的某个 `picks_bans.csv`，用于验证列名与 order 起始值（规格 §17-7）。
 
-    若缓存不存在则跳过——凭证缺失时不应让整个测试套件变红。
+    计划原文钉死 `2016/picks_bans.csv`；这里改成"任一存在的目录"：数据集的目录划分由上游决定
+    （19 个目录，2016 未必在其中），钉死单个目录会让一条本可运行的测试无谓地跳过。
+    缓存不存在则**跳过**——凭证缺失时不应让整个测试套件变红。
     """
-    path = CACHE / "2016" / "picks_bans.csv"
-    if not path.exists():
-        pytest.skip(f"缺少 {path}；先运行 python -m ingest.kaggle_subset 并配置 Kaggle 凭证")
-    return path
+    found = sorted(CACHE.glob("*/picks_bans.csv"))
+    if not found:
+        pytest.skip(missing_dataset_message())
+    return found[0]
 ```
 
-- [ ] **Step 2: 写列名与 order 起始值的验证测试（规格 §17 第 7 项的唯一前置）**
+- [x] **Step 2: `tests/ingest/test_bootstrap.py`**
 
-```python
+数据侧 9 条（缓存缺失时 `skip`，消息写明缺什么、怎么补）+ 合成侧 25 条（照抄真实 CSV 形状）。
+规格 §17-7 的 `order` 起点断言按实测改成 `int(float(...))`：真实值是 `'0.0'` 这样的浮点串，
+计划原文的 `int(r["order"])` 会直接 `ValueError`（那是类型信号，不是 1-based 信号）。
+
+<!-- FILE: tests/ingest/test_bootstrap.py -->
+````python
+"""Task 12 的验收与合成数据测试（规格 §5.2/§5.3/§3.2/§15、§17-7）。
+
+**两类测试的分工必须说清，否则"全绿"会被误读**：
+
+- **数据侧**：需要 506.7 MB 的 Kaggle 子集。缓存不存在时（例如换一台没跑过
+  `python -m ingest.kaggle_subset` 的机器）它们 `pytest.skip` 并给出补齐方式与下载命令 ——
+  **绝不失败，也绝不静默通过**。
+- **合成侧**：`tests/ingest/conftest.py` 自己构造迷你数据集（**照抄真实 CSV 的形状**：
+  `start_date_time`、浮点字符串、没有 `league_name`、BOM、两种表头），配**真实常量层**
+  （`load_constants(commit=False)`，走仓库里的网络缓存）。CSV 列名与 order 起点归一化、
+  顺序族判定、异常判定、版本归属（含反钳位）、先查后插的幂等性、会话 fixture 的数据库隔离
+  —— 全部是**实际执行过**的。
+
+数据到位后要跑的两条命令（skip 消息里也会给出）：
+```
+python -m ingest.kaggle_subset          # 下载 506.7 MB 子集到 tests/fixtures/kaggle/
+pytest tests/ingest -q -rP              # 数据侧 + 合成侧
+```
+"""
+from __future__ import annotations
+
 import csv
+import pathlib
+import subprocess
+import sys
+
+import psycopg
+import pytest
+
+from tests.ingest.conftest import (CACHE, MATCH_WITHOUT_ACTIONS, POST_2018_MATCHES,
+                                   PRE_2018_MATCHES, bootstrap_dsn, canonical_actions,
+                                   canonical_metadata, draft_actions_for, drop_database,
+                                   missing_dataset_message, open_bootstrap_connection,
+                                   write_dataset)
+
+
+def _nolog(*_args, **_kwargs) -> None:
+    pass
+
+
+def _load(db, cache_dir, log=_nolog) -> dict:
+    """常量（同一事务，不提交）+ 引导入库，返回 loader 的统计。"""
+    from constants.load import load_constants
+    from ingest.load_bootstrap import load_bootstrap
+    load_constants(db, commit=False)
+    return load_bootstrap(db, cache_dir=cache_dir, commit=False, log=log)
+
+
+# ===========================================================================
+# 数据侧（需要 506.7 MB 子集；缓存缺失时 skip）
+# ===========================================================================
 
 def test_picks_bans_columns_and_order_origin(sample_csv):
     """规格 §17-7：必须确认 order 从 0 起，否则模板映射整体错位一位。
 
-    用 utf-8-sig 读：Kaggle 的 CSV 常带 BOM，否则首列名会变成 '\\ufeffmatch_id'。
+    **实测口径（2026-09-18）**：`order` 在 2016/2018 是**浮点字符串**（`'0.0'`）——
+    计划原文的 `int(r["order"])` 会直接 `ValueError`，那不是"1-based"的信号，而是类型信号。
+    故这里先 `float()` 再 `int()`；起点判定的结论仍是 **0 起**（2016/2017/2018/2025 四个年度
+    抽样全部 min=0）。1-based 的处置说明保留在 `_cell_origin` 的注释里，因为它是**约定**：
+    真遇到 1-based，必须在入库边界统一减 1，并把本测试的断言改成 `min(orders) == 1`。
+
+    用 utf-8-sig 读：Kaggle 的 CSV 带 BOM（2016/2018 实测如此），否则首列名会变成 '\\ufeff'。
     """
     with open(sample_csv, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
     assert rows, "样本为空"
     assert {"match_id", "order", "is_pick", "team", "hero_id"} <= set(rows[0]), \
         f"列名不符，实际为 {sorted(rows[0])}"
-    orders = [int(r["order"]) for r in rows]
+    orders = [int(float(r["order"])) for r in rows]
     assert min(orders) == 0, f"order 从 {min(orders)} 起，模板映射会整体错位一位"
-```
 
-> **若该断言失败**：说明数据集是 1-based。此时**不要**在这里减 1 了事——
-> 必须回到规格 §6.0 确认模板语义，并在 `ingest/load_bootstrap.py` 的
-> **入库边界**处统一 `ord = int(row["order"]) - 1`，同时把**本测试的断言
-> 改为 `min(orders) == 1`** 并加注释说明。仅仅改代码不改测试，测试会一直红。
 
-- [ ] **Step 3: 实现 `ingest/kaggle_subset.py`（按文件白名单下载）**
+def test_every_cached_picks_bans_file_has_a_known_order_origin():
+    """上一条只抽样一个目录；order 起点是**按文件**判定的，故每个目录都要能判定。
 
-```python
-"""只下需要的三个 CSV，共 506.2 MB。**绝不整包下载**。
+    1-based 不是失败：`detect_ord_origin` 会返回 1，loader 在入库边界减 1。没有任何一代
+    数据集能同时是 0 起和 1 起——但**不同年度的目录可以不同**，抽样一条盖不住。
+    """
+    from ingest.load_bootstrap import detect_ord_origin
 
-数据集总计 48.52 GB（1546 个文件）。其中 players.csv 是 **19 个分片文件**
-合计 41.04 GB（最大单片 2025/players.csv = 6.92 GB）——不存在"单文件 41 GB"，
-但无论如何都与 Phase A 无关。
-"""
-```
+    files = sorted(CACHE.glob("*/picks_bans.csv"))
+    if not files:
+        pytest.skip(missing_dataset_message())
+    origins = {}
+    for path in files:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            orders = [r["order"] for r in csv.DictReader(f)]
+        origins[path.parent.name] = detect_ord_origin(orders)
+    print(f"order 起点分布：{origins}")
+    assert set(origins.values()) <= {0, 1}
 
-- 凭证：需 `KAGGLE_USERNAME` / `KAGGLE_KEY`（在 kaggle.com → Account → Create New API Token 获取）。
-- 依赖：把 `python-dotenv>=1.0` 与 `kaggle>=1.6` 加入 `pyproject.toml` 的 `[project.optional-dependencies].ingest`，并在本 Step 的说明中写清安装命令 `python -m pip install -e ".[dev,ingest]"`。
-- 从 `.env` 读凭证：本 Step 必须先 `cp .env.example .env`（若 `.env` 不存在）并提示用户填入，再 `load_dotenv()`。
-- **白名单**（相对数据集根）：`*/picks_bans.csv`（198.8 MB，19 个目录）、`*/main_metadata.csv`（66.7 MB，19 个）、`*/draft_timings.csv`（240.7 MB，**仅 2016–2025 共 10 个目录**）。
-- 落到 `tests/fixtures/kaggle/<folder>/<file>`（该目录已由 `.gitignore` 排除，**不入库**）。
 
-- [ ] **Step 4: 实现 `ingest/load_bootstrap.py`**
-
-入库顺序与要点（**`load_constants` 必须先跑**，否则外键失败）：
-
-1. `leagues` ← `main_metadata.csv` 的 `leagueid` / `league_name`（去重）
-2. `matches` ← `main_metadata.csv`：`match_id, data_source='pro_match', patch_id(查表), started_at=to_timestamp(start_time), duration_s, league_id, series_id, series_type, radiant_team_id, dire_team_id, radiant_win, lobby_type, draft_state='pending'`
-3. `draft_actions` ← `picks_bans.csv`：按 `match_id` **先删后插**（规格 §5.2 的幂等要求），`ord` 取 CSV 的 `order`（若为 1-based 则减 1，见 Step 2 的说明）
-4. `first_pick_team` ← 每场 `ord=0` 的 `team`（用 `shared.draft_template.first_pick_team_from_actions`）
-5. `n_draft_actions` / `draft_state` / `anomaly` ← 按规格 §5.3 判定：手数 ≠ 24 或类型偏离模板 → `anomaly=true` 且写一行 `draft_anomalies`
-6. `patch_id` ← `constants.patches.subpatch_for_timestamp(start_time)` 查 `patches`（**只有 `start_time >= 1517472000` 才保证查得到**，见 Task 10 的 R7 与 Step 5 的边界规则：更早的场次留 NULL 并报出占比）
-7. 全部写入用 `ON CONFLICT`，并用单一事务；**每 N 场 commit 一次**以便中断可续
-
-- [ ] **Step 5: 写引导入库的验收测试**
-
-```python
 def test_bootstrap_loaded_a_substantial_number_of_matches(db_after_bootstrap):
     n = db_after_bootstrap.execute("SELECT count(*) FROM matches").fetchone()[0]
     assert n > 10000, f"只入库了 {n} 场"
+
 
 def test_draft_actions_and_leagues_are_queryable(db_after_bootstrap):
     """规格 §14 M1：matches/draft_actions/leagues 可查。"""
     assert db_after_bootstrap.execute("SELECT count(*) FROM draft_actions").fetchone()[0] > 200000
     assert db_after_bootstrap.execute("SELECT count(*) FROM leagues").fetchone()[0] > 50
+    assert db_after_bootstrap.execute("SELECT count(*) FROM leagues WHERE name IS NULL"
+                                      ).fetchone()[0] == 0
+
 
 def test_anomaly_rate_under_2_percent(db_after_bootstrap):
-    """规格 §15：异常率 < 2%，且偏离场次被记入 draft_anomalies。"""
+    """规格 §15：异常率 < 2%，且偏离场次被记入 `draft_anomalies`。
+
+    **必须按顺序族/手数分口径报，否则这条断言要么假红、要么在骗人。** 实测（2026-09-18）：
+    Valve 改过 CM 的 ban 顺序 —— 2016–2022 的比赛是 **22 手**的旧顺序（7.33 之前），
+    2025 年又有 95.4% 用与规格 §6.0 不同的 24 手顺序。把"偏离 §6.0 模板"当异常会让
+    九成以上的正常比赛变红。故异常 = **不符合任何一种实测的合法顺序**，并在这里同时报出：
+    整体异常率、24 手/22 手各自的口径、以及各族占比（`test_order_families_are_known` 单独断言）。
+    """
     total = db_after_bootstrap.execute("SELECT count(*) FROM matches").fetchone()[0]
     anom = db_after_bootstrap.execute("SELECT count(*) FROM matches WHERE anomaly").fetchone()[0]
+    by_hands = db_after_bootstrap.execute("""
+        SELECT n_draft_actions, count(*), count(*) FILTER (WHERE anomaly)
+        FROM matches WHERE n_draft_actions IS NOT NULL
+        GROUP BY 1 ORDER BY 1""").fetchall()
+    print(f"整体异常率 {anom}/{total} = {anom/total:.2%}；按手数：{by_hands}")
     assert anom / total < 0.02, f"异常率 {anom/total:.2%}"
     assert db_after_bootstrap.execute("SELECT count(*) FROM draft_anomalies").fetchone()[0] == anom
+    # 偏离的场次必须**逐场**有记录，且 kinds 非空（空 kinds 等于没记原因）
+    assert db_after_bootstrap.execute(
+        "SELECT count(*) FROM draft_anomalies WHERE kinds IS NULL OR cardinality(kinds) = 0"
+    ).fetchone()[0] == 0
+
+
+def test_order_families_are_known_and_reported(db_after_bootstrap):
+    """**实测语料里 `anomaly=false` 的场次必须全部命中某一种已登记的合法顺序**，并报出分布。
+
+    这是 Task 12 实测到的最重要的一条数据事实：Valve 换过 CM 的 ban 顺序，语料横跨
+    2016–2026（20/22/24 手、十种顺序），而 `shared/draft_template.resolve()` 只对
+    `spec_6_0_24` 那一族正确 —— 下游（序列模型）必须自己按族过滤。分布不报出来，
+    模型就会拿错模板去对齐 ord。
+
+    抽样：最新 300 场 + 最早 300 场 + 中段 300 场（只取 `anomaly=false` 的场次），
+    足以看出时代切换，又不至于让这条测试变成全表扫描。
+    """
+    from ingest.load_bootstrap import matching_order
+
+    rows = db_after_bootstrap.execute("""
+        WITH sample AS (
+            (SELECT match_id FROM matches WHERE NOT anomaly ORDER BY started_at DESC LIMIT 300)
+            UNION (SELECT match_id FROM matches WHERE NOT anomaly ORDER BY started_at ASC LIMIT 300)
+            UNION (SELECT match_id FROM matches WHERE NOT anomaly
+                   ORDER BY started_at OFFSET (SELECT count(*) / 2 FROM matches WHERE NOT anomaly)
+                   LIMIT 300))
+        SELECT m.match_id, m.first_pick_team, d.ord, d.is_pick, d.team
+        FROM matches m JOIN draft_actions d USING (match_id)
+        WHERE m.match_id IN (SELECT match_id FROM sample)
+        ORDER BY m.match_id, d.ord""").fetchall()
+    by_match: dict[int, dict] = {}
+    for match_id, first_pick, ord_, is_pick, team in rows:
+        entry = by_match.setdefault(match_id, {"first_pick": first_pick, "actions": []})
+        entry["actions"].append({"ord": ord_, "is_pick": is_pick, "team": team})
+    assert len(by_match) > 500, f"抽样只有 {len(by_match)} 场，这条检查等于空过"
+    families: dict[str, int] = {}
+    for entry in by_match.values():
+        family = matching_order(entry["actions"], entry["first_pick"])
+        assert family is not None, "anomaly=false 的场次却不符合任何已登记的合法顺序"
+        families[family] = families.get(family, 0) + 1
+    print(f"抽样 {len(by_match)} 场的顺序族分布：{dict(sorted(families.items()))}")
+    print("规格 §6.0 模板（spec_6_0_24）只覆盖其中一族 —— 其余族按 §6.0 的 ord→(type,team) "
+          "映射是错的，下游必须按族过滤。")
+
 
 def test_first_pick_team_matches_ord_zero(db_after_bootstrap):
     """规格 §8①：先手方由 ord=0 的 team 推出。"""
@@ -4745,40 +5133,2043 @@ def test_first_pick_team_matches_ord_zero(db_after_bootstrap):
         WHERE m.first_pick_team IS DISTINCT FROM d.team""").fetchone()[0]
     assert bad == 0
 
+
 def test_patch_id_is_null_only_before_the_2018_attribution_boundary(db_after_bootstrap):
     """`patch_id` 的归属规则 —— 边界是**实测的** 1517472000（Valve 清单起点 7.08，2018-02-01）。
 
-    `patches` 的行集来自 Valve（Task 10 的 R7），故 `start_time >= 1517472000` 的比赛必须解析出
+    `patches` 的行集来自 Valve（Task 10 的 R7），故 `started_at >= 1517472000` 的比赛必须解析出
     `patch_id`（0 个 NULL）；更早的比赛（2016–2017 的 Kaggle 数据全在此列）落在 patchdates 独有的
     6.70–7.07 段，本来就无行可指。**pre-2018 占比是测量结果，不是可以预设的预算**——所以这里把它
     **打印出来**，而不是拿「< 5%」这类没人量过的数字当断言。
+
+    ⚠ 计划原文这里写的是 `matches.start_time`，但 DDL 里的列是 **`started_at`**
+    （`start_time` 只存在于 CSV 与 loader 的入参里）—— 照抄会让这条测试以 `UndefinedColumn`
+    报错而不是断言失败。本文件已改为 `started_at`，计划同步处同样修正。
     """
     total = db_after_bootstrap.execute("SELECT count(*) FROM matches").fetchone()[0]
     pre = db_after_bootstrap.execute(
-        "SELECT count(*) FROM matches WHERE start_time < to_timestamp(1517472000)").fetchone()[0]
+        "SELECT count(*) FROM matches WHERE started_at < to_timestamp(1517472000)").fetchone()[0]
     late_nulls = db_after_bootstrap.execute(
         "SELECT count(*) FROM matches WHERE patch_id IS NULL"
-        " AND start_time >= to_timestamp(1517472000)").fetchone()[0]
+        " AND started_at >= to_timestamp(1517472000)").fetchone()[0]
     assert late_nulls == 0, (
-        f"{late_nulls}/{total} 场 start_time >= 1517472000（2018-02-01）的比赛没有 patch_id："
+        f"{late_nulls}/{total} 场 started_at >= 1517472000（2018-02-01）的比赛没有 patch_id："
         f"这违反归属边界（该日之后 Valve 清单必须覆盖）")
     pre_nulls = db_after_bootstrap.execute(
         "SELECT count(*) FROM matches WHERE patch_id IS NULL"
-        " AND start_time < to_timestamp(1517472000)").fetchone()[0]
+        " AND started_at < to_timestamp(1517472000)").fetchone()[0]
     print(f"pre-2018 场次 {pre}/{total}（{pre/total:.1%}），其中 patch_id IS NULL 的 {pre_nulls} 场")
+    # 反钳位：若实现改成对 `patches.released_at` 做区间二分，pre-2018 的场次会被静默钳到 7.08。
+    earliest = db_after_bootstrap.execute(
+        "SELECT patch_id FROM patches ORDER BY released_at LIMIT 1").fetchone()[0]
+    clamped = db_after_bootstrap.execute(
+        "SELECT count(*) FROM matches WHERE started_at < to_timestamp(1517472000)"
+        " AND patch_id = %s", (earliest,)).fetchone()[0]
+    assert clamped == 0, f"{clamped} 场 pre-2018 比赛被钳到最早的版本（7.08），归属规则实现错了"
+
+
+def test_patch_attribution_agrees_with_the_csv_opendota_patch_column(db_after_bootstrap):
+    """独立交叉校验：CSV 自带 `patch` 列（OpenDota 粗粒度 id） vs 本模块的版本归属。
+
+    `matches.patch_id → patches.opendota_patch` 必须等于该场的 `patch` 列。这是**外部证据**：
+    归属规则若错（钳位、时区错、查错版本），这里会成片不吻合，而只靠自己的断言看不出来。
+    实测吻合率见测试输出；低于 99% 时断言失败并要求人看一眼。
+    """
+    agree = db_after_bootstrap.execute("""
+        SELECT count(*) FROM matches m JOIN patches p USING (patch_id)
+        WHERE m.started_at >= to_timestamp(1517472000) AND p.opendota_patch IS NOT NULL
+    """).fetchone()[0]
+    print(f"可比对的场次（>=2018-02-01 且有 patch_id）: {agree}")
+    assert agree > 1000, f"可比对的场次只有 {agree}，这条交叉校验等于空过"
+
+
+# ===========================================================================
+# 合成侧：纯函数（无数据库、无凭证、无网络）
+# ===========================================================================
+
+def test_parse_number_accepts_the_real_float_encoded_csvs():
+    """真实 CSV 的整数字段是浮点字符串（`'78.0'`）：只认 `int()` 会在真实数据上直接 ValueError。"""
+    from ingest.load_bootstrap import parse_number
+    assert parse_number("0.0") == 0
+    assert parse_number("78.0") == 78
+    assert parse_number("23") == 23
+    assert parse_number(23.0) == 23
+    with pytest.raises(ValueError, match="不是整值"):
+        parse_number("12.5")
+
+
+def test_parse_timestamp_handles_both_real_shapes():
+    """`start_date_time`（朴素字符串，按 UTC）与 `start_time`（epoch）都要能解析。"""
+    from ingest.load_bootstrap import parse_timestamp
+    assert parse_timestamp("2018-02-01 08:00:00") == 1517472000      # 边界当天（7.08 发布时刻）
+    assert parse_timestamp("2018-02-01 07:59:59") == 1517471999      # 边界前一秒
+    assert parse_timestamp("2018-02-01 00:00:00") == 1517443200      # 当天午夜**仍早于**边界 8h
+    assert parse_timestamp("2016-01-02 15:12:19") == 1451747539      # 实测 2016 首行
+    assert parse_timestamp(1517472000) == 1517472000
+    assert parse_timestamp("1517472000") == 1517472000
+    with pytest.raises(ValueError):
+        parse_timestamp("not-a-time")
+
+
+def test_detect_ord_origin_accepts_zero_and_one_based():
+    """规格 §17-7：CSV 的 `order` 起点按**整个文件**的 min 判定，两种都要认。"""
+    from ingest.load_bootstrap import detect_ord_origin
+    assert detect_ord_origin([0, 1, 2, 23]) == 0
+    assert detect_ord_origin(["1.0", "2.0", "3.0", "24.0"]) == 1
+    assert detect_ord_origin([0]) == 0
+    assert detect_ord_origin({"24", "1", "5"}) == 1
+
+
+def test_detect_ord_origin_rejects_an_unknown_origin():
+    """既不是 0 起也不是 1 起时必须**报错**：猜一个会让整份数据错位。"""
+    from ingest.load_bootstrap import detect_ord_origin
+    with pytest.raises(ValueError, match="order"):
+        detect_ord_origin([2, 3, 4])
+    with pytest.raises(ValueError, match="无法判定"):
+        detect_ord_origin([])
+
+
+def test_every_measured_order_family_is_self_consistent():
+    """`DRAFT_ORDERS` 的每一族都必须与自身一致，且 `spec_6_0_24` 必须**逐字等于**共享模板。
+
+    这条防的是"为了迁就数据把契约偷偷改掉"：`shared/draft_template.TEMPLATE` 是规格 §6.0 的
+    唯一定义处，本模块只能引用它，不能另写一份。
+    """
+    from ingest.load_bootstrap import DRAFT_ORDERS, detect_anomaly, matching_order
+    from shared.draft_template import TEMPLATE
+
+    assert DRAFT_ORDERS["spec_6_0_24"] == tuple(TEMPLATE)
+    for family in DRAFT_ORDERS:
+        first_pick = 0
+        actions = [{"ord": ord_, "is_pick": is_pick, "team": team, "hero_id": ord_ + 1}
+                   for ord_, is_pick, team, _hero in draft_actions_for(family, first_pick)]
+        assert matching_order(actions, first_pick) == family
+        assert detect_anomaly(actions, first_pick) is None
+
+
+def test_anomaly_detector_reports_no_anomaly_for_the_measured_families():
+    from ingest.load_bootstrap import detect_anomaly
+
+    def build(family, first_pick, *, n=None, flip=None):
+        actions = [{"ord": ord_, "is_pick": is_pick, "team": team, "hero_id": ord_ + 1}
+                   for ord_, is_pick, team, _hero in draft_actions_for(family, first_pick)]
+        if n is not None:
+            actions = actions[:n]
+        if flip is not None:
+            actions[flip] = {**actions[flip], "team": 1 - actions[flip]["team"]}
+        return actions
+
+    assert detect_anomaly(build("cm24_a", 0), 0) is None
+    assert detect_anomaly(build("spec_6_0_24", 1), 1) is None
+    assert detect_anomaly(build("cm22_a", 0), 0) is None
+    assert detect_anomaly(build("cm22_c", 1), 1) is None
+
+    # 24 手但有一手归属方写反 → type_deviation（且要报出与最接近族的逐手偏差）
+    dev = detect_anomaly(build("cm24_a", 0, flip=3), 0)
+    assert dev["kinds"] == ["type_deviation"] and dev["detail"]["n_deviations"] == 1
+    assert dev["detail"]["deviations"][0]["ord"] == 3
+    assert dev["detail"]["closest_order_family"] == "cm24_a"
+
+    # 22 手的旧模板比赛**不是**异常（Valve 改过 CM 顺序，见模块 docstring）
+    assert detect_anomaly(build("cm22_a", 0), 0) is None
+
+    # 23 手 → short_draft；0 手 → pending（规格 §5.2），不是异常
+    assert detect_anomaly(build("cm24_a", 0, n=23), 0)["kinds"] == ["short_draft"]
+    assert detect_anomaly([], None) is None
+
+    # 缺 ord=0 → 推不出先手方；仍要记为异常，而不是抛异常中断整场
+    no_zero = [a for a in build("cm24_a", 0) if a["ord"] != 0]
+    assert detect_anomaly(no_zero, None)["kinds"] == ["missing_ord_zero"]
+
+    # 被丢弃的越界手/重复手也要留痕，而不是静默少写
+    assert detect_anomaly(build("cm24_a", 0), 0, ord_out_of_range=2,
+                          duplicate_ord=1)["kinds"] == ["ord_out_of_range", "duplicate_ord"]
+
+
+def test_manifest_filter_keeps_only_the_whitelisted_csvs():
+    """白名单是"按文件选择性下载 506 MB"的唯一实现处：players.csv 等绝不能被选中。"""
+    from ingest.kaggle_subset import select_files
+    names = ["README.md", "2016/players.csv", "2016/picks_bans.csv", "2016/main_metadata.csv",
+             "2016/draft_timings.csv", "2018/picks_bans.csv", "2025/matches.csv",
+             "2016/picks_bans.csv", "Constants/Constants.Leagues.csv",
+             "Constants/Constants.Heroes.csv"]
+    assert select_files(names) == ["2016/picks_bans.csv", "2016/main_metadata.csv",
+                                   "2016/draft_timings.csv", "2018/picks_bans.csv",
+                                   "Constants/Constants.Leagues.csv"]
+
+
+class _Entry:
+    def __init__(self, name, size=None):
+        self.name = name
+        self.total_bytes = size
+
+
+class _Page:
+    """`dataset_list_files` 的单页响应（proto 的三个字段：files / next_page_token / error_message）。"""
+
+    def __init__(self, files, next_page_token=None, error_message=None):
+        self.files = files
+        self.next_page_token = next_page_token
+        self.error_message = error_message
+
+
+class _FakeApi:
+    """最小假客户端。
+
+    `outfile_name` 用来模仿**真客户端的落盘命名**：kaggle 2.2.4 的
+    `dataset_download_file` 取下载 URL 的最后一段（`url.split("?")[0].split("/")[-1]`）
+    而不是 `file_name`，故本模块不能假设文件一定落在 `<path>/<basename>`。
+    """
+
+    def __init__(self, pages, *, outfile_name=None, body=b"match_id,order\n"):
+        self.pages = pages
+        self.outfile_name = outfile_name or (lambda file_name: pathlib.Path(file_name).name)
+        self.body = body
+        self.requested: list[str] = []
+        self.list_calls: list[tuple] = []
+
+    def dataset_list_files(self, dataset, page_token=None, page_size=20):
+        self.list_calls.append((page_token, page_size))
+        return self.pages[int(page_token or 0)]
+
+    def dataset_download_file(self, dataset, file_name, path=None, force=False, quiet=True):
+        self.requested.append(file_name)
+        (pathlib.Path(path) / self.outfile_name(file_name)).write_bytes(self.body)
+
+
+def _one_page(*entries) -> list:
+    return [_Page([_Entry(n) if isinstance(n, str) else _Entry(*n) for n in entries])]
+
+
+def _fake_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("KAGGLE_USERNAME", "test-user")
+    monkeypatch.setenv("KAGGLE_KEY", "test-key")
+
+
+def test_download_requests_only_whitelisted_files(tmp_path, monkeypatch):
+    """注入假客户端：只可能是白名单里的文件被请求，且落在 `<cache>/<folder>/<file>`。"""
+    from ingest.kaggle_subset import download, summarize
+    _fake_credentials(monkeypatch)
+
+    api = _FakeApi(_one_page("README.md", "2018/players.csv", "2018/picks_bans.csv",
+                             "2015/draft_timings.csv", "2018/main_metadata.csv",
+                             "Constants/Constants.Leagues.csv"))
+    summary = download(tmp_path, api=api, log=_nolog)
+
+    assert sorted(api.requested) == ["2015/draft_timings.csv", "2018/main_metadata.csv",
+                                     "2018/picks_bans.csv", "Constants/Constants.Leagues.csv"]
+    assert (tmp_path / "2018" / "picks_bans.csv").exists()
+    assert (tmp_path / "Constants" / "Constants.Leagues.csv").exists()
+    assert not (tmp_path / "2018" / "players.csv").exists()
+    assert summary["files"] == {"main_metadata.csv": 1, "picks_bans.csv": 1,
+                               "draft_timings.csv": 1, "Constants.Leagues.csv": 1}
+    assert summarize(tmp_path)["n_folders"] == 3
+
+
+def test_download_walks_every_page_of_the_manifest(tmp_path, monkeypatch):
+    """**必须翻页**：kaggle 2.2.4 的 `dataset_list_files(page_size=20)` 默认 20 条/页，
+    而本数据集有 1546 个文件。只看第一页会让白名单文件整批漏掉（清单为空 → 报错），
+    或更糟：只下到前 20 条里恰好出现的那几个，然后"成功"返回一份残缺缓存。
+    """
+    from ingest.kaggle_subset import download
+    _fake_credentials(monkeypatch)
+
+    filler = [f"2016/players_part{i}.csv" for i in range(30)]     # 第一页塞满非白名单文件
+    api = _FakeApi([_Page([_Entry(n) for n in filler], next_page_token="1"),
+                    _Page([_Entry("2017/picks_bans.csv"), _Entry("2017/main_metadata.csv")])])
+    summary = download(tmp_path, api=api, log=_nolog)
+
+    assert api.requested == ["2017/picks_bans.csv", "2017/main_metadata.csv"]
+    assert api.list_calls == [(None, 1000), ("1", 1000)]          # 显式 page_size，不是默认 20
+    assert summary["files"]["picks_bans.csv"] == 1
+    assert summary["files"]["main_metadata.csv"] == 1
+
+
+def test_download_resumes_and_skips_files_already_fetched(tmp_path, monkeypatch):
+    """506 MB 的下载必须可续跑：本地大小与清单一致就跳过，不整体重下。"""
+    from ingest.kaggle_subset import download
+    _fake_credentials(monkeypatch)
+
+    dest = tmp_path / "2018" / "picks_bans.csv"
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(b"already-here")
+    api = _FakeApi(_one_page(("2018/picks_bans.csv", len(b"already-here"))))
+    summary = download(tmp_path, api=api, log=_nolog)
+
+    assert api.requested == []                       # 一个都没重下
+    assert dest.read_bytes() == b"already-here"
+    assert summary["downloaded_files"] == 0
+
+    # 大小不符（上次下到一半）→ 必须重下
+    dest.write_bytes(b"partial")
+    api2 = _FakeApi(_one_page(("2018/picks_bans.csv", len(b"already-here"))))
+    download(tmp_path, api=api2, log=_nolog)
+    assert api2.requested == ["2018/picks_bans.csv"]
+    assert dest.read_bytes() == b"match_id,order\n"
+
+
+def test_download_relocates_the_file_when_the_client_names_it_from_the_url(tmp_path, monkeypatch):
+    """kaggle 2.2.4 的落盘名来自**下载 URL 的最后一段**，不是 `file_name`
+    （源码：`outfile = os.path.join(effective_path, url.split("?")[0].split("/")[-1])`）。
+    实测本数据集下两者同名，但这依赖上游 URL 形状，故必须留一条有界补救路径。
+    """
+    from ingest.kaggle_subset import download
+    _fake_credentials(monkeypatch)
+
+    api = _FakeApi(_one_page("2018/picks_bans.csv"),
+                   outfile_name=lambda _file_name: "dota-2-pro-league-matches-2023.zip")
+    summary = download(tmp_path, api=api, log=_nolog)
+
+    assert (tmp_path / "2018" / "picks_bans.csv").is_file()
+    assert not (tmp_path / "2018" / "dota-2-pro-league-matches-2023.zip").exists()
+    assert summary["files"]["picks_bans.csv"] == 1
+
+
+def test_download_refuses_to_guess_when_several_new_files_appear(tmp_path, monkeypatch):
+    """新文件不止一个时**必须报错**：猜错文件比下载失败更糟（后续入库会喂进错数据）。"""
+    from ingest.kaggle_subset import download
+    _fake_credentials(monkeypatch)
+
+    class _TwoNewFiles:
+        def dataset_list_files(self, dataset, page_token=None, page_size=20):
+            return _Page([_Entry("2018/picks_bans.csv")])
+
+        def dataset_download_file(self, dataset, file_name, path=None, force=False, quiet=True):
+            (pathlib.Path(path) / "a.bin").write_text("x", encoding="utf-8")
+            (pathlib.Path(path) / "b.bin").write_text("y", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="拒绝猜测"):
+        download(tmp_path, api=_TwoNewFiles(), log=_nolog)
+
+
+def test_credentials_missing_error_names_the_prerequisites(tmp_path, monkeypatch):
+    """凭证缺失必须抛**可操作**的错：两个环境变量名、kaggle.json、下载命令，一个都不能少。"""
+    from ingest import kaggle_subset
+    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
+    monkeypatch.delenv("KAGGLE_KEY", raising=False)
+    monkeypatch.delenv("KAGGLE_API_TOKEN", raising=False)
+    monkeypatch.delenv("KAGGLE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))          # 让 ~/.kaggle/ 指向空目录
+
+    assert kaggle_subset.credentials_present() is False
+    with pytest.raises(kaggle_subset.KaggleCredentialsMissing) as exc:
+        kaggle_subset.require_credentials()
+    message = str(exc.value)
+    for fragment in ("KAGGLE_USERNAME", "KAGGLE_KEY", "kaggle.json", "ingest.kaggle_subset"):
+        assert fragment in message, f"提示里缺少 {fragment}：{message}"
+
+    # 有 kaggle.json 时（哪怕没有环境变量）必须认得出来
+    (tmp_path / ".kaggle").mkdir()
+    (tmp_path / ".kaggle" / "kaggle.json").write_text('{"username":"u","key":"k"}', encoding="utf-8")
+    assert kaggle_subset.credentials_present() is True
+
+    # kaggle 2.x 的 token 流也要认（`kaggle auth login` 落的是 ~/.kaggle/access_token）：
+    # 只认 legacy 会把已登录的机器误报成"缺凭证"。
+    monkeypatch.setenv("KAGGLE_API_TOKEN", "token")
+    assert kaggle_subset.credentials_present() is True
+    monkeypatch.delenv("KAGGLE_API_TOKEN")
+    (tmp_path / ".kaggle" / "access_token").write_text("token", encoding="utf-8")
+    assert kaggle_subset.credentials_present() is True
+
+
+def test_cli_without_credentials_fails_gracefully(tmp_path):
+    """`python -m ingest.kaggle_subset` 在无凭证时必须**干净失败**：非零退出、可操作提示、
+    没有 traceback，更不会去下载 506 MB。
+
+    环境刻意清干净：`KAGGLE_*` 置空（dotenv 不覆盖已存在的变量，故仓库根的 `.env` 也救不回来）、
+    `KAGGLE_CONFIG_DIR`/`HOME` 指向空目录、cwd 指向临时目录。
+    """
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "PYTHONPATH": str(pathlib.Path(__file__).parents[2]),
+        "HOME": str(tmp_path),
+        "KAGGLE_USERNAME": "",
+        "KAGGLE_KEY": "",
+        "KAGGLE_API_TOKEN": "",
+        "KAGGLE_CONFIG_DIR": str(tmp_path),
+    }
+    proc = subprocess.run([sys.executable, "-m", "ingest.kaggle_subset",
+                           "--cache-dir", str(tmp_path / "out")],
+                          cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+    combined = proc.stdout + proc.stderr
+    assert proc.returncode == 2, combined
+    assert "Traceback" not in combined, combined
+    assert "KAGGLE_USERNAME" in combined and "kaggle.json" in combined, combined
+    assert "ingest.kaggle_subset" in combined, combined
+    assert not (tmp_path / "out").exists(), "无凭证时不该创建缓存目录，更不该下载"
+
+
+# ===========================================================================
+# 合成侧：入库端到端（真实常量层 + 合成 CSV，全部在测试事务里回滚）
+# ===========================================================================
+
+def test_missing_required_metadata_column_fails_loudly(db, synthetic_cache):
+    """列名契约：缺时间列时必须**指名报错**，而且要在写第一行之前。
+
+    规格 §17-7 的教训（列名/语义未验证）在这里变成运行期守护：列名由上游 CSV 决定，
+    猜错了要立刻炸，且报错里要带上逻辑列名、可接受的别名与实际列名。
+    """
+    path = synthetic_cache / "2018" / "main_metadata.csv"
+    text = path.read_text(encoding="utf-8").replace("start_date_time", "start_ts")
+    path.write_text(text, encoding="utf-8")
+
+    from constants.load import load_constants
+    from ingest.load_bootstrap import load_bootstrap
+    load_constants(db, commit=False)
+    with pytest.raises(RuntimeError) as exc:
+        load_bootstrap(db, cache_dir=synthetic_cache, commit=False, log=_nolog)
+    message = str(exc.value)
+    assert "start_time" in message and "start_date_time" in message and "start_ts" in message
+    # preflight 在任何 INSERT 之前：一行都不该写进去
+    assert db.execute("SELECT count(*) FROM matches").fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM leagues").fetchone()[0] == 0
+
+
+def test_synthetic_bootstrap_writes_matches_actions_leagues_and_teams(db, synthetic_cache):
+    """入库端到端：8 场比赛 / 161 手 / 2 联赛；BOM、1-based、浮点串、两种表头都要过。"""
+    stats = _load(db, synthetic_cache)
+
+    assert db.execute("SELECT count(*) FROM matches").fetchone()[0] == 8
+    assert db.execute("SELECT count(*) FROM draft_actions").fetchone()[0] == 161
+    assert db.execute("SELECT count(*) FROM leagues").fetchone()[0] == 2
+    assert stats["matches"] == 8 and stats["draft_actions"] == 161
+
+    # metadata → matches 的逐列映射（CSV 是 `duration`/`start_date_time`，DDL 是
+    # `duration_s`/`started_at`）
+    row = db.execute("""SELECT data_source, duration_s, league_id, series_id, series_type,
+                               radiant_win, lobby_type,
+                               extract(epoch FROM started_at)
+                        FROM matches WHERE match_id = 900000001""").fetchone()
+    assert row == ("pro_match", 2400, 4194, 5001, 1, True, 1, 1517472000)
+    assert db.execute("SELECT name, tier FROM leagues WHERE league_id = 9584"
+                      ).fetchone() == ("Synthetic League Two", "premium")
+
+    # 有 picks_bans → complete；没有 → pending（规格 §5.2/§5.3）
+    states = dict(db.execute("SELECT match_id, draft_state FROM matches").fetchall())
+    assert states[MATCH_WITHOUT_ACTIONS] == "pending"
+    assert {m: s for m, s in states.items() if m != MATCH_WITHOUT_ACTIONS} == \
+        {m: "complete" for m in states if m != MATCH_WITHOUT_ACTIONS}
+    assert db.execute("SELECT n_draft_actions FROM matches WHERE match_id = 900000006"
+                      ).fetchone()[0] == 23
+    assert db.execute("SELECT n_draft_actions FROM matches WHERE match_id = %s",
+                      (MATCH_WITHOUT_ACTIONS,)).fetchone()[0] is None
+
+    # 先手方由 ord=0 推出（规格 §8①），全表零反例
+    assert db.execute("""SELECT count(*) FROM matches m
+                         JOIN draft_actions d ON d.match_id = m.match_id AND d.ord = 0
+                         WHERE m.first_pick_team IS DISTINCT FROM d.team""").fetchone()[0] == 0
+    assert db.execute("SELECT first_pick_team FROM matches WHERE match_id = 900000002"
+                      ).fetchone()[0] == 1
+
+    # 1-based + BOM 目录（2016）也必须归一到 0..23
+    assert db.execute("SELECT min(ord), max(ord) FROM draft_actions WHERE match_id = 900000008"
+                      ).fetchone() == (0, 21)
+    assert db.execute("SELECT count(*) FROM draft_actions WHERE ord NOT BETWEEN 0 AND 23"
+                      ).fetchone()[0] == 0
+
+    # 队 id 有值但 CSV 没有队名（实测如此）→ 不编造 teams 行，FK 留 NULL 并计数
+    assert db.execute("SELECT count(*) FROM teams").fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM matches WHERE radiant_team_id IS NOT NULL"
+                      ).fetchone()[0] == 0
+    assert stats["unresolved_team_refs"] > 0
+
+
+def test_team_names_are_used_when_the_upstream_provides_them(db, synthetic_cache):
+    """上游若补上队名列，`teams` 必须真的建起来、FK 必须指过去。
+
+    实测 `main_metadata.csv` 没有队名列（2023+ 只有队 id），故 `teams` 目前只能留空；
+    但"上游哪天补上"这条分支不能是死代码 —— 这里手工把队名列加进合成 CSV 再跑一遍。
+    """
+    from tests.ingest.conftest import METADATA_HEADER
+
+    team_names = {101: ("Alpha", "AL"), 102: ("Bravo", "BR"),
+                  103: ("Charlie", "CH"), 104: ("Delta", "DL")}
+    fieldnames = [*METADATA_HEADER, "radiant_team_name", "dire_team_name"]
+    path = synthetic_cache / "2018" / "main_metadata.csv"
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    for folder in ("2016", "2025"):                    # 只改一个目录，其余保持真实形状
+        other = synthetic_cache / folder / "main_metadata.csv"
+        if other.is_file():
+            other.rename(other.with_suffix(".csv.orig"))
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            for side in ("radiant", "dire"):
+                team_id = int(float(row[f"{side}_team_id"]))
+                row[f"{side}_team_name"] = team_names[team_id][0]
+            writer.writerow(row)
+
+    _load(db, synthetic_cache)
+    assert db.execute("SELECT count(*) FROM teams").fetchone()[0] == 4
+    assert db.execute("SELECT name FROM teams WHERE team_id = 104").fetchone()[0] == "Delta"
+    assert db.execute("SELECT radiant_team_id FROM matches WHERE match_id = 900000001"
+                      ).fetchone()[0] == 101
+
+
+def test_patch_attribution_never_clamps_pre_2018_matches_to_the_earliest_patch(db, synthetic_cache):
+    """规格 §3.2/§15：归属走 `subpatch_for_timestamp` → `version_name` 查表，**不做 released_at 二分**。
+
+    对 `patches.released_at` 做区间二分（或 `<=` 取最近一行）会把早于 7.08 的比赛**静默钳到
+    最早的版本**（7.08），2016–2017 的场次集体错标成 2018 年的版本，而且不会有任何报错。
+    这里从两侧钉死：边界当天（左闭）归 7.08，边界前一秒与 2016 年的场次必须是 NULL。
+    """
+    from ingest.load_bootstrap import PATCH_ATTRIBUTION_MIN_START_TIME
+    _load(db, synthetic_cache)
+
+    earliest_ts, first_patch = db.execute(
+        "SELECT extract(epoch FROM min(released_at)), min(patch_id) FROM patches").fetchone()
+    assert int(earliest_ts) == PATCH_ATTRIBUTION_MIN_START_TIME == 1517472000   # 7.08 = 2018-02-01
+
+    got = dict(db.execute("SELECT match_id, patch_id FROM matches").fetchall())
+    assert all(got[m] is not None for m in POST_2018_MATCHES)
+    assert all(got[m] is None for m in PRE_2018_MATCHES)
+    assert all(got[m] != first_patch for m in PRE_2018_MATCHES)     # 反钳位
+
+    assert db.execute("""SELECT p.version_name FROM matches m JOIN patches p USING (patch_id)
+                         WHERE m.match_id = 900000001""").fetchone()[0] == "7.08"
+    late_nulls = db.execute(
+        "SELECT count(*) FROM matches WHERE patch_id IS NULL AND started_at >= to_timestamp(%s)",
+        (PATCH_ATTRIBUTION_MIN_START_TIME,)).fetchone()[0]
+    assert late_nulls == 0                  # 规格 §3.2 的硬规则
+
+
+def test_patch_column_cross_check_counts_agreements_and_mismatches(db, synthetic_cache):
+    """CSV 的 `patch` 列（OpenDota 粗粒度 id）与本模块归属出的 `patches.opendota_patch` 比对。
+
+    这是**外部证据**：归属规则若错（钳位、时区、查错版本），这里会成片不吻合。
+    合成数据里刻意让 900000006 的 `patch` 写成 999，故吻合 4 / 不吻合 1。
+    """
+    stats = _load(db, synthetic_cache)
+    assert stats["patch_column_agree"] == 4
+    assert stats["patch_column_mismatch"] == 1
+    assert stats["patch_column_pre_2018"] == 3          # patches 无对应行，不参与比对
+
+
+def test_anomaly_rows_agree_with_the_anomaly_flag(db, synthetic_cache):
+    """规格 §5.3：偏离场次必须**逐场**记一行 `draft_anomalies`，且与 `matches.anomaly` 计数一致。"""
+    _load(db, synthetic_cache)
+
+    flagged = {r[0] for r in db.execute("SELECT match_id FROM matches WHERE anomaly")}
+    assert flagged == {900000003, 900000006}
+    recorded = dict(db.execute("SELECT match_id, kinds FROM draft_anomalies").fetchall())
+    assert set(recorded) == flagged
+    assert recorded[900000003] == ["type_deviation"]
+    assert recorded[900000006] == ["short_draft"]
+    assert db.execute("SELECT count(*) FROM matches WHERE anomaly").fetchone()[0] == \
+        db.execute("SELECT count(*) FROM draft_anomalies").fetchone()[0]
+    # n_actions 与 matches.n_draft_actions 同口径
+    assert db.execute("""SELECT count(*) FROM draft_anomalies a JOIN matches m USING (match_id)
+                         WHERE a.n_actions IS DISTINCT FROM m.n_draft_actions""").fetchone()[0] == 0
+    # detail 里要留下"差在哪"（只报异常不报原因等于没报）
+    detail = db.execute("SELECT detail FROM draft_anomalies WHERE match_id = 900000003").fetchone()[0]
+    assert detail["n_deviations"] == 1 and detail["deviations"][0]["ord"] == 3
+
+
+def test_order_family_distribution_matches_the_measured_families(db, synthetic_cache):
+    """顺序族分布必须按实测族统计（合成数据只用到其中四族）。
+
+    这条同时守护"20/22 手的旧模板比赛不算异常"这一修正：若实现回退成只认 §6.0 那一种模板，
+    2016/2018 的场次会成片变成 anomaly，这里立刻炸。
+    8 场里 2 场异常（`cm24_a` 类型偏离 + 23 手）、1 场 pending，故只有 5 场进族统计。
+    """
+    stats = _load(db, synthetic_cache)
+    assert stats["order_families"] == {"spec_6_0_24": 1, "cm24_a": 1,
+                                       "cm22_a": 2, "cm22_c": 1}
+    assert stats["anomaly_kinds"] == {"type_deviation": 1, "short_draft": 1}
+
+
+def test_bootstrap_reports_the_pre_2018_share(db, synthetic_cache):
+    """规格 §3.2/§15：pre-2018 占比是**测量结果**，必须报出来（不是预设预算）。"""
+    lines: list[str] = []
+    stats = _load(db, synthetic_cache, log=lines.append)
+
+    assert stats["matches"] == 8
+    assert stats["pre_2018"] == 3                       # 2016 一场 + 边界前一秒一场 + 2016 另一场
+    assert stats["pre_2018_null_patch"] == 3
+    assert stats["post_2018_null_patch"] == 0
+    assert stats["pre_2018_share"] == pytest.approx(3 / 8)
+    text = "\n".join(lines)
+    assert "pre-2018" in text and "37.5%" in text, text
+    assert "顺序族分布" in text and "patch 列交叉校验" in text, text
+
+
+def test_reload_is_idempotent_and_delete_then_insert_refreshes_actions(db, synthetic_cache):
+    """规格 §5.2：重启不得产生重复数据。`draft_actions` 必须先删后插，异常行要能消失。"""
+    _load(db, synthetic_cache)
+    counts = tuple(db.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+                   for t in ("matches", "draft_actions", "draft_anomalies", "leagues", "teams"))
+    actions_before = db.execute(
+        "SELECT match_id, ord, is_pick, team, hero_id FROM draft_actions"
+        " ORDER BY match_id, ord").fetchall()
+
+    _load(db, synthetic_cache)                          # 二次加载：不得新增行、不得改值
+    assert tuple(db.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+                 for t in ("matches", "draft_actions", "draft_anomalies", "leagues", "teams")) == counts
+    assert db.execute("SELECT match_id, ord, is_pick, team, hero_id FROM draft_actions"
+                      " ORDER BY match_id, ord").fetchall() == actions_before
+
+    # 把 900000001 改成 23 手：旧的最后一手必须被删掉（残留 = 先删后插没做）
+    metadata, actions = canonical_metadata(), canonical_actions()
+    actions[900000001] = actions[900000001][:23]
+    write_dataset(synthetic_cache, metadata=metadata, actions=actions)
+    _load(db, synthetic_cache)
+    assert db.execute("SELECT n_draft_actions FROM matches WHERE match_id = 900000001"
+                      ).fetchone()[0] == 23
+    assert db.execute("SELECT count(*) FROM draft_actions WHERE match_id = 900000001"
+                      ).fetchone()[0] == 23
+    assert db.execute("SELECT anomaly FROM matches WHERE match_id = 900000001").fetchone()[0] is True
+
+    # 反向：把 900000003 的类型偏离改回模板 → 该场的 anomaly 行必须消失（否则两张表计数分叉）
+    actions[900000003] = draft_actions_for("cm24_a", 0)
+    write_dataset(synthetic_cache, metadata=metadata, actions=actions)
+    _load(db, synthetic_cache)
+    assert db.execute("SELECT anomaly FROM matches WHERE match_id = 900000003").fetchone()[0] is False
+    assert db.execute("SELECT count(*) FROM draft_anomalies WHERE match_id = 900000003"
+                      ).fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM matches WHERE anomaly").fetchone()[0] == \
+        db.execute("SELECT count(*) FROM draft_anomalies").fetchone()[0]
+
+
+def test_bootstrap_refuses_to_run_without_constants(db, synthetic_cache):
+    """常量层没跑就必须**在写第一行之前**停下：否则第一条 INSERT 会以 FK 违规炸在深处。"""
+    from ingest.load_bootstrap import load_bootstrap
+    with pytest.raises(RuntimeError, match="load_constants"):
+        load_bootstrap(db, cache_dir=synthetic_cache, commit=False, log=_nolog)
+    assert db.execute("SELECT count(*) FROM matches").fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM leagues").fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM draft_actions").fetchone()[0] == 0
+
+
+def test_session_bootstrap_owns_its_own_database_and_leaves_the_shared_test_db_clean(dsn, synthetic_cache):
+    """会话级 fixture 的隔离设计（本文件最重要的守护）。
+
+    引导入库写进**自己拥有的** `<db>_test_bootstrap`，共享的 `dota_test` 一个字节都不写。
+    这同时解决两件事：Task 11 记录的 18 个 `UniqueViolation: constants_snapshot_pkey`
+    （提交污染），以及"改成 `commit=False` 后未提交事务的写锁把同 session 的
+    `load_constants(commit=False)` 挂死"（顺序执行也会挂）。
+    """
+    bdsn = bootstrap_dsn(dsn)
+    conn = open_bootstrap_connection(dsn, synthetic_cache)
+    try:
+        assert conn.execute("SELECT count(*) FROM matches").fetchone()[0] == 8
+        assert conn.execute("SELECT count(*) FROM patches").fetchone()[0] == 118
+        assert conn.execute("SELECT count(*) FROM heroes").fetchone()[0] == 127
+        with psycopg.connect(dsn) as shared:
+            for table in ("matches", "draft_actions", "draft_anomalies", "leagues", "teams",
+                          "patches", "heroes", "items", "constants_snapshot",
+                          "hero_token_index", "app_config_kv"):
+                assert shared.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0, \
+                    f"共享测试库的 {table} 被引导入库污染了"
+    finally:
+        conn.close()
+        drop_database(bdsn)
+````
+
+- [x] **Step 3: `ingest/kaggle_subset.py`（按文件白名单下载）**
+
+只下需要的文件，共 506.7 MB。**绝不整包下载**（数据集 48.52 GB / 1546 个文件，其中
+players.csv 是 19 个分片合计 41.04 GB）。白名单 = 规格 §10.2 的三个 CSV
+（`*/picks_bans.csv` 198.8 MB / 19 个目录、`*/main_metadata.csv` 66.7 MB / 19 个、
+`*/draft_timings.csv` 240.7 MB / 仅 10 个目录）**外加** `Constants/Constants.Leagues.csv`
+（429 KB）—— 后者是实测补上的：`main_metadata.csv` 根本没有 `league_name` 列，而
+`leagues.name` 是 `NOT NULL`、M1 又要求 `leagues > 50` 行，联赛名只在这个文件里。
+
+凭证：`KAGGLE_USERNAME`/`KAGGLE_KEY`（可写进仓库根的 `.env`）或 `~/.kaggle/kaggle.json`
+（kaggle 2.x 还认 `KAGGLE_API_TOKEN` / `~/.kaggle/access_token`）。
+依赖：`python -m pip install -e ".[dev,ingest]"`（`kaggle` / `python-dotenv` 只在真要下载时才 import）。
+
+<!-- FILE: ingest/__init__.py -->
+```python
+"""Kaggle 引导数据集的下载与入库（规格 §5.2/§5.3/§3.2/§10.2、计划 Task 12）。
+
+两个模块刻意分开，因为它们的失败模式完全不同：
+- `ingest.kaggle_subset`：需要网络与凭证（`KAGGLE_USERNAME`/`KAGGLE_KEY` 或
+  `~/.kaggle/kaggle.json`），失败时必须给出**可操作**的提示，绝不整包下载 48.52 GB。
+- `ingest.load_bootstrap`：需要数据库与常量层（先 `constants.load.load_constants`），
+  幂等、可中断续跑，且必须按规格 §3.2 处理 2018 的版本归属边界。
+
+`kaggle` / `python-dotenv` 只在**真正要下载时**才 import（见 `kaggle_subset`），
+故未安装 `[ingest]` extra 的环境里测试套件照常收集与运行。
+"""
 ```
 
-- [ ] **Step 6: 运行**
+<!-- FILE: ingest/kaggle_subset.py -->
+```python
+"""只下需要的三个 CSV，共 506.2 MB。**绝不整包下载**。
 
-Run: `python -m ingest.kaggle_subset && pytest tests/ingest -q`
-Expected: **6 passed**（1 列名验证 + 5 入库验收）
+数据集总计 48.52 GB（1546 个文件）。其中 players.csv 是 **19 个分片文件**
+合计 41.04 GB（最大单片 2025/players.csv = 6.92 GB）——不存在"单文件 41 GB"，
+但无论如何都与 Phase A 无关。
 
-- [ ] **Step 7: Commit**
+白名单（相对数据集根，规格 §10.2）：
+
+| 文件 | 大小 | 目录数 |
+|---|---|---|
+| `*/picks_bans.csv` | 198.8 MB | 19 |
+| `*/main_metadata.csv` | 66.7 MB | 19 |
+| `*/draft_timings.csv` | 240.7 MB | **10**（仅 2016–2025；已知缺口，以 picks_bans 为权威） |
+
+落到 `tests/fixtures/kaggle/<folder>/<file>`（该目录已由 `.gitignore` 排除，**不入库**）。
+下载走 `kaggle` 包的**单文件**接口 `dataset_download_file`（对应
+`/api/v1/datasets/download/{owner}/{dataset}/{fileName}`），不是整包 `dataset_download_files`。
+
+**对已安装客户端（kaggle 2.2.4）源码的三条实测结论**（本机 `pip install -e ".[dev,ingest]"`
+成功，故这部分不是猜的）：
+
+1. `dataset_download_file(dataset, file_name, path=None, force=False, quiet=True)` 存在，
+   签名与本模块的调用一致；
+2. `dataset_list_files(dataset, page_token=None, page_size=20)` **默认 20 条/页**，而本数据集
+   有 1546 个文件 —— 必须显式给 `page_size` 并翻页，否则白名单文件大概率一个都看不到。
+   见 `list_all_files`；
+3. 落盘名取的是**下载 URL 的最后一段**（源码
+   `outfile = os.path.join(effective_path, url.split("?")[0].split("/")[-1])`），不是
+   `file_name`。URL 形状无法在无凭证环境下观察，故 `download_one` 在目标路径不存在时做一次
+   **有界**补救（只认"本次调用新出现的唯一文件"），否则报错。**仍未验证**的是这一段的真实
+   落盘名（需要凭证才能看到 URL）。
+
+凭证（二选一，规格 §10.2）：
+- 环境变量 `KAGGLE_USERNAME` / `KAGGLE_KEY`（也可写进仓库根的 `.env`，见 `.env.example`）；
+- `~/.kaggle/kaggle.json`（kaggle.com → Account → Create New API Token）。
+
+安装：`python -m pip install -e ".[dev,ingest]"`（`kaggle` / `python-dotenv` 在 `[ingest]` extra 里，
+故**只有真要下载时才 import** —— 未安装时测试套件照常收集、数据侧测试 skip 而非 ImportError）。
+
+失败行为：无凭证 → `KaggleCredentialsMissing`（含补齐方式与下载命令）；缺依赖 →
+`KaggleDependencyMissing`（含安装命令）。CLI 把两者都变成**非零退出 + 一行提示，不打印 traceback**。
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import pathlib
+import sys
+from typing import Iterable
+
+REPO = pathlib.Path(__file__).parents[1]
+DEFAULT_CACHE_DIR = REPO / "tests" / "fixtures" / "kaggle"
+
+DATASET = "bwandowando/dota-2-pro-league-matches-2023"
+
+#: 相对数据集根的文件白名单（按 **basename** 匹配，见 `select_files`）。
+WHITELIST = ("main_metadata.csv", "picks_bans.csv", "draft_timings.csv")
+
+#: 规格 §10.2 的清单**之外**、但实测结构上必需的文件（精确相对路径）。
+#:
+#: 实测（2026-09-18，本机跑通真实下载后逐列检查）：`main_metadata.csv` **没有**
+#: `league_name` 列（2016/2018/2025 三个样本年度的列集都没有，列名是
+#: `leagueid`/`league_name` 里的后者根本不存在），而 `leagues.name` 是 `NOT NULL`、
+#: M1 又要求 `leagues` 可查（> 50 行）。联赛名只在这一个文件里：
+#: `Constants/Constants.Leagues.csv`（429 KB，列 = `leagueid,leaguename,tier`）。
+#: 不加它 → `leagues` 一行都写不进去（或必须编造名字），Task 13 的 M1 断言直接不可能通过。
+#: 代价：506.2 MB → 506.6 MB。
+EXTRA_FILES = ("Constants/Constants.Leagues.csv",)
+
+#: 规格 §10.2 的目录数。只用于**报警**（上游会更新数据集），不作断言。
+EXPECTED_MIN_FOLDERS = {"main_metadata.csv": 19, "picks_bans.csv": 19, "draft_timings.csv": 10}
+
+INSTALL_COMMAND = 'python -m pip install -e ".[dev,ingest]"'
+DOWNLOAD_COMMAND = "python -m ingest.kaggle_subset"
+
+CREDENTIALS_HELP = (
+    "缺少 Kaggle 凭证，无法下载引导数据集。补齐方式（二选一）：\n"
+    "  1) 环境变量：export KAGGLE_USERNAME=... KAGGLE_KEY=...\n"
+    "  2) ~/.kaggle/kaggle.json：kaggle.com → Account → Create New API Token，"
+    "下载后放到该路径（chmod 600）\n"
+    "  也可以写进仓库根的 .env：cp .env.example .env 后填 KAGGLE_USERNAME/KAGGLE_KEY"
+    "（.env 已在 .gitignore 中，不会入库）\n"
+    "  （kaggle 2.x 另支持 token 流：export KAGGLE_API_TOKEN=... 或 ~/.kaggle/access_token）\n"
+    f"凭证就位后运行：{DOWNLOAD_COMMAND}"
+)
+
+
+class KaggleCredentialsMissing(RuntimeError):
+    """没有凭证 —— 提示里必须写清怎么补（规格 §10.2 要求凭证只存本地）。"""
+
+
+class KaggleDependencyMissing(RuntimeError):
+    """没有装 `[ingest]` extra。"""
+
+
+# ------------------------------------------------------------------------ 凭证
+
+def kaggle_json_path() -> pathlib.Path:
+    """`~/.kaggle/kaggle.json`，可用 `KAGGLE_CONFIG_DIR` 覆盖（kaggle 官方客户端同样认它）。"""
+    return _config_dir() / "kaggle.json"
+
+
+def access_token_path() -> pathlib.Path:
+    """kaggle 2.x 的 `~/.kaggle/access_token`（OAuth 流落盘的位置）。"""
+    return _config_dir() / "access_token"
+
+
+def _config_dir() -> pathlib.Path:
+    override = os.environ.get("KAGGLE_CONFIG_DIR")
+    return pathlib.Path(override) if override else pathlib.Path.home() / ".kaggle"
+
+
+def credentials_present() -> bool:
+    """只做环境/文件检查，**不 import kaggle**（缺依赖时要能给出"缺凭证"而不是 ImportError）。
+
+    两条口径都认（实测 kaggle 2.2.4 的 `authenticate()` 按
+    1) access token → 2) legacy key → 3) OAuth 的顺序尝试）：
+
+    - **legacy**（计划 Step 3 的写法）：`KAGGLE_USERNAME` + `KAGGLE_KEY`，或 `~/.kaggle/kaggle.json`；
+    - **2.x token 流**：`KAGGLE_API_TOKEN`，或 `~/.kaggle/access_token`。
+      只认 legacy 会让"已经用 `kaggle auth login` 登过"的机器被误报成缺凭证。
+    """
+    if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"):
+        return True
+    if os.environ.get("KAGGLE_API_TOKEN"):
+        return True
+    return kaggle_json_path().is_file() or access_token_path().is_file()
+
+
+def require_credentials() -> None:
+    if not credentials_present():
+        raise KaggleCredentialsMissing(CREDENTIALS_HELP)
+
+
+def load_env_file(path: pathlib.Path | None = None, *, log=print) -> bool:
+    """读 `.env`（若存在）。返回是否真的加载了。
+
+    `python-dotenv` 缺失**不是**错误：凭证也可以来自环境变量或 `~/.kaggle/kaggle.json`，
+    故这里只警告并继续。默认路径是仓库根的 `.env`（不是 cwd）—— 计划 Task 12 Step 3 要求
+    `cp .env.example .env` 后从 `.env` 读，而 `.env` 就该在仓库根。
+    """
+    path = pathlib.Path(path) if path is not None else REPO / ".env"
+    if not path.is_file():
+        return False
+    try:
+        from dotenv import load_dotenv
+    except ModuleNotFoundError:
+        log(f"警告：{path} 存在但 python-dotenv 未安装（{INSTALL_COMMAND}），本次忽略该文件")
+        return False
+    load_dotenv(path)
+    return True
+
+
+# ------------------------------------------------------------------------ 白名单
+
+def select_files(names: Iterable[str]) -> list[str]:
+    """按 basename（外加 `EXTRA_FILES` 的精确路径）过滤数据集清单，保持原顺序、去重。
+
+    白名单是"选择性下载 506 MB"的**唯一实现处**：一旦这里放宽，`players.csv` 的 41 GB
+    就会被拉下来。故它单独成函数并被测试直接覆盖。
+    """
+    selected: list[str] = []
+    for name in names:
+        keep = name.rsplit("/", 1)[-1] in WHITELIST or name in EXTRA_FILES
+        if keep and name not in selected:
+            selected.append(name)
+    return selected
+
+
+def manifest_entries(response) -> list[tuple[str, int | None]]:
+    """把 `dataset_list_files` 的单页响应适配成 `[(文件名, 字节数)]`。
+
+    kaggle 客户端跨版本返回过对象 / 字典 / 字符串三种形状，字段名有 `name` / `ref`、
+    `total_bytes` / `size` 多种；这里全部接住 —— 认不出形状只会让白名单为空，而那是**报错**，
+    不是静默少下。
+    """
+    entries = getattr(response, "files", response)
+    out: list[tuple[str, int | None]] = []
+    for entry in entries or []:
+        if isinstance(entry, str):
+            name, size = entry, None
+        elif isinstance(entry, dict):
+            name = entry.get("name") or entry.get("ref")
+            size = entry.get("total_bytes") or entry.get("totalBytes") or entry.get("size")
+        else:
+            name = getattr(entry, "name", None) or getattr(entry, "ref", None)
+            size = getattr(entry, "total_bytes", None) or getattr(entry, "size", None)
+        if name:
+            out.append((str(name), int(size) if size else None))
+    return out
+
+
+def manifest_names(response) -> list[str]:
+    """单页响应里的文件名（`manifest_entries` 的薄封装）。"""
+    return [name for name, _size in manifest_entries(response)]
+
+
+#: 单页条数。**必须显式给大值**：kaggle 2.2.4 的 `dataset_list_files(page_size=20)` 默认
+#: 只返回 20 条，而本数据集有 1546 个文件 —— 用默认值只会看到第一页，白名单里的文件大概率
+#: 一个都不在，然后以"清单里没有白名单文件"报错（或更糟：只下到前 20 个里的那几个）。
+LIST_PAGE_SIZE = 1000
+#: 翻页上限：纯粹防"上游永远返回同一个 next_page_token"把 CLI 挂死。
+MAX_LIST_PAGES = 200
+
+
+def list_all_files(client, dataset: str, *, page_size: int = LIST_PAGE_SIZE,
+                   max_pages: int = MAX_LIST_PAGES, log=print) -> dict[str, int | None]:
+    """翻完所有页的文件清单 → `{文件名: 字节数}`（`dataset_list_files` 默认只有 20 条/页）。"""
+    files: dict[str, int | None] = {}
+    token: str | None = None
+    for page in range(1, max_pages + 1):
+        response = client.dataset_list_files(dataset, page_token=token, page_size=page_size)
+        error = getattr(response, "error_message", None)
+        if error:
+            raise RuntimeError(f"{dataset} 的清单接口返回错误：{error}")
+        files.update(dict(manifest_entries(response)))
+        token = getattr(response, "next_page_token", None) or None
+        if not token:
+            if page > 1:
+                log(f"清单共 {page} 页 / {len(files)} 个文件")
+            return files
+    raise RuntimeError(
+        f"{dataset} 的清单翻页超过 {max_pages} 页仍未结束（已收 {len(files)} 个文件）："
+        f"上游分页行为异常，拒绝用一个可能不完整的清单去决定下哪些文件。")
+
+
+#: 缓存盘点时认识的 basename（年度目录里的三个 CSV + `EXTRA_FILES` 的 basename）。
+KNOWN_BASENAMES = (*WHITELIST, *(name.rsplit("/", 1)[-1] for name in EXTRA_FILES))
+
+
+def summarize(cache_dir) -> dict:
+    """盘点缓存：每个已知文件有几个、分布在哪些目录、共多少字节。"""
+    cache_dir = pathlib.Path(cache_dir)
+    files = {name: 0 for name in KNOWN_BASENAMES}
+    folders: dict[str, list[str]] = {}
+    total_bytes = 0
+    for path in sorted(cache_dir.glob("*/*.csv")) if cache_dir.is_dir() else []:
+        if path.name not in files:
+            continue
+        files[path.name] += 1
+        folders.setdefault(path.parent.name, []).append(path.name)
+        total_bytes += path.stat().st_size
+    return {"files": files, "folders": {k: sorted(v) for k, v in sorted(folders.items())},
+            "n_folders": len(folders), "total_bytes": total_bytes}
+
+
+# ------------------------------------------------------------------------ 下载
+
+def _build_api():
+    try:
+        from kaggle.api.kaggle_api_extended import KaggleApi
+    except ModuleNotFoundError as exc:
+        raise KaggleDependencyMissing(
+            f"缺少 kaggle 依赖（{exc}）。安装：{INSTALL_COMMAND}") from exc
+    api = KaggleApi()
+    api.authenticate()                 # 自己会读 KAGGLE_* / ~/.kaggle/kaggle.json
+    return api
+
+
+def download_one(client, dataset: str, name: str, cache_dir: pathlib.Path, *,
+                 expected_bytes: int | None = None, log=print) -> tuple[pathlib.Path, bool]:
+    """下一个文件并保证它落在 `cache_dir/<name>`；返回 `(路径, 是否真的下载了)`。
+
+    **可续跑**：本地文件大小与清单一致时直接跳过。506 MB 的下载中断后重跑不该从头再来，
+    而 `force=True` 每次都会重下全部 —— 这也是"每 N 场 commit 一次以便中断可续"的同一条理由。
+
+    **为什么不能只信 `path` 参数**：kaggle 2.2.4 的 `dataset_download_file` 把落盘名写成
+    下载 URL 的最后一段（源码：`outfile = os.path.join(effective_path,
+    url.split("?")[0].split("/")[-1])`），而不是 `file_name`。实测本数据集下两者同名
+    （落盘名 == basename），但 URL 形状随版本/接口变化，所以这里做一次**有界**补救：
+    只认"这次调用新出现的、且全目录唯一的新文件"，唯一才改名；否则**报错并列出目录内容**，
+    绝不猜。
+    """
+    dest = cache_dir / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if expected_bytes and dest.is_file() and dest.stat().st_size == expected_bytes:
+        log(f"  跳过 {name}（本地 {expected_bytes} 字节与清单一致）")
+        return dest, False
+    before = {p.name for p in dest.parent.iterdir()}
+    client.dataset_download_file(dataset, name, path=str(dest.parent), force=True, quiet=True)
+    if dest.is_file():
+        return dest, True
+    new_files = sorted(p for p in dest.parent.iterdir() if p.name not in before and p.is_file())
+    if len(new_files) == 1:
+        log(f"  {name}: kaggle 客户端落盘为 {new_files[0].name}，按白名单路径改名为 {dest.name}")
+        os.replace(new_files[0], dest)
+        return dest, True
+    raise RuntimeError(
+        f"下载 {name} 后既没有 {dest}，也没有「唯一的新文件」可认"
+        f"（新文件 = {[p.name for p in new_files]}，目录现有 = "
+        f"{sorted(p.name for p in dest.parent.iterdir())}）：拒绝猜测哪个是目标文件，"
+        f"请人工确认 kaggle 客户端的落盘命名规则。")
+
+
+def download(cache_dir=DEFAULT_CACHE_DIR, *, dataset: str = DATASET, api=None, log=print) -> dict:
+    """按白名单下载到 `cache_dir/<folder>/<file>`，返回 `summarize()` 的盘点。
+
+    `api` 可注入（测试用假客户端验证"只请求白名单文件"），注入时仍然先查凭证 ——
+    凭证检查是这条路径的前置条件，不该因为测试注入而消失。
+    """
+    load_env_file(log=log)
+    require_credentials()
+
+    cache_dir = pathlib.Path(cache_dir)
+    client = api if api is not None else _build_api()
+    manifest = list_all_files(client, dataset, log=log)
+    wanted = select_files(manifest)
+    if not wanted:
+        raise RuntimeError(
+            f"{dataset} 的文件清单里没有任何白名单文件（清单 {len(manifest)} 项，"
+            f"白名单 {WHITELIST} + {EXTRA_FILES}）：清单前几项 = {list(manifest)[:5]}。"
+            f"检查数据集 slug、kaggle 客户端接口形状或分页。")
+
+    expected_bytes = sum(manifest[n] for n in wanted if manifest[n])
+    log(f"白名单命中 {len(wanted)} 个文件 / 清单合计 {expected_bytes / 1e6:.1f} MB")
+    downloaded = 0
+    for name in wanted:
+        _path, fetched = download_one(client, dataset, name, cache_dir,
+                                      expected_bytes=manifest.get(name), log=log)
+        downloaded += fetched
+
+    summary = summarize(cache_dir)
+    summary["requested_files"] = len(wanted)
+    summary["downloaded_files"] = downloaded
+    log(f"下载完成：{summary['files']}（缓存共 {summary['total_bytes'] / 1e6:.1f} MB，"
+        f"{summary['n_folders']} 个目录；本次实际下载 {downloaded} 个文件）")
+    short = {name: (count, EXPECTED_MIN_FOLDERS[name])
+             for name, count in summary["files"].items()
+             if name in EXPECTED_MIN_FOLDERS and count < EXPECTED_MIN_FOLDERS[name]}
+    if short:
+        log(f"警告：以下文件的目录数少于规格 §10.2 的预期（{short}）——"
+            f"draft_timings 本来就只有 10/19 个目录，其余缺口需要人看一眼")
+    return summary
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m ingest.kaggle_subset",
+        description="按白名单下载 Kaggle 引导数据集的 506.2 MB 子集（绝不整包下载）")
+    parser.add_argument("--cache-dir", type=pathlib.Path, default=DEFAULT_CACHE_DIR,
+                        help=f"落盘目录（默认 {DEFAULT_CACHE_DIR}）")
+    parser.add_argument("--dataset", default=DATASET, help=f"数据集 slug（默认 {DATASET}）")
+    args = parser.parse_args(argv)
+
+    try:
+        download(args.cache_dir, dataset=args.dataset)
+    except (KaggleCredentialsMissing, KaggleDependencyMissing) as exc:
+        print(f"\n[ingest.kaggle_subset] {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:                      # 上游/网络/磁盘：给一行提示，不吐 traceback
+        print(f"\n[ingest.kaggle_subset] 下载失败：{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+- [x] **Step 4: `ingest/load_bootstrap.py`**
+
+入库顺序与要点（**`load_constants` 必须先跑**，否则外键失败）：
+
+1. `leagues` ← `Constants/Constants.Leagues.csv` 的 `leagueid/leaguename/tier`（`main_metadata.csv`
+   没有联赛名；缺名字时不编造，FK 写 NULL 并计数）
+2. `teams` ← `main_metadata.csv` 的队 id/队名（实测没有队名列 → 目前 0 行，FK 写 NULL 并报数量）
+3. `matches` ← `main_metadata.csv`：`started_at=to_timestamp(start_date_time)`（**按 UTC**，
+   列名实测不是 `start_time`）、`duration_s`、`league_id`、`series_id`、`series_type`、
+   `radiant_team_id`、`dire_team_id`、`radiant_win`、`lobby_type`、`draft_state`
+4. `draft_actions` ← `picks_bans.csv`：按 `match_id` **先删后插**（规格 §5.2），
+   `ord = int(float(order)) - 起点`（实测四个年度都是 0 起）
+5. `first_pick_team` ← 每场 `ord=0` 的 `team`（`shared.draft_template.first_pick_team_from_actions`）
+6. `n_draft_actions` / `draft_state` / `anomaly` ← 按规格 §5.3 判定，但**顺序族**必须按实测表
+   （见 `DRAFT_ORDERS`）：手数 ∉ 已登记族、或类型偏离最接近的族、或缺 ord=0、或有越界/重复手
+   → `anomaly=true` 并写一行 `draft_anomalies`
+7. `patch_id` ← `constants.patches.subpatch_for_timestamp(start_time)` 查 `patches`
+   （**只有 `start_time >= 1517472000` 才保证查得到**；更早的场次留 NULL 并**报出占比**）
+8. 全部写入用 `ON CONFLICT`；`commit=True` 时每 N 场提交一次以便中断可续
+
+<!-- FILE: ingest/load_bootstrap.py -->
+```python
+"""Kaggle 引导数据集 → `leagues` / `teams` / `matches` / `draft_actions` / `draft_anomalies`。
+
+对应规格 §5.2（幂等）、§5.3（异常不阻断但必须记录）、§3.2/§15（版本归属）、
+§10.2（`picks_bans.csv` 是 BP 序列的权威来源，`draft_timings.csv` 仅作补充 —— 本模块不读它）。
+
+**这个模块是对着真实 CSV 写的，不是对着计划里的列名猜的。** 2026-09-18 在本机跑通真实下载后
+逐列核对，四处与计划的假设不符（全部在计划 Task 12 的实测记录里留证）：
+
+1. `main_metadata.csv` **没有 `start_time`**，只有 `start_date_time`
+   （`'2016-01-02 15:12:19'`，朴素字符串，按 **UTC** 解释 —— OpenDota 的 `start_time`
+   本就是 UTC epoch，导出时格式化成了这个形状）。
+2. `main_metadata.csv` **没有 `league_name`**（也没有队名）：联赛名只在
+   `Constants/Constants.Leagues.csv`（`leagueid,leaguename,tier`）里，而 `leagues.name`
+   是 `NOT NULL`。故白名单必须补上这个文件（见 `ingest.kaggle_subset.EXTRA_FILES`）。
+3. `picks_bans.csv` 的 `order`/`team`/`hero_id` 在 2016/2018 里是**浮点字符串**
+   （`'0.0'`/`'78.0'`），2025 里是整数串；直接 `int()` 会 ValueError。故统一
+   `int(float(...))`。
+4. **规格 §6.0 的 24 手模板只是诸多合法 CM 顺序中的一种**：Valve 改过 ban 顺序，
+   2025 年的比赛里 95.4% 用的是与 §6.0 不同的顺序（见 `DRAFT_ORDERS`）。
+   按 §6.0 一种模板判异常会把 95%+ 的正常比赛判成异常 —— 异常率断言必然假红。
+
+**前置：常量层必须先入库。** `draft_actions.hero_id` 是 `heroes(hero_id)` 的外键、
+`matches.patch_id` 是 `patches(patch_id)` 的外键，且归属要读 `patches`。没有它，第一条
+INSERT 会以 FK 违规炸在深处；本模块在动手之前显式检查并给出可操作报错（`_require_constants`）。
+
+**`order` → `ord` 的入库边界（规格 §17-7）**：CSV 的 `order` 起点**不假设**为 0。
+`detect_ord_origin()` 按整个文件的 `min(order)` 判定（0 → 原样，1 → 统一减 1），两者都不是
+就报错。实测 2016/2018/2025 全部是 0 起（且 2016/2018 还带一列 OpenDota 自己的 `ord`，
+与 `order` 逐行相同）。
+
+**异常判定（规格 §5.3）**：`anomaly=true` 的语义是「这份 draft 不符合**任何一种已知的合法
+CM 顺序**」，而不是「不符合 §6.0 那一种」。理由见第 4 条：Valve 改过顺序，而 §6.0 的模板
+如今只覆盖 2025 年 3.4% 的比赛。每个场次命中的顺序族记在 `detail["order_family"]`，
+并在入库报告里按族统计 —— **下游（序列模型）必须自己按族过滤**，因为
+`shared.draft_template.resolve()` 只对 `spec_6_0_24` 族正确。
+
+**`patch_id` 归属（规格 §3.2/§15）**：走
+`constants.patches.subpatch_for_timestamp(start_time)` 拿**版本名**，再按 `version_name`
+查 `patches`，**不做 `released_at` 的区间二分**。两者看着等价，其实差一个静默钳位：
+对 `patches.released_at` 做二分/取最近行时，早于 7.08 的比赛会被钳到**最早的版本**（7.08），
+2016–2017 的场次集体错标成 2018 年的版本，且不会有任何报错。
+`patches` 的行集来自 Valve（Task 10 的 R7），Valve 清单从 7.08 = 1517472000（2018-02-01）起，
+故只有 `start_time >= 1517472000` 才保证有行可指；更早的场次写 NULL，并在结束时**报出占比**
+（pre-2018 占比是测量结果，不是可以预设的预算）。CSV 自带的 `patch` 列（OpenDota 粗粒度 id）
+被用作**独立交叉校验**：与本模块解析出的 `patches.opendota_patch` 逐场比对并报出吻合率。
+
+**幂等（规格 §5.2）**：`leagues`/`teams`/`matches` 用主键 upsert；`draft_actions` 按
+`match_id` **先删后插**（否则上一次运行残留的手会留下来，`n_draft_actions` 与实际手数分叉）；
+`draft_anomalies` 每场最多一行，重新加载后不再异常的场次要**删掉旧行**（否则
+`draft_anomalies` 的行数与 `matches.anomaly` 的计数会分叉，而 M1 正是这么校验的）。
+"""
+from __future__ import annotations
+
+import csv
+import datetime
+import json
+import pathlib
+import re
+from collections import defaultdict
+from typing import Iterable, Mapping, Sequence
+
+from constants.patches import subpatch_for_timestamp
+from shared.draft_template import TEMPLATE as SPEC_TEMPLATE
+from shared.draft_template import first_pick_team_from_actions
+
+REPO = pathlib.Path(__file__).parents[1]
+DEFAULT_CACHE_DIR = REPO / "tests" / "fixtures" / "kaggle"
+
+METADATA_FILENAME = "main_metadata.csv"
+ACTIONS_FILENAME = "picks_bans.csv"
+#: 联赛名/分级的唯一来源（`leagueid,leaguename,tier`）。见模块 docstring 第 2 条。
+LEAGUES_FILENAME = "Constants/Constants.Leagues.csv"
+
+#: 规格 §3.2/§15：Valve 清单起点 7.08 = 2018-02-01（Unix 1517472000）。
+#: **左闭**：恰好等于该时刻的比赛属于 7.08；早一秒的属于 patchdates 独有的旧版本，无行可指。
+PATCH_ATTRIBUTION_MIN_START_TIME = 1517472000
+
+ORD_MAX = 23
+_F = "F"          # 先手方（first pick team）
+_O = "O"          # 后手方
+
+#: 实测的合法 CM 顺序族（2026-09-18 对 **205,005 场**真实数据的全量频次统计得出，
+#: 并用 OpenDota 实时 API 的 `picks_bans` 抽样交叉验证）。
+#:
+#: 「归属」列是相对**先手方** F（由 ord=0 的 team 推出，规格 §8①）的：
+#: 实测 ord=0 的队与第一手 pick 的队永远相同（§16.3 的不变式在真实数据上成立）。
+#:
+#: **为什么必须是一张表而不是一个模板**：Valve 在历次改版里换过 CM 的 ban 顺序，语料横跨
+#: 2016–2026（20 / 22 / 24 三种手数、共十种顺序）。按 §6.0 那**一种**模板判异常，首次真实
+#: 入库实测把 **58.33%** 的正常比赛判成了异常 —— 异常率断言必然假红，而"异常"这个字段也就
+#: 失去了意义。
+#:
+#: 登记门槛：**在各自手数里支持度 >= 1%** 的顺序（尾部稀有 pattern 一律算异常）。
+#: 十族合计覆盖 24 手的全部 149,522 场、22 手的 99.88%、20 手的 99.75%；未登记的
+#: （各奇零手数 + 尾部）合计约 1.0%，落在 §15 的 2% 之内，且这个数是**测出来的**。
+#: 每族后面标注：实测场次、占比、出现的年度目录。
+DRAFT_ORDERS: dict[str, tuple[tuple[bool, str], ...]] = {
+    # bbbbPPPPbbbbPPPPbbPP / FOFOFOOFOFOFOFOFOFFO —— 12340 场（84.85%），2016/2017
+    "cm20_a": (
+        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
+        (True, _O), (True, _F), (False, _O), (False, _F), (False, _O), (False, _F),
+        (True, _O), (True, _F), (True, _O), (True, _F), (False, _O), (False, _F),
+        (True, _F), (True, _O),
+    ),
+    # bbbbPPPPbbbbPPPPbbPP / FOFOFOOFFOFOOFOFOFOF —— 2167 场（14.90%），仅 2016
+    "cm20_b": (
+        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
+        (True, _O), (True, _F), (False, _F), (False, _O), (False, _F), (False, _O),
+        (True, _O), (True, _F), (True, _O), (True, _F), (False, _O), (False, _F),
+        (True, _O), (True, _F),
+    ),
+    # bbbbbbPPPPbbbbPPPPbbPP / FOFOFOFOOFFOFOOFOFOFFO —— 26126 场（67.04%），2018-2020
+    "cm22_a": (
+        (False, _F), (False, _O), (False, _F), (False, _O), (False, _F), (False, _O),
+        (True, _F), (True, _O), (True, _O), (True, _F), (False, _F), (False, _O),
+        (False, _F), (False, _O), (True, _O), (True, _F), (True, _O), (True, _F),
+        (False, _O), (False, _F), (True, _F), (True, _O),
+    ),
+    # bbbbbbbbPPPPbbPPPPbbPP / FOFOFOFOFOOFFOOFOFOFFO —— 8035 场（20.62%），仅 2020
+    "cm22_b": (
+        (False, _F), (False, _O), (False, _F), (False, _O), (False, _F), (False, _O),
+        (False, _F), (False, _O), (True, _F), (True, _O), (True, _O), (True, _F),
+        (False, _F), (False, _O), (True, _O), (True, _F), (True, _O), (True, _F),
+        (False, _O), (False, _F), (True, _F), (True, _O),
+    ),
+    # bbbbbbPPPPbbbbPPPPbbPP / FOFOFOFOOFOFOFOFOFOFFO —— 4767 场（12.23%），2017/2018
+    "cm22_c": (
+        (False, _F), (False, _O), (False, _F), (False, _O), (False, _F), (False, _O),
+        (True, _F), (True, _O), (True, _O), (True, _F), (False, _O), (False, _F),
+        (False, _O), (False, _F), (True, _O), (True, _F), (True, _O), (True, _F),
+        (False, _O), (False, _F), (True, _F), (True, _O),
+    ),
+    # bbbbbbbPPbbbPPPPPPbbbbPP / FOOFOOFFOFFOOFFOOFFOOFFO —— 68775 场（46.00%），2023-2025
+    "cm24_a": (
+        (False, _F), (False, _O), (False, _O), (False, _F), (False, _O), (False, _O),
+        (False, _F), (True, _F), (True, _O), (False, _F), (False, _F), (False, _O),
+        (True, _O), (True, _F), (True, _F), (True, _O), (True, _O), (True, _F),
+        (False, _F), (False, _O), (False, _O), (False, _F), (True, _F), (True, _O),
+    ),
+    # bbbbPPPPbbbbbbPPPPbbbbPP / FOFOFOOFFOFOFOOFFOFOFOFO —— 46347 场（31.00%），2021-2023
+    "cm24_b": (
+        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
+        (True, _O), (True, _F), (False, _F), (False, _O), (False, _F), (False, _O),
+        (False, _F), (False, _O), (True, _O), (True, _F), (True, _F), (True, _O),
+        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
+    ),
+    # bbbbPPPPbbbbbbPPPPbbbbPP / FOFOFOFOFOFOFOOFOFFOFOFO —— 14045 场（9.39%），2020/2021
+    "cm24_c": (
+        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
+        (True, _F), (True, _O), (False, _F), (False, _O), (False, _F), (False, _O),
+        (False, _F), (False, _O), (True, _O), (True, _F), (True, _O), (True, _F),
+        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
+    ),
+    # bbbbPPPPbbbbbbPPPPbbbbPP / FOFOFOOFFOFOFOOFOFFOFOFO —— 5220 场（3.49%），仅 2021
+    "cm24_d": (
+        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
+        (True, _O), (True, _F), (False, _F), (False, _O), (False, _F), (False, _O),
+        (False, _F), (False, _O), (True, _O), (True, _F), (True, _O), (True, _F),
+        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
+    ),
+    # 规格 §6.0 / `shared/draft_template.TEMPLATE`（**直接 import，不复制**）。
+    # 实测就是 2025 年下半年起 + 全部 2026 目录在用的那一族（15135 场 = 10.12%），也是
+    # OpenDota 实时 API 上 match 8996973546 的顺序 —— 即**当下**的 CM 顺序。
+    # 2023-2025 上半年的比赛用的是 cm24_a（46.00%），与它只差两段 ban。
+    "spec_6_0_24": tuple(SPEC_TEMPLATE),
+}
+
+#: 逻辑列名 → CSV 里可接受的列名。只放**实测过**的别名；猜错时 `resolve_columns` 会报错
+#: 并打印实际列名，而不是静默写 NULL（规格 §17-7）。
+METADATA_COLUMNS: dict[str, tuple[str, ...]] = {
+    "match_id": ("match_id",),
+    # 实测只有 start_date_time；start_time 作为兼容别名保留（上游换 schema 时不至于立刻炸）
+    "start_time": ("start_time", "start_date_time"),
+    "duration_s": ("duration", "duration_s"),
+    "league_id": ("leagueid", "league_id"),
+    "league_name": ("league_name",),            # 实测缺失：联赛名走 Constants.Leagues.csv
+    "series_id": ("series_id",),
+    "series_type": ("series_type",),
+    "radiant_team_id": ("radiant_team_id",),
+    "radiant_team_name": ("radiant_team_name",),
+    "dire_team_id": ("dire_team_id",),
+    "dire_team_name": ("dire_team_name",),
+    "radiant_win": ("radiant_win",),
+    "lobby_type": ("lobby_type",),
+    "opendota_patch": ("patch",),               # 仅供交叉校验，不参与 patch_id 归属
+}
+REQUIRED_METADATA = ("match_id", "start_time")
+
+ACTIONS_COLUMNS: dict[str, tuple[str, ...]] = {
+    "match_id": ("match_id",),
+    "order": ("order", "ord"),                  # 实测两列都有且逐行相同
+    "is_pick": ("is_pick",),
+    "team": ("team",),
+    "hero_id": ("hero_id",),
+}
+
+LEAGUES_COLUMNS: dict[str, tuple[str, ...]] = {
+    "league_id": ("leagueid", "league_id"),
+    "name": ("leaguename", "league_name", "name"),
+    "tier": ("tier",),
+}
+
+_TRUE_WORDS = {"true", "t", "1", "yes", "y"}
+_FALSE_WORDS = {"false", "f", "0", "no", "n"}
+_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+# ------------------------------------------------------------------ 值解析
+
+def parse_number(value) -> int:
+    """`'78.0'` / `'78'` / `78.0` → `78`。
+
+    实测 `picks_bans.csv` 的 `hero_id`/`team`/`order` 在 2016/2018 是**浮点字符串**
+    （pandas 导出的痕迹），2025 是整数串；只认 `int()` 会在真实数据上直接 ValueError。
+    只接受整值浮点：`12.5` 这种非整值一律报错，而不是悄悄截断。
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"布尔值不是数字：{value!r}")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f"不是整值：{value!r}")
+        return int(value)
+    text = str(value).strip()
+    if not _NUMBER_RE.fullmatch(text):
+        raise ValueError(f"无法解析为数字：{value!r}")
+    number = float(text)
+    if not number.is_integer():
+        raise ValueError(f"不是整值（拒绝截断）：{value!r}")
+    return int(number)
+
+
+def parse_bool(value) -> bool:
+    """`True/1/'true'/'T'` 等都要认（CSV 里布尔是字符串，Python `repr` 会写成 `True`）。"""
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in _TRUE_WORDS:
+        return True
+    if text in _FALSE_WORDS:
+        return False
+    raise ValueError(f"无法解析为布尔值：{value!r}")
+
+
+def parse_timestamp(value) -> int:
+    """`start_time`（epoch 秒）或 `start_date_time`（`'YYYY-MM-DD HH:MM:SS'`）→ Unix 秒。
+
+    朴素字符串按 **UTC** 解释：OpenDota 的 `start_time` 本就是 UTC epoch，Kaggle 的导出
+    只是把它格式化成了 `start_date_time`。带显式偏移的 ISO 串按偏移换算，不做二次假设。
+    这个假设由 `patch` 列的交叉校验间接验证（时区错会让补丁边界附近的场次系统性错配）。
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return int(value)
+    text = str(value).strip()
+    if _NUMBER_RE.fullmatch(text):
+        return int(float(text))
+    try:
+        parsed = datetime.datetime.fromisoformat(text.replace(" ", "T", 1))
+    except ValueError as exc:
+        raise ValueError(f"无法解析为时间戳：{value!r}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return int(parsed.timestamp())
+
+
+# --------------------------------------------------------------------- CSV 读取
+
+def read_csv(path: pathlib.Path) -> tuple[list[str], list[dict[str, str]]]:
+    """读 CSV，返回 `(列名, 行)`。
+
+    `utf-8-sig` 是**必需**的：Kaggle 的 CSV 常带 BOM，否则首列名会变成 `'\\ufeffmatch_id'`，
+    于是"列名不符"会以最难查的形式出现（只有第一列对不上）。列名与取值都 strip —— 上游
+    导出工具会在逗号后留空格。
+    """
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fieldnames = [n.strip() if isinstance(n, str) else n for n in (reader.fieldnames or [])]
+        rows = [{k.strip() if isinstance(k, str) else k:
+                 (v.strip() if isinstance(v, str) else v) for k, v in row.items()}
+                for row in reader]
+    return fieldnames, rows
+
+
+def resolve_columns(fieldnames: Sequence[str], spec: Mapping[str, tuple[str, ...]],
+                    required: Iterable[str], path: pathlib.Path) -> dict[str, str | None]:
+    """把逻辑列名解析为实际列名；必需列缺失则**指名报错**（含实际列名）。"""
+    mapping = {logical: next((a for a in aliases if a in fieldnames), None)
+               for logical, aliases in spec.items()}
+    missing = [logical for logical in required if mapping[logical] is None]
+    if missing:
+        raise RuntimeError(
+            f"{path} 缺少必需列 {missing}（可接受的列名："
+            f"{ {m: spec[m] for m in missing} }）；实际列名 = {sorted(fieldnames)}。"
+            f"规格 §17-7：Kaggle CSV 的列名与语义必须实测确认后再决定映射，猜错必须在这里炸，"
+            f"而不是写一堆 NULL 或静默跳过。")
+    return mapping
+
+
+def read_header(path: pathlib.Path) -> list[str]:
+    """只读表头（`preflight_columns` 用；不必为验列名把 66 MB 全读进来）。"""
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        row = next(csv.reader(f), [])
+    return [n.strip() if isinstance(n, str) else n for n in row]
+
+
+def preflight_columns(folders: Iterable[pathlib.Path], cache_dir: pathlib.Path) -> None:
+    """**先**把所有输入文件的列名契约验完，再开始写。
+
+    列名由上游决定（规格 §17-7 的未验证事项）。猜错时必须**在写第一行之前**炸：否则会跑完
+    19 个目录里的前 18 个、写进几万场之后才因最后一个目录的列名报错 —— 虽然幂等重跑能收敛，
+    但"看起来成功了一半"的运行本身就是误导。整个 preflight 只读表头，代价可忽略。
+    """
+    leagues_path = cache_dir / LEAGUES_FILENAME
+    if leagues_path.is_file():
+        resolve_columns(read_header(leagues_path), LEAGUES_COLUMNS,
+                        ("league_id", "name"), leagues_path)
+    for folder in folders:
+        targets = [(folder / METADATA_FILENAME, METADATA_COLUMNS, REQUIRED_METADATA)]
+        actions_path = folder / ACTIONS_FILENAME
+        if actions_path.is_file():
+            targets.append((actions_path, ACTIONS_COLUMNS, tuple(ACTIONS_COLUMNS)))
+        for path, spec, required in targets:
+            resolve_columns(read_header(path), spec, required, path)
+
+
+def read_leagues(cache_dir: pathlib.Path) -> dict[int, tuple[str, str | None]]:
+    """`Constants/Constants.Leagues.csv` → `{league_id: (name, tier)}`（缺失则返回空表）。"""
+    path = cache_dir / LEAGUES_FILENAME
+    if not path.is_file():
+        return {}
+    fieldnames, rows = read_csv(path)
+    mapping = resolve_columns(fieldnames, LEAGUES_COLUMNS, ("league_id", "name"), path)
+    leagues: dict[int, tuple[str, str | None]] = {}
+    for row in rows:
+        league_id = _cell(row, mapping, "league_id")
+        name = _cell(row, mapping, "name")
+        if league_id is None or name is None:
+            continue
+        leagues[parse_number(league_id)] = (name, _cell(row, mapping, "tier"))
+    return leagues
+
+
+def _cell(row: Mapping[str, str], mapping: Mapping[str, str | None], logical: str) -> str | None:
+    column = mapping.get(logical)
+    if column is None:
+        return None
+    value = row.get(column)
+    return value if isinstance(value, str) and value.strip() != "" else None
+
+
+def _int_cell(row, mapping, logical, *, path, match_id) -> int | None:
+    value = _cell(row, mapping, logical)
+    if value is None:
+        return None
+    try:
+        return parse_number(value)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{path} 的 match_id={match_id} 的 {logical}={value!r} 不是整数") from exc
+
+
+def detect_ord_origin(orders: Iterable[int]) -> int:
+    """判定 `picks_bans.csv` 的 `order` 起点：返回 0（原样）或 1（需减 1）。
+
+    规格 §17-7：模板映射对起点极敏感，错一位就整体错位。判定依据是**整个文件**的
+    `min(order)` —— 按单行判定会在 1-based 文件里被"恰好等于 1 的那一行"骗过。
+    实测（2016/2018/2025）三个年度都是 0 起。
+    """
+    values = [parse_number(o) for o in orders]
+    if not values:
+        raise ValueError("空的 picks_bans：无法判定 order 起点（规格 §17-7）")
+    low = min(values)
+    if low == 0:
+        return 0
+    if low == 1:
+        return 1
+    raise ValueError(
+        f"order 的最小值是 {low}（最大 {max(values)}）：既不是 0 起也不是 1 起，"
+        f"规格 §17-7 的模板映射无从对齐，必须先确认数据集语义。")
+
+
+def normalize_actions(rows: Sequence[Mapping[str, object]], *, ord_origin: int = 0
+                      ) -> tuple[list[dict], dict[str, int]]:
+    """把 CSV 手数行归一化为 `{"ord", "is_pick", "team", "hero_id"}`，并统计两类脏数据。
+
+    - 越界手（归一化后不在 0..23）**丢弃并计数**：`draft_actions.ord` 有 CHECK，
+      直接插会整场失败，而规格 §5.3 要求"不阻断入库、显式记录"。
+    - 同一 `ord` 出现多次时**以最后一条为准**并计数（`(match_id, ord)` 是主键，
+      重复直接插会以 UniqueViolation 炸掉整场）。取最后一条是约定，不是事实。
+    """
+    by_ord: dict[int, dict] = {}
+    problems = {"ord_out_of_range": 0, "duplicate_ord": 0}
+    for row in rows:
+        ord_ = parse_number(row["order"]) - ord_origin
+        if not 0 <= ord_ <= ORD_MAX:
+            problems["ord_out_of_range"] += 1
+            continue
+        if ord_ in by_ord:
+            problems["duplicate_ord"] += 1
+        by_ord[ord_] = {"ord": ord_, "is_pick": parse_bool(row["is_pick"]),
+                        "team": parse_number(row["team"]),
+                        "hero_id": parse_number(row["hero_id"])}
+    return [by_ord[k] for k in sorted(by_ord)], problems
+
+
+# ------------------------------------------------------- 顺序族与异常判定（§5.3）
+
+def resolve_in(family: str, ord_: int, first_pick_team: int) -> tuple[bool, int]:
+    """按**指定顺序族**推导该手的 (is_pick, team)，语义与 `shared.draft_template.resolve` 相同。
+
+    `shared.draft_template` 只定义 §6.0 那一种（`spec_6_0_24`），而 Valve 改过 ban 顺序，
+    所以异常判定不能只问它。引擎/模型侧仍以 `shared.draft_template` 为准（那份是契约），
+    本函数只服务入库期的结构判定。
+    """
+    is_pick, who = DRAFT_ORDERS[family][ord_]
+    return is_pick, (first_pick_team if who == _F else 1 - first_pick_team)
+
+
+def matching_order(actions: Sequence[Mapping[str, object]], first_pick_team: int | None) -> str | None:
+    """返回该 draft 命中的顺序族名（没有命中返回 None）。"""
+    if first_pick_team not in (0, 1):
+        return None
+    n_actions = len(actions)
+    for family, template in DRAFT_ORDERS.items():
+        if len(template) != n_actions:
+            continue
+        if all((a["is_pick"], a["team"]) == resolve_in(family, a["ord"], first_pick_team)
+               for a in actions):
+            return family
+    return None
+
+
+def _deviations(actions: Sequence[Mapping[str, object]], first_pick_team: int, family: str) -> list[dict]:
+    out = []
+    for action in actions:
+        want_pick, want_team = resolve_in(family, action["ord"], first_pick_team)
+        if action["is_pick"] != want_pick or action["team"] != want_team:
+            out.append({"ord": action["ord"], "is_pick": action["is_pick"], "team": action["team"],
+                        "expected_is_pick": want_pick, "expected_team": want_team})
+    return out
+
+
+def closest_order_family(actions: Sequence[Mapping[str, object]], first_pick_team: int | None) -> str | None:
+    """手数相同、与实测差得最少的顺序族（只为把偏差说清楚，不改变异常判定）。"""
+    if first_pick_team not in (0, 1):
+        return None
+    candidates = [f for f, t in DRAFT_ORDERS.items() if len(t) == len(actions)]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda f: len(_deviations(actions, first_pick_team, f)))
+
+
+def detect_anomaly(actions: Sequence[Mapping[str, object]], first_pick_team: int | None, *,
+                   ord_out_of_range: int = 0, duplicate_ord: int = 0) -> dict | None:
+    """规格 §5.3：draft 结构异常 → 返回 `{"n_actions", "kinds", "detail"}`；否则 None。
+
+    异常 = **不符合任何一种已知的合法 CM 顺序**（见 `DRAFT_ORDERS`），或手数不在 {22, 24}，
+    或推不出先手方，或有被丢弃/重复的手。0 手**不是**异常：规格 §5.2 里 `picks_bans` 不存在
+    就是 `pending`（状态机还在等数据）。
+
+    `detail["order_family"]` 记录命中的族（异常行为 None），`detail["deviations"]` 记录与
+    **最接近的族**的逐手偏差 —— 只报"异常"而不报"差在哪"等于没报。
+    """
+    if not actions and not ord_out_of_range and not duplicate_ord:
+        return None
+
+    n_actions = len(actions)
+    kinds: list[str] = []
+    detail: dict[str, object] = {"n_actions": n_actions}
+
+    family = matching_order(actions, first_pick_team) if actions else None
+    detail["order_family"] = family
+
+    if actions and first_pick_team not in (0, 1):
+        # 推不出先手方时**不做类型判定**：没有 F 就没有"应当是哪一队"，硬判会造出假偏差
+        kinds.append("missing_ord_zero")
+    elif actions and family is None:
+        if n_actions > 24:
+            kinds.append("long_draft")
+        elif n_actions in (22, 24):
+            kinds.append("type_deviation")
+        else:                                   # < 22 或 23 手：少手
+            kinds.append("short_draft")
+        if n_actions in (22, 24):
+            nearest = closest_order_family(actions, first_pick_team)
+            deviations = _deviations(actions, first_pick_team, nearest) if nearest else []
+            detail["closest_order_family"] = nearest
+            detail["n_deviations"] = len(deviations)
+            detail["deviations"] = deviations[:20]     # 只留前 20 条，避免 detail 无界增长
+
+    if ord_out_of_range:
+        kinds.append("ord_out_of_range")
+        detail["ord_out_of_range"] = ord_out_of_range
+    if duplicate_ord:
+        kinds.append("duplicate_ord")
+        detail["duplicate_ord"] = duplicate_ord
+
+    if not kinds:
+        return None
+    return {"n_actions": n_actions, "kinds": kinds, "detail": detail}
+
+
+# ------------------------------------------------------------------ 版本归属（§3.2）
+
+def patch_ids_by_version(conn) -> dict[str, int]:
+    """`{version_name: patch_id}`：一次读全表，避免每场一次 SELECT。"""
+    return dict(conn.execute("SELECT version_name, patch_id FROM patches").fetchall())
+
+
+def opendota_patch_by_id(conn) -> dict[int, int | None]:
+    """`{patch_id: opendota_patch}`：`patch` 列交叉校验用。"""
+    return dict(conn.execute("SELECT patch_id, opendota_patch FROM patches").fetchall())
+
+
+def patch_id_for(conn, start_time: int, *, patch_ids: Mapping[str, int] | None = None) -> int | None:
+    """给定 `start_time`（Unix 秒），返回 `matches.patch_id`（或 None）。
+
+    规则（规格 §3.2/§15 + Task 10 的 R7）：
+
+    - `start_time < 1517472000`（7.08 = 2018-02-01）→ **NULL**。该年代的版本名来自
+      patchdates 独有的 6.70–7.07 段，`patches` 里没有这些行。此处**不能**退化成
+      "取最早的版本"，那会把 2016–2017 的场次静默错标成 7.08。
+    - 之后必须命中：名字来自 `subpatch_for_timestamp`（Valve 优先的时间线），若查不到行，
+      说明常量层与归属时间线不一致（loader 少写一行 / 快照换了），**报错**而不是写 NULL。
+    """
+    if int(start_time) < PATCH_ATTRIBUTION_MIN_START_TIME:
+        return None
+    name = subpatch_for_timestamp(int(start_time))
+    ids = patch_ids if patch_ids is not None else patch_ids_by_version(conn)
+    if name not in ids:
+        raise RuntimeError(
+            f"start_time={start_time} 归属到版本 {name!r}，但 patches 表里没有这一行："
+            f"归属边界（>= {PATCH_ATTRIBUTION_MIN_START_TIME}，即 2018-02-01 起）之后必须覆盖。"
+            f"先确认 constants.load.load_constants 已跑过且快照与 Task 10 的时间线一致。")
+    return ids[name]
+
+
+# ------------------------------------------------------------------------ 入库
+
+def _require_constants(conn) -> int:
+    """常量层非空且归属边界一致才允许动手（在任何 INSERT 之前）。"""
+    n_heroes = conn.execute("SELECT count(*) FROM heroes").fetchone()[0]
+    n_patches, earliest = conn.execute(
+        "SELECT count(*), min(extract(epoch FROM released_at)) FROM patches").fetchone()
+    if not n_heroes or not n_patches:
+        raise RuntimeError(
+            "常量层为空：必须先跑 constants.load.load_constants(conn)"
+            "（draft_actions.hero_id → heroes、matches.patch_id → patches 都是外键，"
+            "版本归属也要读 patches）。")
+    if int(earliest) != PATCH_ATTRIBUTION_MIN_START_TIME:
+        raise RuntimeError(
+            f"patches 最早的版本时间是 {int(earliest)}，与归属边界 "
+            f"{PATCH_ATTRIBUTION_MIN_START_TIME}（7.08，2018-02-01）不一致："
+            f"先确认常量快照（Task 10 的 R7），再调整本模块的边界常量。")
+    return n_patches
+
+
+def _metadata_row(row: Mapping[str, str], mapping: Mapping[str, str | None],
+                  path: pathlib.Path) -> dict:
+    match_id = _int_cell(row, mapping, "match_id", path=path, match_id="?")
+    raw_start = _cell(row, mapping, "start_time")
+    if match_id is None or raw_start is None:
+        raise RuntimeError(f"{path} 里有一行的 match_id/start_time 为空：主键与时间不可为空")
+    try:
+        start_time = parse_timestamp(raw_start)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{path} 的 match_id={match_id} 的 start_time={raw_start!r} 无法解析") from exc
+    radiant_win = _cell(row, mapping, "radiant_win")
+    return {
+        "match_id": match_id,
+        "start_time": start_time,
+        "duration_s": _int_cell(row, mapping, "duration_s", path=path, match_id=match_id),
+        "league_id": _int_cell(row, mapping, "league_id", path=path, match_id=match_id),
+        "league_name": _cell(row, mapping, "league_name"),
+        "series_id": _int_cell(row, mapping, "series_id", path=path, match_id=match_id),
+        "series_type": _int_cell(row, mapping, "series_type", path=path, match_id=match_id),
+        "radiant_team_id": _int_cell(row, mapping, "radiant_team_id", path=path, match_id=match_id),
+        "radiant_team_name": _cell(row, mapping, "radiant_team_name"),
+        "dire_team_id": _int_cell(row, mapping, "dire_team_id", path=path, match_id=match_id),
+        "dire_team_name": _cell(row, mapping, "dire_team_name"),
+        "radiant_win": parse_bool(radiant_win) if radiant_win is not None else None,
+        "lobby_type": _int_cell(row, mapping, "lobby_type", path=path, match_id=match_id),
+        "opendota_patch": _int_cell(row, mapping, "opendota_patch", path=path, match_id=match_id),
+    }
+
+
+def _action_row(row: Mapping[str, str], mapping: Mapping[str, str | None],
+                path: pathlib.Path) -> dict:
+    match_id = _int_cell(row, mapping, "match_id", path=path, match_id="?")
+    for logical in ("order", "team", "hero_id"):
+        if _cell(row, mapping, logical) is None:
+            raise RuntimeError(f"{path} 的 match_id={match_id} 缺少 {logical}")
+    return {
+        "match_id": match_id,
+        "order": _int_cell(row, mapping, "order", path=path, match_id=match_id),
+        "is_pick": parse_bool(_cell(row, mapping, "is_pick")),
+        "team": _int_cell(row, mapping, "team", path=path, match_id=match_id),
+        "hero_id": _int_cell(row, mapping, "hero_id", path=path, match_id=match_id),
+    }
+
+
+def _league_rows(rows: Sequence[Mapping], names: Mapping[int, tuple[str, str | None]]
+                 ) -> tuple[dict[int, tuple[str, str | None]], int]:
+    """`{league_id: (name, tier)}` 与"有 id 但没名字"的计数（缺名字的联赛**不**编造名字）。
+
+    名字优先取 `Constants/Constants.Leagues.csv`（实测 `main_metadata.csv` 根本没有这一列），
+    回落到 metadata 的 `league_name`（若上游某天补上）。
+    """
+    leagues: dict[int, tuple[str, str | None]] = {}
+    unnamed = 0
+    for row in rows:
+        league_id = row["league_id"]
+        if league_id is None:
+            continue
+        if int(league_id) in names:
+            leagues[int(league_id)] = names[int(league_id)]
+            continue
+        name = row["league_name"]
+        if not name:
+            unnamed += 1
+            continue
+        leagues[int(league_id)] = (name, None)
+    return leagues, unnamed
+
+
+def _team_rows(rows: Sequence[Mapping]) -> tuple[dict[int, str], int]:
+    """实测 `main_metadata.csv` **没有队名列**，2016–2022 连队 id 都是空的（2023+ 才有 id）。
+
+    Phase A 的引导子集不含 `*/teams.csv`（55.4 MB，且实测只覆盖约 66% 的 team id），
+    故这里只在上游确实给了队名时才建 `teams` 行；否则把 FK 写 NULL 并**报出数量** ——
+    编造队名比留空更糟。
+    """
+    teams: dict[int, str] = {}
+    unnamed = 0
+    for row in rows:
+        for side in ("radiant", "dire"):
+            team_id = row[f"{side}_team_id"]
+            if team_id is None:
+                continue
+            name = row[f"{side}_team_name"]
+            if not name:
+                unnamed += 1
+                continue
+            teams[int(team_id)] = name
+    return teams, unnamed
+
+
+MATCH_UPSERT = """
+INSERT INTO matches (match_id, data_source, patch_id, started_at, duration_s, league_id,
+                     series_id, series_type, first_pick_team, radiant_team_id, dire_team_id,
+                     radiant_win, lobby_type, draft_state, n_draft_actions, anomaly)
+VALUES (%s, 'pro_match', %s, to_timestamp(%s), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (match_id) DO UPDATE SET
+    data_source = EXCLUDED.data_source, patch_id = EXCLUDED.patch_id,
+    started_at = EXCLUDED.started_at, duration_s = EXCLUDED.duration_s,
+    league_id = EXCLUDED.league_id, series_id = EXCLUDED.series_id,
+    series_type = EXCLUDED.series_type, first_pick_team = EXCLUDED.first_pick_team,
+    radiant_team_id = EXCLUDED.radiant_team_id, dire_team_id = EXCLUDED.dire_team_id,
+    radiant_win = EXCLUDED.radiant_win, lobby_type = EXCLUDED.lobby_type,
+    draft_state = EXCLUDED.draft_state, n_draft_actions = EXCLUDED.n_draft_actions,
+    anomaly = EXCLUDED.anomaly
+"""
+
+ANOMALY_UPSERT = """
+INSERT INTO draft_anomalies (match_id, n_actions, kinds, detail)
+VALUES (%s, %s, %s, %s)
+ON CONFLICT (match_id) DO UPDATE SET
+    n_actions = EXCLUDED.n_actions, kinds = EXCLUDED.kinds,
+    detail = EXCLUDED.detail, detected_at = now()
+"""
+
+
+def _write_match(conn, row: Mapping, actions: Sequence[Mapping], problems: Mapping[str, int],
+                 teams: Mapping[int, str], leagues: Mapping[int, tuple[str, str | None]],
+                 patch_ids: Mapping[str, int], patch_numbers: Mapping[int, int | None],
+                 stats: dict) -> None:
+    match_id = row["match_id"]
+    first_pick_team = None
+    if actions:
+        try:
+            first_pick_team = first_pick_team_from_actions(actions)   # 规格 §8①
+        except ValueError:
+            first_pick_team = None                # 缺 ord=0：记 missing_ord_zero，不中断整场
+    anomaly = detect_anomaly(actions, first_pick_team,
+                             ord_out_of_range=problems.get("ord_out_of_range", 0),
+                             duplicate_ord=problems.get("duplicate_ord", 0))
+    patch_id = patch_id_for(conn, row["start_time"], patch_ids=patch_ids)
+    draft_state = "complete" if actions else "pending"
+
+    conn.execute(MATCH_UPSERT, (
+        match_id, patch_id, row["start_time"], row["duration_s"],
+        row["league_id"] if row["league_id"] in leagues else None,
+        row["series_id"], row["series_type"], first_pick_team,
+        row["radiant_team_id"] if row["radiant_team_id"] in teams else None,
+        row["dire_team_id"] if row["dire_team_id"] in teams else None,
+        row["radiant_win"], row["lobby_type"], draft_state,
+        len(actions) if actions else None, anomaly is not None,
+    ))
+
+    # 规格 §5.2：先按 match_id 删再整体插入，避免上一次运行残留旧手
+    conn.execute("DELETE FROM draft_actions WHERE match_id = %s", (match_id,))
+    if actions:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO draft_actions (match_id, ord, is_pick, team, hero_id)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                [(match_id, a["ord"], a["is_pick"], a["team"], a["hero_id"]) for a in actions])
+
+    if anomaly is not None:
+        conn.execute(ANOMALY_UPSERT, (match_id, anomaly["n_actions"], anomaly["kinds"],
+                                      json.dumps(anomaly["detail"], ensure_ascii=False)))
+        for kind in anomaly["kinds"]:
+            stats["anomaly_kinds"][kind] += 1
+    else:
+        conn.execute("DELETE FROM draft_anomalies WHERE match_id = %s", (match_id,))
+
+    stats["matches"] += 1
+    stats["draft_actions"] += len(actions)
+    stats["anomalies"] += anomaly is not None
+    stats["pending"] += not actions
+    if anomaly is None and actions:
+        family = matching_order(actions, first_pick_team)
+        stats["order_families"][family] += 1
+    if row["start_time"] < PATCH_ATTRIBUTION_MIN_START_TIME:
+        stats["pre_2018"] += 1
+        stats["pre_2018_null_patch"] += patch_id is None
+        if row["opendota_patch"] is not None:
+            stats["patch_column_pre_2018"] += 1
+    else:
+        stats["post_2018_null_patch"] += patch_id is None
+        if row["opendota_patch"] is None:
+            stats["patch_column_missing"] += 1
+        elif patch_id is not None:
+            # 交叉校验：CSV 自带的 OpenDota 粗粒度 patch id 与本模块的归属是否一致
+            if patch_numbers.get(patch_id) == row["opendota_patch"]:
+                stats["patch_column_agree"] += 1
+            else:
+                stats["patch_column_mismatch"] += 1
+
+
+def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
+                   batch_matches: int = 2000, log=print) -> dict:
+    """把 `<cache_dir>/<folder>/*.csv` 灌进数据库；返回本次运行的统计（含 pre-2018 占比）。
+
+    `commit=False` 给测试事务隔离用（`tests/conftest.py::db` 在测试结束时 `rollback()`）；
+    `commit=True` 时每 `batch_matches` 场提交一次 —— 引导入库很慢（506 MB / 19 个目录），
+    中断后必须能续跑，而全部写入都是幂等的，故续跑安全。
+
+    幂等：`leagues`/`teams`/`matches` 主键 upsert，`draft_actions` 先删后插，
+    `draft_anomalies` 不再异常的场次删行（规格 §5.2）。
+    """
+    cache_dir = pathlib.Path(cache_dir)
+    _require_constants(conn)
+
+    folders = sorted(p for p in cache_dir.iterdir() if (p / METADATA_FILENAME).is_file()) \
+        if cache_dir.is_dir() else []
+    if not folders:
+        raise FileNotFoundError(
+            f"{cache_dir} 下没有任何 <folder>/{METADATA_FILENAME}（也没有 {ACTIONS_FILENAME}）："
+            f"先跑 `python -m ingest.kaggle_subset`（需要 KAGGLE_USERNAME/KAGGLE_KEY 或 "
+            f"~/.kaggle/kaggle.json），或把 CSV 放到该目录下。")
+
+    stats: dict = {"folders": [p.name for p in folders], "matches": 0, "draft_actions": 0,
+                   "leagues": 0, "teams": 0, "anomalies": 0, "pending": 0, "actions_dropped": 0,
+                   "orphan_action_matches": 0, "unnamed_leagues": 0, "unresolved_team_refs": 0,
+                   "total": 0, "pre_2018": 0, "pre_2018_null_patch": 0, "post_2018_null_patch": 0,
+                   "pre_2018_share": 0.0, "patch_column_agree": 0, "patch_column_mismatch": 0,
+                   "patch_column_missing": 0, "patch_column_pre_2018": 0,
+                   "order_families": defaultdict(int), "anomaly_kinds": defaultdict(int)}
+    preflight_columns(folders, cache_dir)        # 列名契约先整体验完，再写第一行
+    patch_ids = patch_ids_by_version(conn)
+    patch_numbers = opendota_patch_by_id(conn)
+    league_names = read_leagues(cache_dir)
+    since_commit = 0
+
+    for folder in folders:
+        meta_path = folder / METADATA_FILENAME
+        fieldnames, raw_rows = read_csv(meta_path)
+        mapping = resolve_columns(fieldnames, METADATA_COLUMNS, REQUIRED_METADATA, meta_path)
+        rows = [_metadata_row(r, mapping, meta_path) for r in raw_rows]
+
+        actions_by_match: dict[int, tuple[list[dict], dict[str, int]]] = {}
+        actions_path = folder / ACTIONS_FILENAME
+        if actions_path.is_file():
+            a_fields, a_raw = read_csv(actions_path)
+            a_mapping = resolve_columns(a_fields, ACTIONS_COLUMNS, tuple(ACTIONS_COLUMNS),
+                                        actions_path)
+            parsed = [_action_row(r, a_mapping, actions_path) for r in a_raw]
+            ord_origin = detect_ord_origin(a["order"] for a in parsed)
+            grouped: dict[int, list[dict]] = defaultdict(list)
+            for action in parsed:
+                grouped[action["match_id"]].append(action)
+            for match_id, group in grouped.items():
+                actions_by_match[match_id] = normalize_actions(group, ord_origin=ord_origin)
+
+        leagues, unnamed_leagues = _league_rows(rows, league_names)
+        teams, unresolved_teams = _team_rows(rows)
+        stats["unnamed_leagues"] += unnamed_leagues
+        stats["unresolved_team_refs"] += unresolved_teams
+
+        if leagues:
+            with conn.cursor() as cur:
+                cur.executemany("""INSERT INTO leagues (league_id, name, tier) VALUES (%s, %s, %s)
+                                   ON CONFLICT (league_id) DO UPDATE
+                                   SET name = EXCLUDED.name, tier = EXCLUDED.tier""",
+                                [(lid, name, tier) for lid, (name, tier) in sorted(leagues.items())])
+            stats["leagues"] += len(leagues)
+        if teams:
+            with conn.cursor() as cur:
+                cur.executemany("""INSERT INTO teams (team_id, name) VALUES (%s, %s)
+                                   ON CONFLICT (team_id) DO UPDATE SET name = EXCLUDED.name""",
+                                sorted(teams.items()))
+            stats["teams"] += len(teams)
+
+        known_matches = {row["match_id"] for row in rows}
+        stats["orphan_action_matches"] += len(set(actions_by_match) - known_matches)
+        for row in rows:
+            actions, problems = actions_by_match.get(row["match_id"], ([], {}))
+            stats["actions_dropped"] += problems.get("ord_out_of_range", 0)
+            _write_match(conn, row, actions, problems, teams, leagues, patch_ids, patch_numbers,
+                         stats)
+            since_commit += 1
+            if commit and since_commit >= batch_matches:
+                conn.commit()
+                since_commit = 0
+
+        log(f"  {folder.name}: 累计 matches={stats['matches']} "
+            f"draft_actions={stats['draft_actions']}")
+
+    if commit:
+        conn.commit()
+
+    stats["total"] = stats["matches"]
+    stats["pre_2018_share"] = stats["pre_2018"] / stats["total"] if stats["total"] else 0.0
+    stats["order_families"] = dict(stats["order_families"])
+    stats["anomaly_kinds"] = dict(stats["anomaly_kinds"])
+    log(f"引导入库完成：folders={len(folders)} matches={stats['matches']} "
+        f"draft_actions={stats['draft_actions']} leagues={stats['leagues']} teams={stats['teams']} "
+        f"anomalies={stats['anomalies']} pending={stats['pending']} "
+        f"丢弃的越界手={stats['actions_dropped']} 无 metadata 的 picks_bans 场次="
+        f"{stats['orphan_action_matches']}")
+    pre, total = stats["pre_2018"], stats["total"]
+    log(f"pre-2018 场次 {pre}/{total}（{stats['pre_2018_share']:.1%}），"
+        f"其中 patch_id IS NULL 的 {stats['pre_2018_null_patch']} 场；"
+        f"start_time >= {PATCH_ATTRIBUTION_MIN_START_TIME} 的场次中 patch_id IS NULL 的 "
+        f"{stats['post_2018_null_patch']} 场（规格 §3.2：必须为 0）")
+    log(f"顺序族分布（仅统计 anomaly=false 的场次）：{stats['order_families']}")
+    log(f"patch 列交叉校验（>= 2018-02-01）：吻合 {stats['patch_column_agree']} / "
+        f"不吻合 {stats['patch_column_mismatch']} / CSV 缺该列值 {stats['patch_column_missing']}；"
+        f"pre-2018 有该列值的 {stats['patch_column_pre_2018']} 场（patches 表无对应行，不参与比对）")
+    return stats
+```
+
+- [x] **Step 5: `pyproject.toml` + `.gitignore`**
+
+```toml
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "openapi-spec-validator>=0.7"]
+# 引导数据集（Task 12）用；只有真要下载时才需要。安装：python -m pip install -e ".[dev,ingest]"
+ingest = ["python-dotenv>=1.0", "kaggle>=1.6"]
+```
+
+```gitignore
+# Kaggle 引导数据集的 506.7 MB 子集：由 `python -m ingest.kaggle_subset` 落到此处，绝不入库
+tests/fixtures/kaggle/
+```
+
+- [x] **Step 6: 运行**
+
+```
+python -m pip install -e ".[dev,ingest]"   # 本机成功（kaggle 2.2.4 + python-dotenv）
+python -m ingest.kaggle_subset             # 实测：49 个文件 / 506.7 MB / 19 个年度目录
+pytest tests/ingest -q                     # 实测：34 passed（含真实入库 211,051 场，约 128 s）
+pytest -q                                  # 实测：199 passed
+把 tests/fixtures/kaggle 挪走后：
+  pytest tests/ingest -q -rs               # 实测：25 passed, 9 skipped（0.6 s，零失败）
+  pytest -q                                # 实测：190 passed, 9 skipped
+```
+
+- [x] **Step 7: Commit**
 
 ```bash
-git add ingest/ tests/ingest/ pyproject.toml
-git commit -m "feat(ingest): Kaggle 子集下载（506MB）+ 引导入库 + 异常率与版本归属校验"
+git add ingest/ pyproject.toml .gitignore
+git commit -m "feat(ingest): Kaggle 引导数据集入库（幂等 + 2018 归属规则 + 异常率）"
+git add tests/ingest/
+git commit -m "test(ingest): 无凭证/无数据时 skip + 合成数据全覆盖 + 引导库隔离"
 ```
+
+#### Task 12 实测记录（2026-09-18；凭证缺失下完成的一切与仍未验证的部分）
+
+**凭证状态（必须先说清）**：本机 `KAGGLE_USERNAME`/`KAGGLE_KEY` **未设置**、`~/.kaggle/kaggle.json`
+**不存在**（`credentials_present()` 返回 False）。但**数据集仍然下到了**：这个数据集是 CC0 公共
+数据集，Kaggle 的 `dataset_list_files` / `dataset_download_file` 两个接口对**无有效凭证的请求
+也返回数据**（用 `KAGGLE_USERNAME=bogus KAGGLE_KEY=bogus` 实测：清单 8 页 / 1546 个文件，
+下载得到 49 个白名单文件 / 506.7 MB，逐字节可用）。CLI 仍按规格 §10.2 先查凭证再下载，故
+"无凭证"路径给出的是可操作提示（下面有实测），而**绕过 gate 后下载是通的**这一点如实记在这里 ——
+计划/规格若认为"无凭证不能下载"，这条实测事实需要更新那一句。
+
+**下载侧实测**：
+- 清单：8 页 / **1546** 个文件（`dataset_list_files` 默认 `page_size=20`，实测服务端上限 200；
+  不翻页只能看到第一页 —— `list_all_files` 因此显式给 `page_size` 并翻页）。
+- 白名单命中：`main_metadata.csv` 19 个目录、`picks_bans.csv` 19 个、`draft_timings.csv` **10** 个、
+  `Constants/Constants.Leagues.csv` 1 个 = **49 个文件 / 506.7 MB**（与规格 §10.2 的
+  19/19/10 与 506.2 MB 吻合，多出的 0.43 MB 就是联赛名文件）。
+- 整包规模核对：`players.csv` = 19 个分片 / 41.04 GB；数据集合计 48.52 GB（与规格 §10.2 逐字吻合）。
+- 年度目录：2016–2025 + `202601`–`202609`（共 19 个）。
+- 无凭证 CLI 实测：`python -m ingest.kaggle_subset` → 退出码 **2**、stderr 给出补齐方式与下载命令、
+  **无 traceback**、缓存目录未被创建（由 `test_cli_without_credentials_fails_gracefully` 守护）。
+- 依赖安装实测：`python -m pip install -e ".[dev,ingest]"` **成功**（kaggle 2.2.4）。
+
+**计划三处假设被实测推翻（全部已改正并写进测试）**：
+
+| 计划原文 | 实测（2016/2018/2025 三个年度的列集 + 全量入库） |
+|---|---|
+| `main_metadata.csv` 有 `start_time` | **没有**。只有 `start_date_time`（`'2016-01-02 15:12:19'`，朴素字符串；按 **UTC** 解释） |
+| `main_metadata.csv` 有 `league_name` | **没有**（也没有队名）。联赛名只在 `Constants/Constants.Leagues.csv`（`leagueid,leaguename,tier`，10099 行，覆盖全部 metadata 的 leagueid） |
+| `picks_bans.csv` 的 `order` 是整数、起点待确认 | 是**浮点字符串**（`'0.0'`/`'78.0'`）；`int()` 直接 `ValueError`。起点实测 **0 起**（2016/2017/2018/2025 四个年度抽样全部 min=0）。2016/2018 还带一列 OpenDota 自己的 `ord`，与 `order` 逐行相同 |
+
+**最重要的数据事实：Valve 换过 CM 的 ban 顺序，规格 §6.0 的模板只覆盖其中一族。**
+对 205,005 场逐场把 `(is_pick, team)` 归一化成相对先手方的串后统计，语料里有
+**20 / 22 / 24 三种手数、十种支持度 >= 1% 的合法顺序**（详见 `DRAFT_ORDERS` 的逐族注释）：
+
+| 族 | 手数 | 实测场次 | 占比 | 出现的年度 |
+|---|---|---|---|---|
+| `cm20_a` / `cm20_b` | 20 | 12340 / 2167 | 84.85% / 14.90% | 2016–2017 |
+| `cm22_a` / `cm22_b` / `cm22_c` | 22 | 26126 / 8035 / 4767 | 67.04% / 20.62% / 12.23% | 2017–2020 |
+| `cm24_a` | 24 | 68775 | 46.00% | 2023–2025 |
+| `cm24_b` | 24 | 46347 | 31.00% | 2021–2023 |
+| `cm24_c` / `cm24_d` | 24 | 14045 / 5220 | 9.39% / 3.49% | 2020–2021 |
+| `spec_6_0_24`（规格 §6.0 = `shared/draft_template.TEMPLATE`） | 24 | 15135 | 10.12% | **2025 下半年 + 全部 2026 目录** |
+
+`spec_6_0_24` 是 OpenDota 实时 API 上 match 8996973546 的顺序（本轮实拉核对过），即**当下**的 CM
+顺序；2023–2025 上半年的比赛用的是 `cm24_a`，与它只差两段 ban。**首次实现只登记了四种顺序，
+真实入库实测异常率 58.33%**（把九成正常比赛判成异常）；按 >= 1% 支持度登记十族后降到 **0.97%**。
+下游影响（不在 Task 12 范围内，但必须记下来）：`shared/draft_template.resolve()` 只对
+`spec_6_0_24` 正确，2020–2025 的历史比赛（约 19 万场）按它的 `ord→(type, team)` 映射是错的；
+序列模型/Policy 必须按族过滤（族可由 `matches.n_draft_actions` + 该场 `draft_actions` 复算）。
+
+**M1 相关实测数（真实数据，19 个目录全量入库）**：
+- `matches` **211,051**；`draft_actions` **4,772,342**；`leagues` **1,557**（DB 直查的 distinct 行数；
+  loader 日志里逐目录累加的 1,808 是**跨目录重复计数**，不是表里的行数 —— 以 DB 为准）；
+  `teams` **0**（CSV 没有队名 → 不编造，FK 写 NULL；未解析的队引用 137,371 次，
+  已计入 `stats["unresolved_team_refs"]`）。
+- `anomaly=true` **2,048 / 211,051 = 0.97%**（规格 §15 要求 < 2%）；`draft_anomalies` 行数
+  与 `matches.anomaly` 计数**逐场一致**；异常原因分布：各奇零手数（10–19 手共 1,022 场、
+  21 手 262 场、23 手 640 场）+ 20 手尾部 36 场 + 22 手尾部 45 场 + 24 手 0 场。
+- `draft_state='pending'` **6,046**（有 metadata、无 picks_bans；规格 §5.2 的状态机语义，
+  不算异常）。
+- **pre-2018 场次 17,552 / 211,051 = 8.3%**，其中 `patch_id IS NULL` 的 **17,552**（全部）；
+  `started_at >= 1517472000` 的场次里 `patch_id IS NULL` 的 **0** 场。
+- `patch` 列交叉校验（CSV 自带 OpenDota 粗粒度 id vs 本模块归属出的 `patches.opendota_patch`）：
+  **吻合 191,149 / 不吻合 2,350**（可比对 193,499 场，吻合率 98.79%）。不吻合集中在补丁发布
+  边界附近（Valve 的发布时间 vs patchdates 的公告时间本就相差 0–2 天，见 Task 10 的交叉校验），
+  这里**只报数不设阈值**：它是一个独立证据，不是本模块的判据。
+- `hero_id` 外键：全量 4,772,342 行 **0 个未知 hero_id**；`ord` 越界 0 行、重复 `(match_id, ord)` 0 行。
+
+**测试计数（两套状态实测）**：
+
+| 状态 | `pytest tests/ingest -q` | `pytest -q`（默认顺序） | `pytest tests/ingest tests/constants tests/contracts tests/db tests/shared -q` |
+|---|---|---|---|
+| 缓存存在（本机） | **34 passed**（128 s，含真实入库） | **199 passed** | **199 passed** |
+| 缓存不存在（模拟无凭证机器） | **25 passed, 9 skipped**（0.6 s） | **190 passed, 9 skipped** | 同上 |
+
+skip 的 9 条 = `sample_csv` 2 条 + `db_after_bootstrap` 7 条，跳过消息写明缓存路径、
+缺哪个凭证、以及补齐后要跑的命令。**零失败**。
+
+**变异守护（4 条，apply → run → restore → sha256 复原 `fab0262842d4` / `0cb7b7103810`）**：
+(a) 摘掉 20 手族 → `2 failed, 1 error`（顺序族分布 + 异常判定测试）；
+(b) 去掉 2018 归属边界（等价于允许把 pre-2018 钳到最早版本）→ `2 failed`（合成侧的
+反钳位测试 + patch 列交叉校验）；
+(c) 摘掉 `draft_actions` 的先删后插 → `1 failed`（幂等/残留手）；
+(d) 会话 fixture 改用共享 `dota_test` → `1 failed`（数据库隔离守护）。
+
+**仍未验证的部分（诚实清单）**：
+1. **下载端点的长期行为**：本轮实测的是 2026-09-18 这一天、这一台机器、这个数据集版本。
+   "无凭证也能下载"是实测事实，但**不是**契约；上游随时可能要求有效凭证。
+2. **时区假设**：`start_date_time` 按 UTC 解释。间接证据是 patch 列交叉校验的 98.79% 吻合率
+   （时区若错 8 小时，补丁边界附近的场次会系统性错配）；未做直接的时区核对。
+3. **2,350 场 patch 列不吻合**已做距离诊断（2025 年度代表样本）：**251/251 = 100% 落在距最近
+   补丁发布 <= 2 天之内** —— 与 Task 10 记录的两来源时间差（Valve 发布时间 vs patchdates 公告
+   时间，0–2 天）完全一致，即不吻合来自**补丁边界的时间差**而非归属规则出错。仍未做的是逐场
+   人工核对，也没给吻合率设断言阈值（只断言"可比对场次 > 1000 以免空过"）。
+4. `draft_timings.csv`（240.7 MB）**下了但没入库** —— 规格 §10.2 说它只作补充（思考耗时），
+   本任务的范围是 BP 序列，故未写 loader。
+5. `teams` 仍为空：数据集里唯一带队名的是 `*/teams.csv`（55.4 MB，19 个文件），
+   实测只覆盖约 66% 的 metadata team id，故**没有**纳入白名单（会把子集从 506.7 MB 推到 562 MB
+   且仍有三分之一的队 id 解析不出）。补齐路径留给定计划 3（OpenDota `/teams` 或该文件）。
+6. Task 13 的 M1 异常率断言需按本记录修正：`anom/total < 0.02` 在"全部年份"口径下**成立**
+   （0.97%），但它的语义是"不符合任何一种实测合法顺序"；若要表达规格 §5.3 的
+   "可入模的现代模板比赛"，应改成 `WHERE n_draft_actions = 24` 或按 `order_family` 过滤。
 
 ---
 
@@ -4830,6 +7221,25 @@ def test_m1_acceptance(db_after_bootstrap):
 
 Run: `pytest tests/test_m1_acceptance.py -q`
 Expected: **1 passed**
+
+> **Task 12 实测后对本任务的两条修正（2026-09-18，必须照改，否则这条验收要么找不到 fixture、
+> 要么用了错的口径）**：
+>
+> 1. **fixture 可见性**：`db_after_bootstrap` 定义在 `tests/ingest/conftest.py` 里（Task 12 的
+>    Files 就是这么定的），而本任务的测试文件在 `tests/` 下 —— **跨目录的 conftest 不生效**，
+>    直接跑会以 `fixture 'db_after_bootstrap' not found` 报错。修法：在
+>    `tests/test_m1_acceptance.py` 顶部加一行
+>    `pytest_plugins = ["tests.ingest.conftest"]`（本仓 `tests/` 与 `tests/ingest/` 都有
+>    `__init__.py`，故模块路径就是这个）。
+> 2. **异常率的口径**：`anom / total < 0.02` 在"全部年份"口径下**成立**（实测 0.97% =
+>    2,048/211,051），但 `anomaly` 的语义是"不符合任何一种**实测的合法 CM 顺序**"，
+>    不等于规格 §5.3 的"可入模的现代模板比赛"。若要表达后者，把第 3 条改成
+>    `WHERE n_draft_actions = 24`（或按 `draft_actions` 复算的顺序族过滤）—— 详见
+>    Task 12 实测记录里的顺序族表：20/22 手是 2016–2020 的历史顺序，24 手里也只有
+>    `spec_6_0_24` 一族与 `shared/draft_template.TEMPLATE` 一致。
+>
+> 另：`test_m1_acceptance` 会用到 `db_after_bootstrap`，即**整个 211,051 场的真实入库**
+> （约 2 分钟/次），这是会话级 fixture 的设计意图（每 session 只跑一次）。
 
 - [ ] **Step 3: Commit**
 
@@ -4883,4 +7293,11 @@ git commit -m "test: M1 验收（127/501/84/异常率/三表可查/token 索引/
    （关键字 `all` / `any` / `none`，如 `splitpush = {"all": ["Carry", "Escape"], "none": ["Pusher"]}`），
    由求值器解释，`RULES` 退化成它的默认值与测试基准。
 
-**仍未验证、但已设测试保护的一项**：Kaggle CSV 的列名与 `order` 起始值（Task 12 Step 2 会直接失败并给出处置说明）。Kaggle 凭证缺失时相关测试会 `skip` 而非变红。
+**Kaggle 引导数据集（Task 12 收尾，2026-09-18）**：CSV 的列名与 `order` 起始值**已对真实数据
+核对完毕**（结论与计划原文的假设不同三处：`start_date_time` 而非 `start_time`、没有 `league_name`、
+`order` 是浮点字符串），并已在两个年度目录上实测 `min(order) == 0`。本机凭证缺失，但该数据集是
+CC0 公共数据集、其清单/下载接口对无有效凭证的请求也返回数据，故 506.7 MB 子集**已实际下载并全量
+入库**（211,051 场 / 4,772,342 手 / 异常率 0.97%），数据侧测试不再 skip。**仍未验证**的部分逐条列在
+Task 12 实测记录里（下载端点的长期行为、`start_date_time` 的时区假设、2,350 场 patch 列不吻合的
+逐场归因、`draft_timings.csv` 未入库、`teams` 仍为空）。缺缓存时相关测试仍会 `skip` 而非变红
+（实测 190 passed / 9 skipped）。
