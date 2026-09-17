@@ -4191,9 +4191,22 @@ git commit -m "docs(plan): Task 10 同步实现与实测校准（含三处裁决
 - [ ] **Step 1: 写失败测试**
 
 ```python
+"""`constants/load.py`：把常量写进六张表（规格 §5.1、§15「常量层验收」）。
+
+**`commit=False` 是测试隔离的硬要求，不是顺手加的开关。** `db` fixture（`tests/conftest.py`）
+给每个测试一个事务并在结束时 `rollback()`；而 `load_constants` 作为生产用的一次性加载器
+必须在末尾 `commit()`。两者直接相遇时，测试里的加载会把真实常量**提交**进共享的
+`dota_test`，于是 pytest 按默认顺序（`tests/constants/` 先于 `tests/db/`）跑到
+`seeded` fixture 时就在 `constants_snapshot(snapshot_version=1)` / `heroes(80)` 上主键冲突，
+`tests/db/test_constraints.py` 里插 hero 81 的那条也会冲突 —— 16+ 个失败全部是跨套件污染，
+不是约束测试本身有问题。故本文件**每一处**都写 `load_constants(db, commit=False)`。
+"""
+from __future__ import annotations
+
+
 def test_load_constants_populates_all_tables(db):
     from constants.load import load_constants
-    load_constants(db)
+    load_constants(db, commit=False)
 
     assert db.execute("SELECT count(*) FROM constants_snapshot").fetchone()[0] == 1
     snap = db.execute("SELECT snapshot_version, n_heroes, n_items FROM constants_snapshot").fetchone()
@@ -4205,10 +4218,20 @@ def test_load_constants_populates_all_tables(db):
     assert db.execute("SELECT count(*) FROM patches").fetchone()[0] == 118
     assert db.execute("SELECT count(*) FROM patches WHERE version_name ~ '[a-z]$'").fetchone()[0] == 84
 
+    # opendota_patch 必须**真的有值**：这一列在 R8 之前会被静默写成 NULL（列本身可空，
+    # 没有任何约束拦得住），而 §3.2 的版本归属要用它对齐 OpenDota 的粗粒度 id。
+    # 只在 Python 层断言 `declare_lettered_versions()` 的键存在不够 —— 入库路径丢键、
+    # `ON CONFLICT` 只更新 released_at、`VALUES` 少一列，都能让行数/字母数全绿而此列为空。
+    assert db.execute("SELECT count(*) FROM patches WHERE opendota_patch IS NULL").fetchone()[0] == 0
+    spot = dict(db.execute("""SELECT version_name, opendota_patch FROM patches
+                              WHERE version_name IN ('7.41f', '7.22', '7.08')""").fetchall())
+    assert spot == {"7.41f": 60, "7.22": 41, "7.08": 27}
+
+
 def test_token_index_satisfies_the_derivation_rule(db):
     """规格 §5.1：dense_index == row_number() OVER (ORDER BY hero_id) - 1。"""
     from constants.load import load_constants
-    load_constants(db)
+    load_constants(db, commit=False)
     bad = db.execute("""
         SELECT count(*) FROM (
           SELECT dense_index, row_number() OVER (ORDER BY hero_id) - 1 AS expected
@@ -4216,34 +4239,63 @@ def test_token_index_satisfies_the_derivation_rule(db):
         WHERE dense_index <> expected""").fetchone()[0]
     assert bad == 0
 
+
 def test_hero_135_dense_index_is_121(db):
     from constants.load import load_constants
-    load_constants(db)
+    load_constants(db, commit=False)
     got = db.execute("SELECT dense_index FROM hero_token_index WHERE hero_id = 135").fetchone()[0]
     assert got == 121
+
 
 def test_app_config_kv_has_the_four_required_keys(db):
     """规格 §5.1：M1 必须种入这四个键，否则 §6.6/§7/§9.1 的相关功能不可用。"""
     from constants.load import load_constants
-    load_constants(db)
+    load_constants(db, commit=False)
     keys = {r[0] for r in db.execute("SELECT key FROM app_config_kv")}
     assert {"archetype_role_map", "robustness_lambda",
             "op_decision_min_delta", "min_sample_n"} <= keys
+
 
 def test_archetype_role_map_matches_the_python_rules(db):
     """规格 §7：映射存于 app_config_kv，可调而不改代码——故必须与代码一致。"""
     import json
     from constants.load import load_constants
     from constants.archetypes import RULES
-    load_constants(db)
+    load_constants(db, commit=False)
     raw = db.execute("SELECT value FROM app_config_kv WHERE key='archetype_role_map'").fetchone()[0]
-    stored = json.loads(raw)
+    # 计划原文写的是 `json.loads(raw)` —— 对 TEXT 列成立，但 `value` 是 JSONB，
+    # psycopg 3 默认已把它解码成 Python 对象，再 loads 会抛
+    # `TypeError: the JSON object must be str, bytes or bytearray, not dict`。
+    # 两种可能都接住，断言只关心"存进去的键集与代码一致"。
+    stored = json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else raw
     assert set(stored) == {name for name, _ in RULES}
 
+
 def test_load_is_idempotent(db):
+    """二次加载既不新增行也不改值 —— 六张表都要过这一关。
+
+    `patches` 单独断言：它的 `ON CONFLICT` 必须覆盖 `base_version` / `opendota_patch`
+    （只更新 `released_at` 时，第一版写进去的 NULL 永远回填不了，见 R8），
+    故这里比对整行而不是只比行数。
+    """
     from constants.load import load_constants
-    load_constants(db); load_constants(db)
+    load_constants(db, commit=False)
+    patches_before = db.execute("""SELECT version_name, base_version, released_at, opendota_patch
+                                   FROM patches ORDER BY version_name""").fetchall()
+    kv_before = db.execute("SELECT key, value FROM app_config_kv ORDER BY key").fetchall()
+
+    load_constants(db, commit=False)
+
     assert db.execute("SELECT count(*) FROM heroes").fetchone()[0] == 127
+    assert db.execute("SELECT count(*) FROM items").fetchone()[0] == 501
+    assert db.execute("SELECT count(*) FROM hero_token_index").fetchone()[0] == 127
+    assert db.execute("SELECT count(*) FROM constants_snapshot").fetchone()[0] == 1
+
+    patches_after = db.execute("""SELECT version_name, base_version, released_at, opendota_patch
+                                  FROM patches ORDER BY version_name""").fetchall()
+    assert len(patches_after) == 118
+    assert patches_after == patches_before
+    assert db.execute("SELECT key, value FROM app_config_kv ORDER BY key").fetchall() == kv_before
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -4258,6 +4310,13 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'constants.load'`
 
 必须在 Kaggle 引导数据入库之前跑——draft_actions.hero_id 是
 heroes(hero_id) 的外键，matches.patch_id 是 patches(patch_id) 的外键。
+
+`patches` 的行集以 **Valve 的 `patchnoteslist`** 为准（118 版本 / 84 字母版本，规格 §3.2、
+§15③）：`declare_lettered_versions()` 已经按这条口径裁好，`patchdates` 独有的 6.70–7.07 段
+（`patchdates_only_versions()`，83 行）**不写入本表** —— 它只供 `subpatch_for_timestamp`
+归属 Valve 无记录的年代。`opendota_patch` 逐行取自 patchdates 的键，字母行继承其基础版本的
+id；写入时直接取 `p["opendota_patch"]` 而不是 `p.get(...)`：键缺失要在 Task 10 的接口测试里
+炸，而不是在这里静默写 NULL（该列可空，没有任何约束拦得住）。
 """
 from __future__ import annotations
 import json
@@ -4268,7 +4327,21 @@ from .patches import fetch_valve_patches, declare_lettered_versions
 
 SNAPSHOT_VERSION = 1
 
-def load_constants(conn: psycopg.Connection) -> None:
+def load_constants(conn: psycopg.Connection, *, commit: bool = True) -> None:
+    """把六张常量表填满（可重复执行，见模块 docstring）。
+
+    `commit` 是**关键字参数且默认 True**：生产上这是一次性加载器，调用方拿到的是一个
+    已提交、立刻对其它会话可见的常量层，所以默认必须提交，不能靠调用方记得再 commit。
+
+    `commit=False` 是给测试的事务隔离用的：`tests/conftest.py` 的 `db` fixture 给每个测试
+    一个事务并在结束时 `rollback()`。若加载器无条件 `commit()`，测试里的加载会把真实常量
+    提交进共享的 `dota_test` 库，污染同一次 pytest 会话中后面所有测试 —— 实测后果是
+    pytest 默认顺序（`tests/constants/` 先于 `tests/db/`）下 `seeded` fixture 在
+    `constants_snapshot(snapshot_version=1)` 与 `heroes(80)` 上主键冲突、
+    `tests/db/test_constraints.py::test_hero_token_index_rejects_duplicate_dense_index`
+    插 hero 81 时冲突，16+ 个失败全部是跨套件污染而非约束本身有问题。
+    传 `commit=False` 时加载落在这个事务里，随 fixture 的 `rollback()` 一起消失。
+    """
     heroes, items = fetch_heroes(), fetch_items()
     token_index = derive_token_index(heroes)
 
@@ -4313,7 +4386,8 @@ def load_constants(conn: psycopg.Connection) -> None:
         ('min_sample_n',          '30'::jsonb, '规格 §7.3/§9.1 的样本量门槛')
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()""",
         (json.dumps({name: "python:constants.archetypes.RULES" for name, _ in RULES}),))
-    conn.commit()
+    if commit:
+        conn.commit()
 ```
 
 > `items` 的短名取自 OpenDota 返回的字典键（`i["key"]`），不是 `i["name"]`（后者是 `item_blink` 这类内部名）。实现时按实际 payload 调整。
@@ -4322,19 +4396,72 @@ def load_constants(conn: psycopg.Connection) -> None:
 > `opendota_patch`）：只更新 `released_at` 时，第一版写进去的 NULL 永远无法回填（本轮 R8 之前
 > `declare_lettered_versions()` 正是这种情况）。因此这里直接取 `p["opendota_patch"]`（Task 10 保证该键存在，
 > 见 R8），不用 `p.get(...)` —— 键缺失要在 Task 10 的接口测试里炸，而不是静默写 NULL。
+>
+> `load_constants(conn, *, commit: bool = True)` 的 `commit` 参数是**测试事务隔离的硬要求**（2026-09-17
+> 控制器裁定，见下方实测记录 (a)）：默认 `True` 是生产语义（一次性加载器必须让常量立刻对其它会话可见），
+> `commit=False` 让测试能把加载放进 `db` fixture 的 rollback 事务里，避免真实常量被提交进共享的 `dota_test`。
 
 - [ ] **Step 4: 运行确认通过**
 
 Run: `make db-reset && pytest tests/constants -q`
 Expected: **43 passed**（实测口径：Task 9 = 16（`test_archetypes.py` 5 + `test_dotaconstants.py` 8 + `test_http.py` 3）、
 Task 10 = 21、Task 11 = 6；原文写的 24（Task 9 = 10、Task 10 = 8）是计划阶段的估计，已按实测校准）
+注：本机无 Docker，`make db-reset` 跑不了；session 级 `dsn` fixture 每次会话都 DROP + CREATE `dota_test`
+并重放迁移，等价于"从零建库"，故直接跑 pytest 即可（2026-09-17 实测口径见下）。
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add constants/load.py tests/constants/test_load.py
-git commit -m "feat(constants): 常量入库（127 英雄/501 道具/118 版本/4 个配置键）+ 幂等"
+git commit -m "feat(constants): 常量入库（127 英雄/501 道具/118 版本/4 个配置键）+ 幂等 + 测试事务隔离"
 ```
+
+### Task 11 实测记录（2026-09-17，提交后复核）
+
+- **Step 2 红**：`pytest tests/constants/test_load.py -q` → `6 failed`，六条全部是
+  `ModuleNotFoundError: No module named 'constants.load'`（与 Step 2 预期逐字一致）。
+- **计数**：`tests/constants/test_load.py` **6 passed**；`tests/constants` **43 passed**；全量 `tests` **163 passed**
+  （157 + 6）。**顺序无关性**：把 `tests/db` 强制放到最前（`pytest tests/db tests/constants tests/contracts
+  tests/shared -q`）同样 **163 passed** —— 两种收集顺序都绿，跨套件污染已消除。
+- **入库实测（直接查库，不是 Python 层推断）**：`constants_snapshot = (1, 127, 501, 'dotaconstants')`；
+  `heroes` 127；`items` 501；`hero_token_index` 快照 1 共 127 行、hero 135 → dense_index **121**；
+  `patches` **118 行 / 84 个字母版本 / `opendota_patch` NULL 0 行**，抽查 `7.41f → 60`、`7.22 → 41`、
+  `7.08 → 27`，最早/最晚 = 7.08 → 7.41f。`app_config_kv` 四个键：`archetype_role_map`（6 个原型名 →
+  `"python:constants.archetypes.RULES"`）、`robustness_lambda` = `1.0`、`op_decision_min_delta` = `0.02`、
+  `min_sample_n` = `30`。
+- **(a) `commit=False`：测试事务隔离（计划原文缺，控制器要求）**。`load_constants` 末尾的 `conn.commit()`
+  对生产是对的，但它与 `tests/conftest.py` 的 `db` fixture 直接冲突 —— 该 fixture 给每个测试一个事务、
+  结束时 `rollback()`。不加参数时，测试里的加载会把真实常量**提交**进共享的 `dota_test`；pytest 默认
+  收集顺序是 `tests/constants/` 先于 `tests/db/`，后面的 `seeded` fixture 随即在
+  `constants_snapshot(snapshot_version=1)` 与 `heroes(80)` 上主键冲突。**实测反证**：把测试里的
+  `commit=False` 全改回默认（即计划原文的调用方式）后跑全量 → **`145 passed, 18 errors`**，18 个 error
+  全在 `tests/db/`，首个报错是 `psycopg.errors.UniqueViolation: 重复键违反唯一约束
+  "constants_snapshot_pkey" / DETAIL: 键值"(snapshot_version)=(1)" 已经存在`（含
+  `test_hero_token_index_rejects_duplicate_dense_index`）。这是**跨套件污染，不是约束测试有问题** ——
+  故 `tests/db/test_constraints.py` 与 `tests/conftest.py` 一行未动。实现因此改为
+  `def load_constants(conn, *, commit: bool = True)`，只在 `commit` 为真时 `conn.commit()`；
+  `tests/constants/test_load.py` 每处都写 `load_constants(db, commit=False)`，加载随 fixture 的
+  `rollback()` 一起消失。**隔离实测**：上述反证实验后新连接看到 `heroes = 127`（说明该检查确实敏感），
+  随后跑一次绿色的 `pytest tests/constants -q`，再用新连接查 → `heroes = 0` / `patches = 0` /
+  `app_config_kv = 0`：测试库确实干净。
+- **(b) `opendota_patch` 的库级断言（计划原文没有，控制器要求）**。只断言
+  `declare_lettered_versions()` 的键存在（Task 10 的 R8 接口测试）**不够**：入库路径丢键、
+  `ON CONFLICT` 只更新 `released_at`、`VALUES` 少一列，都能让 118/84 全绿而该列静默为 NULL，
+  且该列可空、没有任何约束拦得住。故 `test_load_constants_populates_all_tables` 增加
+  `SELECT count(*) FROM patches WHERE opendota_patch IS NULL == 0` 与 `7.41f → 60` / `7.22 → 41` /
+  `7.08 → 27` 三处抽查；`test_load_is_idempotent` 增加 `patches` **整行**比对（二次加载后仍 118 行，
+  且 `version_name/base_version/released_at/opendota_patch` 逐行不变）。**实测反证**：把入库参数改成
+  `None` 后，原有的 118 行 / 84 字母两条断言**照样通过**，新增的 NULL 断言失败 —— 正是计划缺的那道守护。
+  （两条新增断言写进计划原有的两个测试里，不新增测试函数，故计数仍是 6 / 43 / 163。）
+- **变异守护（4 条，全部 apply → run → restore → sha256 复原 `58df5525e1ee…` → 复跑 6 passed）**：
+  (a) 去掉 `heroes` 的 `ON CONFLICT` → `test_load_is_idempotent` 以 `UniqueViolation hero_id=(1)` 失败；
+  (b) 写 NULL 进 `opendota_patch` → `test_load_constants_populates_all_tables` 在新增的 NULL 断言上失败；
+  (c) 只加载 126 个英雄 → 同一测试（`126 == 127`）与 `test_load_is_idempotent` 失败；
+  (d) 跳过 `hero_token_index` 插入 → `test_hero_135_dense_index_is_121` 失败。
+- **计划原文的一处驱动器口径修正**：`test_archetype_role_map_matches_the_python_rules` 原文写
+  `stored = json.loads(raw)`，但 `app_config_kv.value` 是 **JSONB**，psycopg 3 默认已把它解码成 Python
+  对象，再 `loads` 会抛 `TypeError: the JSON object must be str, bytes or bytearray, not dict`。
+  改为 `json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else raw`，断言不变。
 
 ---
 
