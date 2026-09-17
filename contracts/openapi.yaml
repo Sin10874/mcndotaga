@@ -1,0 +1,126 @@
+openapi: 3.1.0
+info:
+  title: MCNDOTAGA Contract
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    Team:
+      type: integer
+      enum:
+      - 0
+      - 1
+      description: 0=Radiant, 1=Dire；仅数值字段
+    Side:
+      type: string
+      enum:
+      - us
+      - them
+      description: 仅 Playbook 语义字段
+    Confidence:
+      type: string
+      enum:
+      - low
+      - medium
+      - high
+    Recommendation:
+      type: string
+      enum:
+      - pick
+      - ban
+      - leave_and_counter
+      - insufficient_data
+    TheirOpening:
+      type: string
+      enum:
+      - teamfight
+      - push
+      - pickoff
+      - splitpush
+      - protect
+      - initiate
+      - unknown
+    NoteKind:
+      type: string
+      enum:
+      - ward
+      - timing
+      - lane
+      - smoke
+      - combat
+      - resource
+      - communication
+    UnavailableReason:
+      type: string
+      enum:
+      - needs_replay
+      - insufficient_samples
+      - source_not_allowed
+      - stat_unavailable
+    Factor:
+      type: string
+      enum:
+      - patch_strength
+      - counter_matchup
+      - player_comfort
+      - first_pick
+    ErrorCode:
+      type: string
+      enum:
+      - insufficient_data
+      - invalid_request
+      - source_not_allowed
+      - not_found
+      - upstream_unavailable
+    Degraded:
+      type: object
+      required:
+      - value
+      - reason
+      properties:
+        value:
+          type: 'null'
+        reason:
+          $ref: '#/components/schemas/UnavailableReason'
+        needs:
+          type: string
+          enum:
+          - Phase B
+      allOf:
+      - if:
+          properties:
+            reason:
+              const: needs_replay
+          required:
+          - reason
+        then:
+          required:
+          - needs
+      - if:
+          properties:
+            reason:
+              not:
+                const: needs_replay
+          required:
+          - reason
+        then:
+          not:
+            required:
+            - needs
+    ErrorEnvelope:
+      type: object
+      required:
+      - error
+      properties:
+        error:
+          type: object
+          required:
+          - code
+          - message
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+            detail:
+              type: object
