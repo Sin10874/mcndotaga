@@ -23,3 +23,7 @@ def test_resolve_sources_accepts_scrim_when_explicitly_allowed():
 def test_resolve_sources_rejects_unknown():
     with pytest.raises(SourceNotAllowed):
         resolve_sources(["ranked"])
+
+def test_resolve_sources_returns_sorted_deduped():
+    assert resolve_sources(["scrim", "pub_match", "pro_match", "pub_match"],
+                           allow_scrim=True) == ["pro_match", "pub_match", "scrim"]

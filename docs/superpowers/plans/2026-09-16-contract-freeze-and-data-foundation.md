@@ -704,6 +704,10 @@ def test_resolve_sources_accepts_scrim_when_explicitly_allowed():
 def test_resolve_sources_rejects_unknown():
     with pytest.raises(SourceNotAllowed):
         resolve_sources(["ranked"])
+
+def test_resolve_sources_returns_sorted_deduped():
+    assert resolve_sources(["scrim", "pub_match", "pro_match", "pub_match"],
+                           allow_scrim=True) == ["pro_match", "pub_match", "scrim"]
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -759,7 +763,7 @@ Expected: `['opponent_profile_matches', 'opponent_profile_matches_with_pub']`（
 - [ ] **Step 6: 运行确认通过**
 
 Run: `pytest tests/db -q`
-Expected: **20 passed**（15 约束 + 5 隔离）
+Expected: **22 passed**（16 约束 + 6 隔离）
 
 - [ ] **Step 7: Commit**
 
