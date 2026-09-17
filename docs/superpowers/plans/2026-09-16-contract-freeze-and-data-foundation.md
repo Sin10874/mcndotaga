@@ -3030,7 +3030,7 @@ git commit -m "feat(contracts): TS 类型生成 + 完整性测试 + OpenAPI 校�
 - Create: `constants/__init__.py`, `constants/_http.py`, `constants/dotaconstants.py`, `constants/archetypes.py`
 - Create: `tests/fixtures/network/.gitkeep`
 - Create: `tests/constants/__init__.py`
-- Test: `tests/constants/test_dotaconstants.py`, `tests/constants/test_archetypes.py`
+- Test: `tests/constants/test_dotaconstants.py`, `tests/constants/test_archetypes.py`, `tests/constants/test_http.py`
 
 - [ ] **Step 1: 写 `constants/_http.py`（带缓存的 HTTP 客户端）**
 
@@ -3047,16 +3047,37 @@ import httpx
 
 UA = "Dota2DraftAnalysis/0.1 (https://github.com/yourname/mcndotaga)"
 CACHE = pathlib.Path(__file__).parents[1] / "tests" / "fixtures" / "network"
+_TRUTHY = {"1", "true", "yes"}
+
+def _refresh() -> bool:
+    """严格的刷新开关：只有 1/true/yes（忽略大小写与空白）才算开启。
+
+    **不能**用 os.environ.get(...) 的真值判断：那样 REFRESH_NETWORK=0 与
+    =false 都会被当成「开启刷新」——把「关」写成 0 是最自然的写法，后果却是
+    每次跑测试都打网络，且覆盖掉已提交的缓存字节。""/0/false/no 一律是关闭。
+    """
+    return os.environ.get("REFRESH_NETWORK", "").strip().lower() in _TRUTHY
+
+def _cache_dir() -> pathlib.Path:
+    """缓存根目录。可用 MCNDOTAGA_CACHE_DIR 覆盖（指向只读介质时也能命中缓存）。"""
+    override = os.environ.get("MCNDOTAGA_CACHE_DIR")
+    return pathlib.Path(override) if override else CACHE
 
 def fetch_json(url: str, cache_name: str) -> dict | list:
-    CACHE.mkdir(parents=True, exist_ok=True)
-    path = CACHE / cache_name
-    if path.exists() and not os.environ.get("REFRESH_NETWORK"):
-        return json.loads(path.read_text(encoding="utf-8"))
+    path = _cache_dir() / cache_name
+    if path.exists() and not _refresh():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"缓存文件已损坏，无法解析：{path}\n"
+                f"  恢复方式二选一：REFRESH_NETWORK=1 重新拉取，或删除该文件。\n"
+                f"  解析错误：{exc}") from exc
     resp = httpx.get(url, headers={"User-Agent": UA}, timeout=60)
     resp.raise_for_status()
-    data = resp.json()
-    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    data = resp.json()          # 必须先于写盘：非 JSON 响应绝不落进缓存
+    path.parent.mkdir(parents=True, exist_ok=True)   # 只在写路径上建目录
+    path.write_bytes(resp.content)   # 落**原始字节**，缓存与上游可逐字节比对
     return data
 ```
 
@@ -3065,13 +3086,39 @@ def fetch_json(url: str, cache_name: str) -> dict | list:
 `tests/constants/test_dotaconstants.py`：
 
 ```python
+import pytest
 from constants.dotaconstants import fetch_heroes, fetch_items, derive_token_index
 
+def _expect_count(what: str, got: int, want: int) -> None:
+    """冻结计数是**流程事件**，不是测试事实。
+
+    出现新英雄/新道具时正确动作是提升 constants_snapshot.snapshot_version 并重训
+    （规格 §5.1：dense_index 稳定性靠冻结快照，不靠顺序假设），而不是改这条断言
+    或手改 tests/fixtures/network/ 下的缓存。
+    """
+    if got != want:
+        pytest.exit(
+            f"{what} 计数变了：期望 {want}，实测 {got}。\n"
+            f"常量快照是版本化的：请提升 constants_snapshot.snapshot_version 并重训模型；\n"
+            f"若这是上游例行变化，用 REFRESH_NETWORK=1 重抓缓存后再核对 M1 的验收计数。\n"
+            f"**不要**为了让测试变绿而改这条断言或手改缓存字节。",
+            returncode=1,
+        )
+
 def test_hero_count_is_127():
-    assert len(fetch_heroes()) == 127
+    heroes = fetch_heroes()
+    _expect_count("英雄", len(heroes), 127)
+    # 对照组：英雄 payload 自带 name，不需要从字典键补（道具才需要）
+    assert {h["id"]: h["name"] for h in heroes}[1] == "npc_dota_hero_antimage"
 
 def test_item_count_is_501():
-    assert len(fetch_items()) == 501
+    items = fetch_items()
+    _expect_count("道具", len(items), 501)
+    # 短名（blink 等）只在字典键上——payload 里没有 key/name 字段，
+    # 丢了它 Task 11 入库 items.name（TEXT NOT NULL UNIQUE）只能瞎猜。
+    missing_key = [i.get("id") for i in items if not i.get("key")]
+    assert missing_key == [], f"缺短名的 item_id: {missing_key}"
+    assert next(i["key"] for i in items if i["id"] == 1) == "blink"   # Blink Dagger
 
 def test_exactly_nine_hero_ids_exceed_126():
     ids = sorted(h["id"] for h in fetch_heroes())
@@ -3093,11 +3140,20 @@ def test_roles_vocabulary_is_the_measured_eight():
     vocab = {r for h in fetch_heroes() for r in (h.get("roles") or [])}
     assert vocab == {"Carry","Disabler","Durable","Escape",
                      "Initiator","Nuker","Pusher","Support"}
+
+def test_token_index_is_order_independent():
+    """§5.1 的规则是「按 hero_id 升序排序后取下标」，不是「相信上游返回顺序」。
+
+    live payload 恰好按 id 升序到达，只有打乱输入才能区分这两者。
+    """
+    assert derive_token_index([{"id": 155}, {"id": 1}, {"id": 128}]) == {1: 0, 128: 1, 155: 2}
+    assert derive_token_index([]) == {}
 ```
 
 `tests/constants/test_archetypes.py`：
 
 ```python
+import collections
 from constants.archetypes import archetypes_for
 from constants.dotaconstants import fetch_heroes
 
@@ -3118,6 +3174,19 @@ def test_eight_historical_heroes_hit_teamfight():
 def test_only_produces_known_archetypes():
     for h in fetch_heroes():
         assert set(archetypes_for(h["roles"])) <= SIX
+
+def test_population_matches_the_spec_table():
+    """规格 §7 的命中分布。逐规则计数：删任何一条规则、改任何一个条件都会改数。"""
+    counts = collections.Counter(a for h in fetch_heroes() for a in archetypes_for(h["roles"]))
+    assert dict(counts) == {"teamfight":117, "initiate":55, "protect":44,
+                            "pickoff":34, "push":29, "splitpush":23}, f"分布漂移: {dict(counts)}"
+    assert sum(counts.values()) == 302   # Σ=302 是 §7:1047 六项之和
+
+def test_archetypes_for_tolerates_missing_or_unknown_roles():
+    """`heroes.roles` 是可空列：None 不得抛异常，未知角色不得命中任何原型。"""
+    assert archetypes_for(None) == []
+    assert archetypes_for([]) == []
+    assert archetypes_for(["Unknown"]) == []
 ```
 
 - [ ] **Step 3: 运行确认失败**
@@ -3144,7 +3213,8 @@ def fetch_heroes() -> list[dict]:
 
 def fetch_items() -> list[dict]:
     raw = fetch_json(f"{OPENDOTA}/constants/items", "opendota_items.json")
-    return list(raw.values())
+    # 短名（blink 等）只是字典键，payload 里没有 key/name 字段
+    return [{**v, "key": k} for k, v in raw.items()]
 
 def derive_token_index(heroes: list[dict]) -> dict[int, int]:
     """规格 §5.1：dense_index = 按 hero_id 升序排序后的 0-based 下标。
@@ -3164,8 +3234,9 @@ Nuker/Pusher/Support）——没有 Jungler，也没有任何一项等于六类�
 teamfight 必须是**析取式**：上一版的合取式会让 8 个英雄零命中。
 """
 from __future__ import annotations
+from collections.abc import Callable
 
-RULES: list[tuple[str, callable]] = [
+RULES: list[tuple[str, Callable[[set[str]], bool]]] = [
     ("initiate",   lambda r: "Initiator" in r),
     ("push",       lambda r: "Pusher" in r),
     ("pickoff",    lambda r: "Escape" in r and "Nuker" in r),
@@ -3183,7 +3254,9 @@ def archetypes_for(roles: list[str]) -> list[str]:
 - [ ] **Step 5: 运行确认通过**
 
 Run: `pytest tests/constants -q`
-Expected: **10 passed**（7 + 3）
+Expected: **16 passed**（Task 9 = 10 `dotaconstants`+`archetypes` 基线 + 1 顺序无关性
++ 1 分布 + 1 None 容错 + 3 `test_http.py`；`key`/`name` 两条断言折进既有的两条计数测试，
+不新增用例）
 
 - [ ] **Step 6: Commit**
 
@@ -3263,7 +3336,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'constants.patches'`
 
 - [ ] **Step 3: 实现 `constants/patches.py`**
 
-必须实现并导出**四个名字 + 一个常量**（测试直接 import 它们）：
+必须实现并导出**五个名字 + 一个常量**（测试直接 import 它们）：
 
 | 名字 | 职责 |
 |---|---|
@@ -3271,6 +3344,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'constants.patches'`
 | `fetch_patchdates()` | 拉 `D2-LRG-Metadata/patchdates.json`（无认证） |
 | `restore_subpatch_dates(entry)` | **纯函数**，把一条 patchdates 记录展开为 `{版本名: 时间戳}`。规则见下 |
 | `subpatch_for_timestamp(ts)` | 按 Valve 时间戳（优先）回落 patchdates，返回版本名如 `"7.41e"` |
+| `declare_lettered_versions()` | **本任务必须导出**：返回带字母的子版本清单（Valve 的 `7.41a`… + patchdates 补出的槽位），供 Task 11 写 `patches` 表用。Task 11 的 `constants/load.py` 逐字写着 `from .patches import fetch_valve_patches, declare_lettered_versions`——本任务的测试只 import 前四个名字，故漏掉它时 Task 9/10 全绿、Task 11 直接 `ImportError`。 |
 | `KNOWN_EXCEPTIONS` | `{7.22: "...unsorted...", 7.25: "...no add..."}` |
 | `cross_check_against_valve()` | 返回 `{"n_compared": int, "max_deviation_days": int, "outliers": [...]}`；**由此函数独占 Valve × patchdates 的交叉校验职责** |
 
@@ -3679,9 +3753,15 @@ git commit -m "test: M1 验收（127/501/84/异常率/三表可查/token 索引/
 
 **未做**（属后续计划）：常驻采集器（M2）、回放导入（M2b）、画像引擎（M3–M5）、可视化（M6）、序列模型（M7–M9）、部署（M10）。
 
-**本计划显式延迟的三项**（不是遗漏）：
+**本计划显式延迟的四项**（不是遗漏）：
 1. `contracts/openapi.yaml` 的 `paths` 与请求体 schema —— 归 Plan 2+，需先定服务端框架
 2. 规格 §6.5「Phase A 必须不存在」清单的机器校验 —— 归 Plan 3，需对真实响应做全字段扫描
 3. `check_resolve` 的接口级调用 —— 归 Plan 2+，fixtures 是纯响应体、不含请求上下文
+4. 规格 §5.1 要求 3 的**跨快照不变性检查**（§5.1:220：「对快照 N 与 N+1 断言所有**已存在**的
+   hero_id 其 dense_index 不变，变化必须报错并强制模型版本号同步提升」）——归 **Plan 2 / 沿
+   `constants_snapshot` 迁移路径**：它需要两个快照并存，本计划只落一个快照（Task 11 的
+   `snapshot_version = 1`）。Task 11 的 `test_token_index_satisfies_the_derivation_rule` 只校验
+   快照**内部**一致性（`dense_index == row_number() OVER (ORDER BY hero_id) - 1`），
+   按 §5.1:214–216 的论证，这一条**抓不到**"新英雄插进空位导致其后整体位移"。
 
 **仍未验证、但已设测试保护的一项**：Kaggle CSV 的列名与 `order` 起始值（Task 12 Step 2 会直接失败并给出处置说明）。Kaggle 凭证缺失时相关测试会 `skip` 而非变红。
