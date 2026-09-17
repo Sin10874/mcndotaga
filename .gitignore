@@ -1,3 +1,6 @@
+# Git worktrees (isolated workspaces)
+.worktrees/
+
 # Brainstorming visual companion artifacts (local only)
 .superpowers/
 
