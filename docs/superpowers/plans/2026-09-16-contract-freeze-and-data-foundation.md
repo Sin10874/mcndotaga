@@ -3753,7 +3753,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'constants.patches'`
 | `fetch_patchdates()` | 拉 `D2-LRG-Metadata/patchdates.json`（无认证）。**计划原文没钉 URL，实现钉 canonical raw URL**：`https://raw.githubusercontent.com/leamare/D2-LRG-Metadata/master/patchdates.json`（7686 B / 61 键）；raw 抛 `httpx.HTTPError` 时回退镜像 `https://cdn.jsdelivr.net/gh/leamare/D2-LRG-Metadata@master/patchdates.json`（2026-09-17 实测 raw TLS 握手超时，镜像 0.9 s / 同样 7686 B）。返回的是缓存里的**同一个 dict**，调用方不得原地修改 |
 | `restore_subpatch_dates(entry)` | **纯函数**，把一条 patchdates 记录展开为 `{版本名: 时间戳}`。规则见下 |
 | `subpatch_for_timestamp(ts)` | 按 Valve 时间戳（优先）回落 patchdates，返回版本名如 `"7.41e"`；左闭右开；早于 6.70 抛 `ValueError`。**返回的名字只有对 `ts >= 1517472000`（Valve 清单起点 7.08）才保证出现在 `patches` 行集里**（R7） |
-| `declare_lettered_versions()` | **本任务必须导出**：返回 `patches` 表的行集（Valve 的 118 行 / 84 个字母子版本），键恰好是 Task 11 迭代的四个 `version_name`/`base_version`/`released_at`/`opendota_patch`（R8）。Task 11 的 `constants/load.py` 逐字写着 `from .patches import fetch_valve_patches, declare_lettered_versions`——漏掉它时 Task 9/10 全绿、Task 11 直接 `ImportError` |
+| `declare_lettered_versions()` | **本任务必须导出**：返回 `patches` 表的行集（Valve 的 118 行 / 84 个字母子版本），键恰好是 Task 11 迭代的四个 `version_name`/`base_version`/`released_at`/`opendota_patch`（R8）。Task 11 的 `constants/load.py` 只 import `declare_lettered_versions`（第二轮评审删掉了从未被使用的 `fetch_valve_patches`——留着它会让读者以为版本表还从 Valve 直取，实际入库路径走的是 `declare_lettered_versions()`）——漏掉它时 Task 9/10 全绿、Task 11 直接 `ImportError` |
 | `patchdates_only_versions()` | patchdates 补出的 6.70–7.07 段（27 个基础版本 + 56 个字母槽 = 83 行；已按 R6 丢掉 7.06f 那个错档槽位），只用于归属、**不进 `patches`**（规格 §3.2 / §15③；否则 M1 的 118 / 84 都会破） |
 | `KNOWN_EXCEPTIONS` | `{7.06: "...错档...", 7.22: "...unsorted...", 7.25: "...no add..."}`，文本必须**逐条**说清为什么丢弃 / 为什么不排序 / 为什么不移位——三个例外的性质不同（7.22 的偏差本来就超阈值），不能用一句「都在 ±2 天阈值**之内**」概括 |
 | `cross_check_against_valve()` | 返回 `{"n_compared": int, "max_deviation_days": int, "outliers": [...]}`；**由此函数独占 Valve × patchdates 的交叉校验职责**；口径见 R4（`max_deviation_days` 排除已声明例外序列，故只有**非例外**序列的漂移会抬高它） |
@@ -4179,7 +4179,7 @@ git commit -m "docs(plan): Task 10 同步实现与实测校准（含三处裁决
   `test_opendota_patch_comes_from_the_patchdates_keys` 失败**。
 - **离线**：`pytest tests/constants -q` 命中已提交缓存，**0.09 s / 37 passed**；`REFRESH_NETWORK=1` 复跑后 `git status` 干净（上游字节未变）。
 - **测试计数口径**：`tests/constants` 实测 = `test_archetypes.py` 5 + `test_dotaconstants.py` 8 + `test_http.py` 3 + `test_patches.py` **21** = **37**。
-  Task 11 的 Step 4 期望值（原文 24）已同步为 **43**（Task 9 实测 16 + Task 10 实测 21 + Task 11 的 6）。
+  Task 11 的 Step 4 期望值（原文 24）已同步为 **45**（Task 9 实测 16 + Task 10 实测 21 + Task 11 实测 8 —— 首轮 6 + 第二轮 2）。
 ### Task 11: 常量入库（M1 的前置，原计划缺失）
 
 **这是整个计划此前最大的缺口**：没有任何任务把常量写进 `heroes`/`items`/`patches`/`hero_token_index`/`constants_snapshot`/`app_config_kv`。没有它，M1 的四条验收断言不可能通过，Kaggle 加载器也会被 `draft_actions.hero_id` 的外键挡住。
@@ -4198,10 +4198,12 @@ git commit -m "docs(plan): Task 10 同步实现与实测校准（含三处裁决
 必须在末尾 `commit()`。两者直接相遇时，测试里的加载会把真实常量**提交**进共享的
 `dota_test`，于是 pytest 按默认顺序（`tests/constants/` 先于 `tests/db/`）跑到
 `seeded` fixture 时就在 `constants_snapshot(snapshot_version=1)` / `heroes(80)` 上主键冲突，
-`tests/db/test_constraints.py` 里插 hero 81 的那条也会冲突 —— 16+ 个失败全部是跨套件污染，
+`tests/db/test_constraints.py` 里插 hero 81 的那条也会冲突 —— 18 个 error 全部是跨套件污染，
 不是约束测试本身有问题。故本文件**每一处**都写 `load_constants(db, commit=False)`。
 """
 from __future__ import annotations
+
+import pytest
 
 
 def test_load_constants_populates_all_tables(db):
@@ -4232,6 +4234,8 @@ def test_token_index_satisfies_the_derivation_rule(db):
     """规格 §5.1：dense_index == row_number() OVER (ORDER BY hero_id) - 1。"""
     from constants.load import load_constants
     load_constants(db, commit=False)
+    # 先钉住行数：空表时下面的 `bad == 0` 会**空过**（0 行里当然没有违反者）。
+    assert db.execute("SELECT count(*) FROM hero_token_index").fetchone()[0] == 127
     bad = db.execute("""
         SELECT count(*) FROM (
           SELECT dense_index, row_number() OVER (ORDER BY hero_id) - 1 AS expected
@@ -4247,17 +4251,83 @@ def test_hero_135_dense_index_is_121(db):
     assert got == 121
 
 
+def test_load_refuses_to_silently_remap_tokens(db, monkeypatch):
+    """规格 §5.1:214–220：上游英雄集合变了必须报错，禁止静默重映射 token。
+
+    场景：先按当前上游加载一次，再模拟**上游用 1..155 里的空位补了一个新英雄**。这会把它
+    之后所有 hero_id 的 dense_index 整体位移，而 `hero_token_index` 的 `ON CONFLICT DO
+    NOTHING` 会原样保留旧映射、`heroes` / `n_heroes` 却已经变了 —— 没有守护时加载器照样
+    返回成功，模型 token 与英雄的对应关系就悄悄错了（§5.1 要求 3 的那条 N vs N+1 检查由
+    Plan 2 拥有，只覆盖快照 1 里**已存在**的 hero_id，故覆盖不到这个新英雄）。
+
+    id 用 **24**：它是实测 1..126 里的真实空位（实测空位 = 24 / 115–118 / 122 / 124 / 125），
+    故追加后派生集合是 128 行、且其后每个英雄的 dense_index 都位移 1。
+    """
+    import constants.load as load_mod
+    load_mod.load_constants(db, commit=False)
+
+    heroes = [*load_mod.fetch_heroes(),
+              {"id": 24, "name": "npc_dota_hero_synthetic_gap",
+               "localized_name": "Synthetic Gap", "primary_attr": "agi",
+               "roles": ["Carry"], "cm_enabled": True}]
+    monkeypatch.setattr(load_mod, "fetch_heroes", lambda: heroes)
+
+    with pytest.raises(RuntimeError, match=f"快照 {load_mod.SNAPSHOT_VERSION}"):
+        load_mod.load_constants(db, commit=False)
+
+    # 守护在**任何 INSERT 之前**，故这次加载一行都没写：heroes 仍是 127，快照里的 n_heroes
+    # 也不能变成 128（后者能抓住"把守护挪到快照 upsert 之后"这种半吊子实现）。
+    assert db.execute("SELECT count(*) FROM heroes").fetchone()[0] == 127
+    assert db.execute("SELECT n_heroes FROM constants_snapshot WHERE snapshot_version = %s",
+                      (load_mod.SNAPSHOT_VERSION,)).fetchone()[0] == 127
+
+
+def test_timeline_after_the_first_loaded_patch_resolves_to_loaded_versions(db):
+    """Task 12 归属契约：时间线里 >= 最早入库 `released_at` 的版本名必须**全部**已入库。
+
+    Task 12 的规则「2018 分界之后 `matches.patch_id` 0 个 NULL」靠的就是这条闭合性：
+    `subpatch_for_timestamp(ts)` 只保证返回一个名字，名字能否对上 `patches` 行要靠这里断言。
+    若 loader 少写一行、或时间线多出一个 patchdates 独有的槽位（它们**全部**早于该分界），
+    Task 12 就会在写 `patch_id` 时炸 —— 或更糟：静默写 NULL。
+    """
+    from constants.load import load_constants
+    from constants.patches import _version_timeline
+    load_constants(db, commit=False)
+
+    min_released_at = int(db.execute(
+        "SELECT extract(epoch FROM min(released_at)) FROM patches").fetchone()[0])
+    assert min_released_at == 1517472000          # 7.08 = 2018-02-01，Task 12 的分界
+    loaded = {r[0] for r in db.execute("SELECT version_name FROM patches")}
+    reachable = {name for ts, name in _version_timeline() if ts >= min_released_at}
+    assert len(reachable) == 118                  # 非空性：空集会让下面的差集断言空过
+    assert reachable - loaded == set()
+
+
 def test_app_config_kv_has_the_four_required_keys(db):
-    """规格 §5.1：M1 必须种入这四个键，否则 §6.6/§7/§9.1 的相关功能不可用。"""
+    """规格 §5.1：M1 必须种入这四个键，否则 §6.6/§7/§9.1 的相关功能不可用。
+
+    三个数值必须按**值**断言，不能只查键存在：把 `'0.02'::jsonb` 写成 `'0.2'::jsonb`
+    会让键集断言全绿，而 §9.1 的最小差异阈值悄悄变成 10 倍。JSONB 经 psycopg 3 解码后
+    已是 Python 数字（`1.0` / `0.02` / `30`），直接比较即可。
+    """
     from constants.load import load_constants
     load_constants(db, commit=False)
-    keys = {r[0] for r in db.execute("SELECT key FROM app_config_kv")}
+    rows = dict(db.execute("SELECT key, value FROM app_config_kv").fetchall())
     assert {"archetype_role_map", "robustness_lambda",
-            "op_decision_min_delta", "min_sample_n"} <= keys
+            "op_decision_min_delta", "min_sample_n"} <= set(rows)
+    assert rows["robustness_lambda"] == 1.0
+    assert rows["op_decision_min_delta"] == 0.02
+    assert rows["min_sample_n"] == 30
 
 
-def test_archetype_role_map_matches_the_python_rules(db):
-    """规格 §7：映射存于 app_config_kv，可调而不改代码——故必须与代码一致。"""
+def test_archetype_role_map_names_agree_with_the_rules(db):
+    """值只是**代码出处指针**：这里能断言的只有"六个原型名与 RULES 一致"。
+
+    规格 §7:1053 说该映射「存于 `app_config_kv`，可调而不改代码」——**这一点没有实现**：
+    RULES 的规则带取反（`"Pusher" not in r`）与嵌套 OR，扁平 KV 表表达不了。库里存的是
+    `{原型名: "python:constants.archetypes.RULES"}`，记录"§7 维度 6 由哪段代码算"。
+    规则本身的一致性由 `tests/constants/test_archetypes.py` 的完备性/分布测试守护。
+    """
     import json
     from constants.load import load_constants
     from constants.archetypes import RULES
@@ -4277,12 +4347,16 @@ def test_load_is_idempotent(db):
     `patches` 单独断言：它的 `ON CONFLICT` 必须覆盖 `base_version` / `opendota_patch`
     （只更新 `released_at` 时，第一版写进去的 NULL 永远回填不了，见 R8），
     故这里比对整行而不是只比行数。
+
+    `app_config_kv` 的 `note` 也必须参与 upsert：只写 `value = EXCLUDED.value` 时，
+    修正后的说明永远传播不出去。故先把 note 改脏、再加载一次，断言复原 —— 这是
+    `note = EXCLUDED.note` 的直接守护。
     """
     from constants.load import load_constants
     load_constants(db, commit=False)
     patches_before = db.execute("""SELECT version_name, base_version, released_at, opendota_patch
                                    FROM patches ORDER BY version_name""").fetchall()
-    kv_before = db.execute("SELECT key, value FROM app_config_kv ORDER BY key").fetchall()
+    kv_before = db.execute("SELECT key, value, note FROM app_config_kv ORDER BY key").fetchall()
 
     load_constants(db, commit=False)
 
@@ -4295,7 +4369,11 @@ def test_load_is_idempotent(db):
                                   FROM patches ORDER BY version_name""").fetchall()
     assert len(patches_after) == 118
     assert patches_after == patches_before
-    assert db.execute("SELECT key, value FROM app_config_kv ORDER BY key").fetchall() == kv_before
+    assert db.execute("SELECT key, value, note FROM app_config_kv ORDER BY key").fetchall() == kv_before
+
+    db.execute("UPDATE app_config_kv SET note = 'stale'")
+    load_constants(db, commit=False)
+    assert db.execute("SELECT key, value, note FROM app_config_kv ORDER BY key").fetchall() == kv_before
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -4323,7 +4401,7 @@ import json
 import psycopg
 from .dotaconstants import fetch_heroes, fetch_items, derive_token_index
 from .archetypes import RULES
-from .patches import fetch_valve_patches, declare_lettered_versions
+from .patches import declare_lettered_versions
 
 SNAPSHOT_VERSION = 1
 
@@ -4339,11 +4417,31 @@ def load_constants(conn: psycopg.Connection, *, commit: bool = True) -> None:
     pytest 默认顺序（`tests/constants/` 先于 `tests/db/`）下 `seeded` fixture 在
     `constants_snapshot(snapshot_version=1)` 与 `heroes(80)` 上主键冲突、
     `tests/db/test_constraints.py::test_hero_token_index_rejects_duplicate_dense_index`
-    插 hero 81 时冲突，16+ 个失败全部是跨套件污染而非约束本身有问题。
+    插 hero 81 时冲突，18 个 error 全部是跨套件污染而非约束本身有问题。
     传 `commit=False` 时加载落在这个事务里，随 fixture 的 `rollback()` 一起消失。
     """
     heroes, items = fetch_heroes(), fetch_items()
     token_index = derive_token_index(heroes)
+
+    # 「冻结快照守护」必须在**任何 INSERT 之前**（规格 §5.1:214–220）。hero_token_index 是
+    # 写死在 SNAPSHOT_VERSION 上的映射，下面那条 INSERT 是 `ON CONFLICT DO NOTHING`：
+    # 上游一旦增删英雄（尤其是用 1..155 里的空位补人），其后所有 hero_id 的 dense_index 会
+    # 整体位移，`heroes` 与 `constants_snapshot.n_heroes` 跟着变，而 hero_token_index 仍是
+    # 旧映射 —— 本函数却返回成功，这正是规格禁止的「静默重映射」（模型 token 与英雄的对应
+    # 关系悄悄错了，且没有任何报错）。§5.1 要求 3 的「快照 N vs N+1 逐 hero_id 比对」由
+    # Plan 2 拥有，且只覆盖**快照 N 里已存在的 hero_id**：快照 N 里本来没有的新英雄在它面前
+    # 是空集，检查空过。故真正的哨兵只能放在这里：读一次现有行，与本次派生结果逐 hero_id
+    # 比对，不一致就停下，要求**显式提升 SNAPSHOT_VERSION**（重派生 dense_index = 重训模型）。
+    # `existing` 为空 = 首次加载，放行。（SNAPSHOT_VERSION 是模块常量，不得从库里反推。）
+    existing = dict(conn.execute(
+        "SELECT hero_id, dense_index FROM hero_token_index WHERE snapshot_version = %s",
+        (SNAPSHOT_VERSION,)).fetchall())
+    if existing and existing != token_index:
+        raise RuntimeError(
+            f"快照 {SNAPSHOT_VERSION} 的 hero_token_index 与本次派生不一致"
+            f"（库中 {len(existing)} 行 / 派生 {len(token_index)} 行）：上游英雄集合变了。"
+            f"按规格 §5.1：必须显式提升 SNAPSHOT_VERSION 并重派生 dense_index（重训模型），"
+            f"禁止静默重映射。")
 
     conn.execute("""INSERT INTO constants_snapshot
                     (snapshot_version, n_heroes, n_items) VALUES (%s, %s, %s)
@@ -4363,7 +4461,7 @@ def load_constants(conn: psycopg.Connection, *, commit: bool = True) -> None:
         cur.executemany("""INSERT INTO items(item_id, name, dname, cost) VALUES (%s,%s,%s,%s)
                            ON CONFLICT (item_id) DO UPDATE
                            SET name = EXCLUDED.name, dname = EXCLUDED.dname, cost = EXCLUDED.cost""",
-                        [(i["id"], i["key"] if "key" in i else i["name"],
+                        [(i["id"], i["key"],
                           i.get("dname"), i.get("cost")) for i in items])
         cur.executemany("""INSERT INTO hero_token_index(snapshot_version, hero_id, dense_index)
                            VALUES (%s,%s,%s) ON CONFLICT DO NOTHING""",
@@ -4380,11 +4478,12 @@ def load_constants(conn: psycopg.Connection, *, commit: bool = True) -> None:
                      (p["version_name"], p["base_version"], p["released_at"], p["opendota_patch"]))
 
     conn.execute("""INSERT INTO app_config_kv(key, value, note) VALUES
-        ('archetype_role_map',    %s, '规格 §7 维度 6 的 roles→原型 映射'),
+        ('archetype_role_map',    %s, '规格 §7 维度 6 的**代码出处**（不是可执行的映射表）：值指向 python:constants.archetypes.RULES；§7 的「可调而不改代码」未实现 —— 规则带取反与嵌套 OR，扁平 KV 表表达不了，见计划「显式延迟」第 5 项'),
         ('robustness_lambda',     '1.0'::jsonb, '规格 §6.6 penalized_score 的 λ'),
         ('op_decision_min_delta', '0.02'::jsonb, '规格 §9.1 三选一判定的最小差异阈值'),
         ('min_sample_n',          '30'::jsonb, '规格 §7.3/§9.1 的样本量门槛')
-        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()""",
+        ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value, note = EXCLUDED.note, updated_at = now()""",
         (json.dumps({name: "python:constants.archetypes.RULES" for name, _ in RULES}),))
     if commit:
         conn.commit()
@@ -4404,8 +4503,9 @@ def load_constants(conn: psycopg.Connection, *, commit: bool = True) -> None:
 - [ ] **Step 4: 运行确认通过**
 
 Run: `make db-reset && pytest tests/constants -q`
-Expected: **43 passed**（实测口径：Task 9 = 16（`test_archetypes.py` 5 + `test_dotaconstants.py` 8 + `test_http.py` 3）、
-Task 10 = 21、Task 11 = 6；原文写的 24（Task 9 = 10、Task 10 = 8）是计划阶段的估计，已按实测校准）
+Expected: **45 passed**（实测口径：Task 9 = 16（`test_archetypes.py` 5 + `test_dotaconstants.py` 8 + `test_http.py` 3）、
+Task 10 = 21、Task 11 = 8（首轮 6 + 第二轮新增「拒绝静默重映射」「归属闭合」2 条，见实测记录 (c)(e)）；
+原文写的 24（Task 9 = 10、Task 10 = 8）是计划阶段的估计，已按实测校准）
 注：本机无 Docker，`make db-reset` 跑不了；session 级 `dsn` fixture 每次会话都 DROP + CREATE `dota_test`
 并重放迁移，等价于"从零建库"，故直接跑 pytest 即可（2026-09-17 实测口径见下）。
 
@@ -4420,9 +4520,10 @@ git commit -m "feat(constants): 常量入库（127 英雄/501 道具/118 版本/
 
 - **Step 2 红**：`pytest tests/constants/test_load.py -q` → `6 failed`，六条全部是
   `ModuleNotFoundError: No module named 'constants.load'`（与 Step 2 预期逐字一致）。
-- **计数**：`tests/constants/test_load.py` **6 passed**；`tests/constants` **43 passed**；全量 `tests` **163 passed**
-  （157 + 6）。**顺序无关性**：把 `tests/db` 强制放到最前（`pytest tests/db tests/constants tests/contracts
-  tests/shared -q`）同样 **163 passed** —— 两种收集顺序都绿，跨套件污染已消除。
+- **计数（第二轮修复后的最终口径）**：`tests/constants/test_load.py` **8 passed**；`tests/constants` **45 passed**；
+  全量 `tests` **165 passed**（163 + 2）。**顺序无关性**：把 `tests/db` 强制放到最前
+  （`pytest tests/db tests/constants tests/contracts tests/shared -q`）同样 **165 passed** ——
+  两种收集顺序都绿，跨套件污染已消除。（首轮口径为 6 / 43 / 163；第二轮新增的两条测试见 (c)(e)。）
 - **入库实测（直接查库，不是 Python 层推断）**：`constants_snapshot = (1, 127, 501, 'dotaconstants')`；
   `heroes` 127；`items` 501；`hero_token_index` 快照 1 共 127 行、hero 135 → dense_index **121**；
   `patches` **118 行 / 84 个字母版本 / `opendota_patch` NULL 0 行**，抽查 `7.41f → 60`、`7.22 → 41`、
@@ -4452,16 +4553,72 @@ git commit -m "feat(constants): 常量入库（127 英雄/501 道具/118 版本/
   `7.08 → 27` 三处抽查；`test_load_is_idempotent` 增加 `patches` **整行**比对（二次加载后仍 118 行，
   且 `version_name/base_version/released_at/opendota_patch` 逐行不变）。**实测反证**：把入库参数改成
   `None` 后，原有的 118 行 / 84 字母两条断言**照样通过**，新增的 NULL 断言失败 —— 正是计划缺的那道守护。
-  （两条新增断言写进计划原有的两个测试里，不新增测试函数，故计数仍是 6 / 43 / 163。）
+  （两条新增断言写进计划原有的两个测试里，不新增测试函数，故**首轮**计数仍是 6 / 43 / 163。）
 - **变异守护（4 条，全部 apply → run → restore → sha256 复原 `58df5525e1ee…` → 复跑 6 passed）**：
   (a) 去掉 `heroes` 的 `ON CONFLICT` → `test_load_is_idempotent` 以 `UniqueViolation hero_id=(1)` 失败；
   (b) 写 NULL 进 `opendota_patch` → `test_load_constants_populates_all_tables` 在新增的 NULL 断言上失败；
   (c) 只加载 126 个英雄 → 同一测试（`126 == 127`）与 `test_load_is_idempotent` 失败；
   (d) 跳过 `hero_token_index` 插入 → `test_hero_135_dense_index_is_121` 失败。
-- **计划原文的一处驱动器口径修正**：`test_archetype_role_map_matches_the_python_rules` 原文写
+- **计划原文的一处驱动器口径修正**：`test_archetype_role_map_names_agree_with_the_rules`（第二轮改名；原名 `..._matches_the_python_rules` 名不副实，它只比对六个原型名）原文写
   `stored = json.loads(raw)`，但 `app_config_kv.value` 是 **JSONB**，psycopg 3 默认已把它解码成 Python
   对象，再 `loads` 会抛 `TypeError: the JSON object must be str, bytes or bytearray, not dict`。
   改为 `json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else raw`，断言不变。
+
+#### Task 11 第二轮评审修复（2026-09-17；承接上面的 (a)(b) 顺延编号；计数 8 / 45 / 165）
+
+- **(c) 冻结快照守护：拒绝静默重映射（本轮唯一的实质性缺陷，计划原文缺）**。`hero_token_index`
+  的写入是 `ON CONFLICT DO NOTHING` + 写死的 `SNAPSHOT_VERSION = 1`：上游一旦增删英雄
+  （尤其是用 hero_id 1..155 里的空位补人 —— 实测空位 = 24 / 115–118 / 122 / 124 / 125），
+  其后所有英雄的 `dense_index` 会**整体位移**，`heroes` 与 `constants_snapshot.n_heroes` 跟着变，
+  而 token 映射仍是旧的 —— `load_constants` 却返回成功。这正是规格 §5.1:214–220 明令禁止的
+  「静默重映射」：模型 token 与英雄的对应关系悄悄错了，没有任何报错。
+  **为什么 §5.1 要求 3 的 N vs N+1 跨快照检查替代不了它**（故此事不能推给 Plan 2）：那条检查
+  只在**快照 2 被创建时**才有机会运行，口径是「对快照 N 与 N+1 断言所有**已存在**的 hero_id
+  其 dense_index 不变」——快照 N 里本来不存在的新英雄在它面前是**空集，检查空过**；而本轮要拦的
+  恰恰是"新英雄插进空位"这一刻。
+  实现：`derive_token_index(heroes)` 之后、**任何 INSERT 之前**读一次
+  `SELECT hero_id, dense_index FROM hero_token_index WHERE snapshot_version = %s`，非空且与
+  本次派生结果不相等即 `RuntimeError`，要求显式提升 `SNAPSHOT_VERSION`（重派生 dense_index =
+  重训模型）。`SNAPSHOT_VERSION` 仍是模块常量，不从库里反推。
+  **变异反证**：把守卫条件改成 `if False:` → `test_load_refuses_to_silently_remap_tokens` 以
+  `Failed: DID NOT RAISE RuntimeError` 失败（`1 failed, 7 passed`）；还原后（sha256 复原
+  `961b5590…`）→ 8 passed。测试里合成的英雄 id 用 **24**：评审原文写的是 id 9，但 9 在实测快照里
+  **存在**（不是空位），用它就退化成"重复 id"而非"插入空位"，`heroes` 行数不变，
+  `SELECT count(*) FROM heroes == 127` 这条断言反而抓不到守卫被摘掉（实测确认）。
+- **(d) 三个数值调参改为按值断言（计划原文只查键存在）**。`'0.02'::jsonb` → `'0.2'::jsonb`
+  这类改动能让键集断言全绿，而 §9.1 的最小差异阈值悄悄变成 10 倍。现断言
+  `robustness_lambda == 1.0`、`op_decision_min_delta == 0.02`（键名是 `..._delta`）、
+  `min_sample_n == 30` —— JSONB 经 psycopg 3 解码后已是 Python 数字，直接比较；键集断言保留。
+- **(e) 归属闭合测试（Task 12 的隐含契约）**。新增
+  `test_timeline_after_the_first_loaded_patch_resolves_to_loaded_versions`：
+  `{n for ts, n in _version_timeline() if ts >= min(patches.released_at)} - {patches.version_name}`
+  必须为空，并钉死分界 = 1517472000（7.08 = 2018-02-01）与可达名字数 = 118（防空集空过）。
+  这就是 Task 12「2018 分界之后 `patch_id` 0 个 NULL」所依赖的闭合性：归属函数只保证返回名字，
+  名字能否对上 `patches` 行必须另外断言（loader 少写一行、或时间线多出一个 patchdates 独有的槽位，
+  都会在这里炸）。
+- **(f) `archetype_role_map` 是「代码出处指针」，不是映射表（口径修正）**。值一直是
+  `{六个原型名: "python:constants.archetypes.RULES"}`，而 `note` 原文写「规格 §7 维度 6 的
+  roles→原型 映射」，读起来像一张**可执行的** roles→原型 表。规格 §7:1053 的「该映射存于
+  `app_config_kv`，可调而不改代码」**没有实现**：`RULES` 的规则带**取反**（`"Pusher" not in r`）
+  与**嵌套 OR**（`teamfight`），扁平 KV 表表达不了。故 note 改为如实说明"这里记录的是算 §7 维度 6
+  的代码位置"，并把 §7 的"可调而不改代码"记入**显式延迟清单第 5 项**（见文末）。
+  测试 `test_archetype_role_map_matches_the_python_rules` 更名为它真正检查的东西：
+  `test_archetype_role_map_names_agree_with_the_rules`（只断言六个原型名 DB 与 `RULES` 一致）。
+- **变异守护（第二轮 2 条，apply → run → restore → sha256 复原 `961b5590…` → 复跑 8 passed）**：
+  (i) 摘掉冻结快照守卫（`if False:`）→ `test_load_refuses_to_silently_remap_tokens` 失败（见 (c)）；
+  (ii) upsert 去掉 `note = EXCLUDED.note` → `test_load_is_idempotent` 新增的"先把 note 改脏再加载"
+  断言失败（`'stale' != '规格 §7 …'`）。**同一轮还有一条"没人抓"的变异**：把 items 的 `i["key"]`
+  改回 `i["key"] if "key" in i else i["name"]` → `pytest tests/constants tests/db -q` **67 passed，
+  全绿**：`dotaconstants.fetch_items()` 已经给每条 payload 注入 `"key"`，那个 fallback
+  **永远不会执行**。故这条只能靠删死分支收口 —— 若将来 `fetch_items` 不再注入 `key`，正确行为是
+  `KeyError` 炸掉，而不是把 `item_blink` 这类内部名写进 `items.name`（TEXT NOT NULL UNIQUE，
+  写错了没有任何约束会报错）。
+- **三处小缺陷（第二轮）**：(1) items 的死 fallback 删除（见上）；(2) 删掉 `constants/load.py` 里
+  从未被使用的 `from .patches import fetch_valve_patches`（只留 `declare_lettered_versions`），
+  计划 Task 10 接口表里「Task 11 逐字 import `fetch_valve_patches`」的说法随之改为现实；
+  (3) `app_config_kv` 的 upsert 补上 `note = EXCLUDED.note`（否则修正过的 note 永远传播不出去）。
+- **自包含性（第二轮）**：`test_token_index_satisfies_the_derivation_rule` 增加
+  `SELECT count(*) FROM hero_token_index == 127` —— 原文空表时 `bad == 0` 会**空过**。
 
 ---
 
@@ -4703,7 +4860,7 @@ git commit -m "test: M1 验收（127/501/84/异常率/三表可查/token 索引/
 
 **未做**（属后续计划）：常驻采集器（M2）、回放导入（M2b）、画像引擎（M3–M5）、可视化（M6）、序列模型（M7–M9）、部署（M10）。
 
-**本计划显式延迟的四项**（不是遗漏）：
+**本计划显式延迟的五项**（不是遗漏）：
 1. `contracts/openapi.yaml` 的 `paths` 与请求体 schema —— 归 Plan 2+，需先定服务端框架
 2. 规格 §6.5「Phase A 必须不存在」清单的机器校验 —— 归 Plan 3，需对真实响应做全字段扫描
 3. `check_resolve` 的接口级调用 —— 归 Plan 2+，fixtures 是纯响应体、不含请求上下文
@@ -4713,5 +4870,17 @@ git commit -m "test: M1 验收（127/501/84/异常率/三表可查/token 索引/
    `snapshot_version = 1`）。Task 11 的 `test_token_index_satisfies_the_derivation_rule` 只校验
    快照**内部**一致性（`dense_index == row_number() OVER (ORDER BY hero_id) - 1`），
    按 §5.1:214–216 的论证，这一条**抓不到**"新英雄插进空位导致其后整体位移"。
+   （第二轮已在 Task 11 补上**同一快照内**的 pre-write 守护：加载前把库中现有映射与本次派生结果
+   逐 hero_id 比对，不一致即报错并要求显式提升 `SNAPSHOT_VERSION` —— 见 Task 11 实测记录 (c)。
+   跨快照的那条仍需两个快照并存，故依然延迟。）
+
+5. 规格 §7:1053 的「`archetype_role_map` 存于 `app_config_kv`，**可调而不改代码**」——归
+   **Plan 3（画像引擎，`analysis/`）里计算 §7 维度 6 的那个任务**。当前 `app_config_kv` 里存的
+   **不是映射表**，而是一个**指针**：`{六个原型名: "python:constants.archetypes.RULES"}`
+   （"算 §7 维度 6 的代码在这里"，见 Task 11 实测记录 (f)）。规则本身带**取反**
+   （`"Pusher" not in r`）与**嵌套 OR**（`teamfight`），扁平 KV 表表达不了；要真正做到
+   "可调而不改代码"，需要一套**规则 DSL + 求值器** —— 例如把每条规则写成可 JSON 化的谓词树
+   （关键字 `all` / `any` / `none`，如 `splitpush = {"all": ["Carry", "Escape"], "none": ["Pusher"]}`），
+   由求值器解释，`RULES` 退化成它的默认值与测试基准。
 
 **仍未验证、但已设测试保护的一项**：Kaggle CSV 的列名与 `order` 起始值（Task 12 Step 2 会直接失败并给出处置说明）。Kaggle 凭证缺失时相关测试会 `skip` 而非变红。
