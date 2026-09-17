@@ -203,6 +203,16 @@ def _dropped_backdated_slots() -> list[dict]:
     return _kept_and_dropped_slots()[1]
 
 
+def _opendota_patch_by_base() -> dict[str, int]:
+    """`{基础版本名: OpenDota 粗粒度 patch id}` —— **patchdates 的键就是这个 id**（字符串）。
+
+    实测（2026-09-17 快照）：patchdates 有 61 个键 = 34 个 Valve 覆盖的序列 + 27 个 patchdates
+    独有的序列；Valve 的 34 个基础版本**全部**在这里有对应条目（缺失 0），故 `declare_lettered_versions()`
+    的每一行都能导出 `opendota_patch`，不是 NULL。
+    """
+    return {entry["code"]: int(key) for key, entry in fetch_patchdates().items()}
+
+
 def patchdates_only_versions() -> list[dict]:
     """Valve 未覆盖的序列（6.70–7.07 段）：patchdates 独有的基础版本 + 字母槽（27 + 56 = 83 行）。
 
@@ -212,6 +222,7 @@ def patchdates_only_versions() -> list[dict]:
 
     相对上游的原始映射有**两处收缩**，都在这里体现：字母槽只算 Valve 未覆盖的序列（141 → 57），
     再被时间线不倒挂不变式丢掉 7.06 的错档槽位 7.06f（57 → 56），行数 84 → 83。
+    每行四个键（含 `opendota_patch`，与 `declare_lettered_versions()` 的行形状一致）；
     上游 `patchdates.json` 的 141 槽属性本身不变（规格 §3.2 / README 记的是上游）。
 
     **归属边界**：这些行**全部**早于 Valve 清单起点（7.08 = 1517472000，2018-02-01），
@@ -220,12 +231,14 @@ def patchdates_only_versions() -> list[dict]:
     """
     valve_bases = {_base_version(name) for name in _valve_versions()}
     kept_by_code, _ = _kept_and_dropped_slots()
+    opendota = _opendota_patch_by_base()
     rows = []
     for code, slots in kept_by_code.items():
         if code in valve_bases:
             continue
         for name, ts in slots.items():
-            rows.append({"version_name": name, "base_version": code, "released_at": ts})
+            rows.append({"version_name": name, "base_version": code,
+                         "released_at": ts, "opendota_patch": opendota[code]})
     rows.sort(key=lambda r: (r["released_at"], r["version_name"]))
     return rows
 
@@ -233,13 +246,17 @@ def patchdates_only_versions() -> list[dict]:
 def declare_lettered_versions(*, include_patchdates_only: bool = False) -> list[dict]:
     """`patches` 表的行集：Valve 的 118 个版本（含 84 个字母子版本），按时间戳升序。
 
-    每行**恰好**三个键，对应 Task 11（`constants/load.py`）迭代的字段：
-    `version_name` / `base_version` / `released_at`（int，Unix 秒，来自 Valve）。
+    每行**恰好**四个键，对应 Task 11（`constants/load.py`）迭代的字段：
+    `version_name` / `base_version` / `released_at`（int，Unix 秒，来自 Valve）/
+    `opendota_patch`（int，OpenDota 粗粒度 patch id —— **patchdates 的键就是它**；字母行继承其
+    基础版本的 id，实测 34 个 Valve 基础版本在 patchdates 里全有对应条目，故没有一行是 None）。
 
     `include_patchdates_only=True` 时并上 `patchdates_only_versions()`（6.70–7.07 段，83 行）——
     那是**归属用**的并集（201 行 / 140 个字母槽），**不要**写进 `patches` 表（见该函数说明）。
     """
-    rows = [{"version_name": name, "base_version": _base_version(name), "released_at": ts}
+    opendota = _opendota_patch_by_base()
+    rows = [{"version_name": name, "base_version": _base_version(name), "released_at": ts,
+             "opendota_patch": opendota.get(_base_version(name))}
             for name, ts in _valve_versions().items()]
     if include_patchdates_only:
         rows += patchdates_only_versions()
