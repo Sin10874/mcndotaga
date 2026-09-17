@@ -1420,7 +1420,7 @@ git commit -m "feat(contracts): 五资源 schema + 可执行不变式（降级�
 ### Task 7: 17 个边界 fixtures 与校验工具
 
 **Files:**
-- Create: `contracts/fixtures/*.json`（16 个）、`contracts/fixtures/README.md`
+- Create: `contracts/fixtures/*.json`（17 个）、`contracts/fixtures/README.md`
 - Create: `contracts/tools/validate_fixtures.py`
 - Test: `tests/contracts/test_fixtures.py`
 
@@ -1493,7 +1493,7 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: 写 16 个 fixture 与 `README.md`**
+- [ ] **Step 4: 写 17 个 fixture 与 `README.md`**
 
 | 文件 | 必须覆盖 |
 |---|---|
@@ -1507,7 +1507,7 @@ if __name__ == "__main__":
 | `playbook__positions_phase_b.json` | `notes[].value=null` + `reason="needs_replay"` + **有** `needs` |
 | `playbook__op_insufficient.json` | `recommendation="insufficient_data"`、`if_we_ban` 降级且**无** `needs` |
 | `profile__spec_example.json` | 规格 §6.4 示例（`window_games=48`） |
-| `profile__map_vision_counts_only.json` | `map_vision` 返回真实 `percentile`（非降级），同时 ward 坐标条目降级 |
+| `profile__map_vision_counts_only.json` | `map_vision` 返回真实 `percentile`（非降级）且与 `coverage.n_position_unknown > 0` 并存（ward 坐标降级归 `playbook__positions_phase_b.json`；Profile 无 `notes[]`，见 §6.4/§6.5） |
 | `profile__position_unknown.json` | `coverage.pro_match.n_position_unknown > 0`（§7.3 要求返回该计数）；五个位置维度降级，**`hero_archetype` 仍返回六项且和为 1.0** |
 | `advise__realtime.json` | `options[]` 形状 |
 | `advise__offline.json` | `mode:"offline"` → `branches[].plans[]`（非 `options[]`） |
