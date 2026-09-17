@@ -787,7 +787,7 @@ git commit -m "feat(db): 对手侧隔离视图 + resolve_sources 白名单 + 负
 
 ```python
 import pytest
-from shared.draft_template import TEMPLATE, resolve, resolve, first_pick_team_from_actions
+from shared.draft_template import TEMPLATE, resolve, first_pick_team_from_actions
 
 def test_template_shape_matches_spec():
     assert len(TEMPLATE) == 24
