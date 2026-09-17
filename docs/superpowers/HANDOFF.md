@@ -16,7 +16,7 @@
 
 开三条并行 worktree（线 A / 线 C / 前端）：
 
-> 从 M0 冻结提交开分支，**不要从 `main` 开**——`main` 停在 `c486c0d`，距离 M0 冻结提交 `64c89a9` 有 **24 个提交**（`git rev-list --count main..64c89a9`），**不含任何 M0 产出**：`contracts/openapi.yaml`、`contracts/fixtures/`、`contracts/tools/gen_ts_types.py`、`web/src/types/contract.ts`、`shared/` 全都不在 `main` 上。默认方式（从 `main`）建的 worktree 拿到的是一个空壳：目录在、文件不在，而且**不会报错**。
+> 从 M0 冻结提交开分支，**不要从 `main` 开**——`main` 停在 `c486c0d`，距离 M0 冻结提交 `64c89a9` 有 **25 个提交**（`git rev-list --count main..64c89a9`），**不含任何 M0 产出**：`contracts/openapi.yaml`、`contracts/fixtures/`、`contracts/tools/gen_ts_types.py`、`web/src/types/contract.ts`、`shared/` 全都不在 `main` 上。默认方式（从 `main`）建的 worktree 拿到的是一个空壳：目录在、文件不在，而且**不会报错**。
 
 ## 目录情况
 
@@ -70,7 +70,7 @@ print(f'Task 9 = {len(s[a:b].splitlines())} 行')
 | OpenAPI 文档 | `contracts/openapi.yaml: OK`（exit 0） | `.venv/bin/python -m openapi_spec_validator contracts/openapi.yaml` |
 | TS 严格编译 | exit 0（无输出） | `/Users/xinzechao/node_modules/.bin/tsc --noEmit --strict --target es2020 --typeRoots /tmp/ts-empty-types web/src/types/contract.ts` |
 | 生成物新鲜度 | `--check` exit 0（**只读**，不写盘） | `.venv/bin/python -m contracts.tools.gen_ts_types --check` |
-| 生成物 sha256 | `56e840e7f0d15369b3b1166fcc9b3556edcebc666988e2445b82dc1b41d01fca`（18 行） | `shasum -a 256 web/src/types/contract.ts` |
+| 生成物 sha256 | `56e840e7f0d15369b3b1166fcc9b3556edcebc666988e2445b82dc1b41d01fca`（17 行，`wc -l`） | `shasum -a 256 web/src/types/contract.ts` |
 
 契约测试 87 的分解：common_schema 5 + openapi_fresh 1 + invariants 45 + schema_shape 31
 + fixtures 2 + ts_types 3。全量 120 = 契约 87 + db 22（16 约束 + 6 隔离）+ shared 11。
@@ -139,7 +139,7 @@ export DATABASE_URL="postgresql://dota@localhost:55432/dota"
 
 ### Task 2 · DDL 迁移 + 约束测试（commit `39d65b3` → `7dd703c` → `14cd7d5` → `4da16fb`）
 
-产出：`db/migrations/001_schema.sql`（22 表 + 5 索引，与规格 §5.1 逐字节一致）、`db/migrate.py`、`tests/conftest.py`、`tests/db/test_constraints.py`（**16 passed**）。
+产出：`db/migrations/001_schema.sql`（22 表 + 6 索引，与规格 §5.1 逐字节一致）、`db/migrate.py`、`tests/conftest.py`、`tests/db/test_constraints.py`（**16 passed**）。
 
 **这个任务跑了四轮，每轮挖得更深**——值得记住，因为它说明了评审密度的价值：
 
@@ -174,10 +174,10 @@ export DATABASE_URL="postgresql://dota@localhost:55432/dota"
 
 ### Task 8 · TS 类型生成 + OpenAPI 校验（M0 收尾）
 
-产出：`contracts/tools/gen_ts_types.py`、`web/src/types/contract.ts`（生成物，18 行）、
+产出：`contracts/tools/gen_ts_types.py`、`web/src/types/contract.ts`（生成物，17 行，`wc -l`）、
 `tests/contracts/test_ts_types_fresh.py`（3 条）。
 
-复核修复（生成器硬化在 `371fa1a`，计划/HANDOFF 的更正随之；本文件上一版交接时还没有）：
+复核修复（生成器硬化在 `64c89a9`，计划/HANDOFF 的更正随之；本文件上一版交接时还没有）：
 
 - 枚举值走 `json.dumps`——含 `"` / 反斜杠 / 换行的值此前产出非法 TS（`TS1002`），
   或**静默变形**（`back\slash` 编译成 `backslash`）
