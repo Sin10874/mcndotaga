@@ -6,14 +6,17 @@
   `python -m ingest.kaggle_subset` 的机器）它们 `pytest.skip` 并给出补齐方式与下载命令 ——
   **绝不失败，也绝不静默通过**。
 - **合成侧**：`tests/ingest/conftest.py` 自己构造迷你数据集（**照抄真实 CSV 的形状**：
-  `start_date_time`、浮点字符串、没有 `league_name`、BOM、两种表头），配**真实常量层**
+  `start_date_time`、浮点字符串、没有 `league_name`、**首列空列名**、`ord` 空/有值/不存在
+  三种形态、两种表头；BOM 只在 2016 那份里，且**是合成专有的健壮性用例**），配**真实常量层**
   （`load_constants(commit=False)`，走仓库里的网络缓存）。CSV 列名与 order 起点归一化、
   顺序族判定、异常判定、版本归属（含反钳位）、先查后插的幂等性、会话 fixture 的数据库隔离
   —— 全部是**实际执行过**的。
+- **族判定另有专文件**：`tests/ingest/test_order_families.py`（全量 202,957 场零未分类、
+  实测支持度表、重跑稳定性）。
 
 数据到位后要跑的两条命令（skip 消息里也会给出）：
 ```
-python -m ingest.kaggle_subset          # 下载 506.7 MB 子集到 tests/fixtures/kaggle/
+python -m ingest.kaggle_subset          # 该数据集是 CC0 公共数据集，无需 Kaggle 凭证
 pytest tests/ingest -q -rP              # 数据侧 + 合成侧
 ```
 """
@@ -27,11 +30,11 @@ import sys
 import psycopg
 import pytest
 
-from tests.ingest.conftest import (CACHE, MATCH_WITHOUT_ACTIONS, POST_2018_MATCHES,
-                                   PRE_2018_MATCHES, bootstrap_dsn, canonical_actions,
-                                   canonical_metadata, draft_actions_for, drop_database,
-                                   missing_dataset_message, open_bootstrap_connection,
-                                   write_dataset)
+from tests.ingest.conftest import (CACHE, ISOLATION_SUFFIX, MATCH_WITHOUT_ACTIONS,
+                                   POST_2018_MATCHES, PRE_2018_MATCHES, bootstrap_dsn,
+                                   canonical_actions, canonical_metadata, draft_actions_for,
+                                   drop_database, missing_dataset_message,
+                                   open_bootstrap_connection, write_dataset)
 
 
 def _nolog(*_args, **_kwargs) -> None:
@@ -39,11 +42,9 @@ def _nolog(*_args, **_kwargs) -> None:
 
 
 def _load(db, cache_dir, log=_nolog) -> dict:
-    """常量（同一事务，不提交）+ 引导入库，返回 loader 的统计。"""
-    from constants.load import load_constants
-    from ingest.load_bootstrap import load_bootstrap
-    load_constants(db, commit=False)
-    return load_bootstrap(db, cache_dir=cache_dir, commit=False, log=log)
+    """常量（同一事务，不提交）+ 引导入库，返回 loader 的统计（见 conftest.load_all）。"""
+    from tests.ingest.conftest import load_all
+    return load_all(db, cache_dir, log=log)
 
 
 # ===========================================================================
@@ -55,19 +56,95 @@ def test_picks_bans_columns_and_order_origin(sample_csv):
 
     **实测口径（2026-09-18）**：`order` 在 2016/2018 是**浮点字符串**（`'0.0'`）——
     计划原文的 `int(r["order"])` 会直接 `ValueError`，那不是"1-based"的信号，而是类型信号。
-    故这里先 `float()` 再 `int()`；起点判定的结论仍是 **0 起**（2016/2017/2018/2025 四个年度
-    抽样全部 min=0）。1-based 的处置说明保留在 `_cell_origin` 的注释里，因为它是**约定**：
-    真遇到 1-based，必须在入库边界统一减 1，并把本测试的断言改成 `min(orders) == 1`。
+    故这里先 `float()` 再 `int()`；起点判定的结论是 **0 起**（全部 19 个目录，见下一条）。
+    1-based 的处置是**约定**（真遇到时在入库边界统一减 1），不是实测到的形态。
 
-    用 utf-8-sig 读：Kaggle 的 CSV 带 BOM（2016/2018 实测如此），否则首列名会变成 '\\ufeff'。
+    **列形状（实测改正）**：真实 CSV **没有 BOM**（49 个文件逐字节核对）；真正的坑是
+    **首列的空列名** —— pandas 导出的 index 列，2016–2023 的 16 个
+    `picks_bans.csv`/`main_metadata.csv` 都是这个形状。故本测试显式断言它，防止有人
+    "按位置取列"（会整体错位一格）。`utf-8-sig` 仍用于读取，但它只是廉价保险。
     """
     with open(sample_csv, newline="", encoding="utf-8-sig") as f:
+        header = next(csv.reader(f))
+        f.seek(0)
         rows = list(csv.DictReader(f))
     assert rows, "样本为空"
     assert {"match_id", "order", "is_pick", "team", "hero_id"} <= set(rows[0]), \
         f"列名不符，实际为 {sorted(rows[0])}"
+    assert header[0] == "", \
+        f"{sample_csv.parent.name} 的首列不是空列名：{header[:3]}（真实 2016–2023 都是空列名）"
     orders = [int(float(r["order"])) for r in rows]
     assert min(orders) == 0, f"order 从 {min(orders)} 起，模板映射会整体错位一位"
+
+
+def test_real_csvs_have_no_bom_and_old_ones_start_with_an_empty_column_name():
+    """**实测事实**（2026-09-18，49 个文件逐字节核对）：真实 CSV **没有 BOM**；2016–2023 的
+    **24 个** CSV（8 个目录 × `main_metadata`/`picks_bans`/`draft_timings`）首列是**空列名**
+    （pandas 导出的 index 列）。2024 起换成了 `version` 打头的新 schema，没有空列。
+
+    这条测试同时纠正一条**编造的实测**：上一版（计划、conftest 与 test 的 docstring）写着
+    "Kaggle 的 CSV 带 BOM（2016/2018 实测如此）"，但没有任何一个文件有 BOM，也没有任何断言
+    检查过它 —— 那是把猜测写成了实测。真正的坑是空列名：按位置取列会整体错位一格。
+
+    BOM 的健壮性仍由**合成侧**覆盖（`FOLDER_STYLE["2016"]`，显式标注为合成的用例）；
+    这里只钉真实数据的事实。
+    """
+    files = sorted(CACHE.glob("*/*.csv"))
+    if not files:
+        pytest.skip(missing_dataset_message())
+    bom = [p.name for p in files if p.open("rb").read(3) == b"\xef\xbb\xbf"]
+    assert bom == [], f"实测应当没有 BOM，但这些文件带 BOM：{bom}"
+    empty_first: list[str] = []
+    for path in files:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            header = next(csv.reader(f), [])
+        if header and header[0] == "":
+            empty_first.append(f"{path.parent.name}/{path.name}")
+    assert len(empty_first) == 24, \
+        f"空列名的文件应为 24 个（2016–2023 的三个 CSV），实际 {empty_first}"
+    assert all(int(name.split("/")[0]) <= 2023 for name in empty_first), empty_first
+
+
+def test_ord_column_exists_only_in_2016_2023_and_is_partly_empty():
+    """`ord`（OpenDota 自己的序号）**不是** `order` 的同义词 —— 实测（2026-09-18，49 个文件）：
+
+    - `ord` 列只存在于 **2016–2023** 的 8 个 `picks_bans.csv`（2024+ 没有这一列）；
+    - 这 8 个目录共 2,999,255 行里，**26,539 行的 `ord` 为空**，涉及 **1,213 场**
+      （2016 目录 632 场、2023 目录 581 场）；而 `order` 在全部 19 个目录里**行行有值**；
+    - 两列都有值的 2,972,716 行**逐行相同**（0 处不一致）。
+
+    故 loader 的逻辑列 `order` **以 `order` 为主、`ord` 只作别名**（顺序钉在
+    `ACTIONS_COLUMNS` 里，下面一并断言）：反过来会让 1,213 场的序号变成 NULL，
+    21 万场里静默丢一批手。上一版注释写的"实测两列都有且逐行相同"是错的（逐行相同只在
+    两列都有值时成立）。
+    """
+    from ingest.load_bootstrap import ACTIONS_COLUMNS
+
+    assert ACTIONS_COLUMNS["order"][0] == "order", ACTIONS_COLUMNS["order"]
+
+    files = sorted(CACHE.glob("*/picks_bans.csv"))
+    if not files:
+        pytest.skip(missing_dataset_message())
+    folders_with_ord, ord_rows, empty_rows, mismatch = [], 0, 0, 0
+    empty_matches: set[int] = set()
+    for path in files:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+        if rows and "ord" in rows[0]:
+            folders_with_ord.append(path.parent.name)
+        for row in rows:
+            if "ord" not in row:
+                continue
+            ord_rows += 1
+            if row["ord"] in (None, ""):
+                empty_rows += 1
+                empty_matches.add(int(float(row["match_id"])))
+            elif float(row["ord"]) != float(row["order"]):
+                mismatch += 1
+    print(f"有 ord 列的目录：{folders_with_ord}；ord 空行 {empty_rows}/{ord_rows}，"
+          f"涉及 {len(empty_matches)} 场；与 order 不一致的行 {mismatch}")
+    assert folders_with_ord == ["2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023"]
+    assert (empty_rows, len(empty_matches), mismatch) == (26539, 1213, 0)
 
 
 def test_every_cached_picks_bans_file_has_a_known_order_origin():
@@ -111,6 +188,10 @@ def test_anomaly_rate_under_2_percent(db_after_bootstrap):
     2025 年又有 95.4% 用与规格 §6.0 不同的 24 手顺序。把"偏离 §6.0 模板"当异常会让
     九成以上的正常比赛变红。故异常 = **不符合任何一种实测的合法顺序**，并在这里同时报出：
     整体异常率、24 手/22 手各自的口径、以及各族占比（`test_order_families_are_known` 单独断言）。
+
+    **分母必须是全库**（评审 F6）：`WHERE n_draft_actions = 24` 会让这条断言**空过** ——
+    24 手子集里异常实测 **0/149,522**，任何 < 2% 的阈值都恒真。规格 §15 的判据本来就是
+    全库口径（实测 2,048/211,051 = 0.97%）。
     """
     total = db_after_bootstrap.execute("SELECT count(*) FROM matches").fetchone()[0]
     anom = db_after_bootstrap.execute("SELECT count(*) FROM matches WHERE anomaly").fetchone()[0]
@@ -136,9 +217,10 @@ def test_order_families_are_known_and_reported(db_after_bootstrap):
     模型就会拿错模板去对齐 ord。
 
     抽样：最新 300 场 + 最早 300 场 + 中段 300 场（只取 `anomaly=false` 的场次），
-    足以看出时代切换，又不至于让这条测试变成全表扫描。
+    足以看出时代切换。**全量**（202,957 场，零未分类 + 逐族支持度）在
+    `tests/ingest/test_order_families.py`，那里直接用 `ingest.order_families.family_for`。
     """
-    from ingest.load_bootstrap import matching_order
+    from ingest.order_families import family_for
 
     rows = db_after_bootstrap.execute("""
         WITH sample AS (
@@ -158,7 +240,8 @@ def test_order_families_are_known_and_reported(db_after_bootstrap):
     assert len(by_match) > 500, f"抽样只有 {len(by_match)} 场，这条检查等于空过"
     families: dict[str, int] = {}
     for entry in by_match.values():
-        family = matching_order(entry["actions"], entry["first_pick"])
+        actions = entry["actions"]
+        family = family_for(len(actions), entry["first_pick"], actions)
         assert family is not None, "anomaly=false 的场次却不符合任何已登记的合法顺序"
         families[family] = families.get(family, 0) + 1
     print(f"抽样 {len(by_match)} 场的顺序族分布：{dict(sorted(families.items()))}")
@@ -209,19 +292,79 @@ def test_patch_id_is_null_only_before_the_2018_attribution_boundary(db_after_boo
     assert clamped == 0, f"{clamped} 场 pre-2018 比赛被钳到最早的版本（7.08），归属规则实现错了"
 
 
-def test_patch_attribution_agrees_with_the_csv_opendota_patch_column(db_after_bootstrap):
+#: CSV 自带 `patch` 列与本模块归属的**独立**交叉校验下限。实测（2026-09-18，全量缓存）
+#: 191,149/193,499 = 98.79%；下限取 98% 留 ~0.8 个百分点给上游补丁边界的时间漂移。
+PATCH_COLUMN_MIN_AGREEMENT = 0.98
+
+#: 可比对场次的下限（实测 193,499）。防止"用一小撮场次算出漂亮吻合率"的假绿。
+PATCH_COLUMN_MIN_COMPARABLE = 190_000
+
+
+def test_patch_attribution_agrees_with_the_csv_opendota_patch_column(db_after_bootstrap,
+                                                                    csv_patch_column):
     """独立交叉校验：CSV 自带 `patch` 列（OpenDota 粗粒度 id） vs 本模块的版本归属。
 
-    `matches.patch_id → patches.opendota_patch` 必须等于该场的 `patch` 列。这是**外部证据**：
-    归属规则若错（钳位、时区错、查错版本），这里会成片不吻合，而只靠自己的断言看不出来。
-    实测吻合率见测试输出；低于 99% 时断言失败并要求人看一眼。
+    `matches.patch_id → patches.opendota_patch` 必须等于该场 CSV 的 `patch` 列。这是**外部
+    证据**：归属规则若错（钳位、时区错、查错版本），这里会成片不吻合，而只靠本模块自己的
+    断言看不出来。
+
+    **历史（评审 F1，最高优先级）**：上一版这条测试**根本没读 `patch` 列**，唯一断言是
+    `agree > 1000`（而 `agree` 数的还是"可比对场次"而不是吻合场次）—— 它守护不了任何东西：
+    实测把 2018 年之后所有场次钳到最早的 7.08，`pytest tests/ingest -q` 仍是 **34 passed**。
+    现在按三条硬断言重写：
+
+    (a) `started_at >= 1517472000`（2018-02-01）的场次里 `patch_id IS NULL` 的 **0** 场；
+    (b) 不吻合的场次**只允许差 ±1 个粗粒度 patch id** —— 来源是补丁发布时间 vs patchdates
+        公告时间的 0–2 天漂移（Task 10 的交叉校验）。实测 2,350 场不吻合 = 1,613 个 `-1`
+        + 737 个 `+1`，**没有一个在 ±1 之外**；
+    (c) 吻合率 >= `PATCH_COLUMN_MIN_AGREEMENT`，且可比对场次 >= `PATCH_COLUMN_MIN_COMPARABLE`
+        （实测 191,149/193,499 = 98.79%）。
+
+    钳位实现（post-2018 一律指向最早的 7.08）会让 (c) 崩到 ~0%、(b) 成片越界 —— 变异证明见
+    计划 Task 12 的实测记录。
     """
-    agree = db_after_bootstrap.execute("""
-        SELECT count(*) FROM matches m JOIN patches p USING (patch_id)
-        WHERE m.started_at >= to_timestamp(1517472000) AND p.opendota_patch IS NOT NULL
-    """).fetchone()[0]
-    print(f"可比对的场次（>=2018-02-01 且有 patch_id）: {agree}")
-    assert agree > 1000, f"可比对的场次只有 {agree}，这条交叉校验等于空过"
+    late_nulls = db_after_bootstrap.execute(
+        "SELECT count(*) FROM matches WHERE patch_id IS NULL"
+        " AND started_at >= to_timestamp(1517472000)").fetchone()[0]
+    assert late_nulls == 0, f"{late_nulls} 场 post-2018 比赛没有 patch_id（规格 §3.2 的硬规则）"
+
+    rows = db_after_bootstrap.execute("""
+        SELECT m.match_id, p.opendota_patch
+        FROM matches m JOIN patches p USING (patch_id)
+        WHERE m.started_at >= to_timestamp(1517472000)
+        ORDER BY m.match_id""").fetchall()
+    comparable = missing = agree = 0
+    deltas: dict[int, int] = {}
+    samples: list[tuple[int, int, str]] = []
+    for match_id, attributed in rows:
+        raw = csv_patch_column.get(match_id)
+        if raw is None:
+            missing += 1
+            continue
+        comparable += 1
+        from_csv = int(float(raw))
+        if attributed is not None and from_csv == attributed:
+            agree += 1
+            continue
+        delta = from_csv - attributed if attributed is not None else 0
+        deltas[delta] = deltas.get(delta, 0) + 1
+        if len(samples) < 5:
+            samples.append((match_id, attributed if attributed is not None else -1, raw))
+    rate = agree / comparable if comparable else 0.0
+    print(f"patch 列交叉校验：吻合 {agree}/{comparable} = {rate:.2%}；"
+          f"不吻合 {comparable - agree}，差值分布 {dict(sorted(deltas.items()))}；"
+          f"CSV 缺该列值 {missing}；示例（match_id, 归属, CSV）= {samples}")
+
+    assert missing == 0, f"{missing} 场 post-2018 比赛的 CSV 缺 patch 列值"
+    assert comparable >= PATCH_COLUMN_MIN_COMPARABLE, \
+        f"可比对场次只有 {comparable}，这条交叉校验等于空过"
+    assert rate >= PATCH_COLUMN_MIN_AGREEMENT, (
+        f"归属与 CSV patch 列的吻合率只有 {rate:.2%}（下限 {PATCH_COLUMN_MIN_AGREEMENT:.0%}）："
+        f"归属规则（钳位/时区/查错版本）有问题，差值分布 {dict(sorted(deltas.items()))}")
+    outside = {d: n for d, n in deltas.items() if abs(d) > 1}
+    assert not outside, (
+        f"{sum(outside.values())} 场不吻合的差值超出 ±1 个粗粒度 patch id（{outside}）："
+        f"±1 可由两来源的发布时间差解释，更大的差值只能来自归属规则出错")
 
 
 # ===========================================================================
@@ -314,9 +457,16 @@ def test_anomaly_detector_reports_no_anomaly_for_the_measured_families():
     # 22 手的旧模板比赛**不是**异常（Valve 改过 CM 顺序，见模块 docstring）
     assert detect_anomaly(build("cm22_a", 0), 0) is None
 
-    # 23 手 → short_draft；0 手 → pending（规格 §5.2），不是异常
-    assert detect_anomaly(build("cm24_a", 0, n=23), 0)["kinds"] == ["short_draft"]
+    # 23 手 → unregistered_hand_count（手数本身没登记）；0 手 → pending（规格 §5.2），不是异常
+    assert detect_anomaly(build("cm24_a", 0, n=23), 0)["kinds"] == ["unregistered_hand_count"]
     assert detect_anomaly([], None) is None
+
+    # 20 手是**已登记**的手数：cm20_a 合法；20 手但顺序不对是 type_deviation（不是"手太少"）
+    assert detect_anomaly(build("cm20_a", 1), 1) is None
+    dev20 = detect_anomaly(build("cm20_a", 0, flip=5), 0)
+    assert dev20["kinds"] == ["type_deviation"]
+    assert dev20["detail"]["closest_order_family"] == "cm20_a"
+    assert dev20["detail"]["deviations"][0]["ord"] == 5
 
     # 缺 ord=0 → 推不出先手方；仍要记为异常，而不是抛异常中断整场
     no_zero = [a for a in build("cm24_a", 0) if a["ord"] != 0]
@@ -484,7 +634,11 @@ def test_download_refuses_to_guess_when_several_new_files_appear(tmp_path, monke
 
 
 def test_credentials_missing_error_names_the_prerequisites(tmp_path, monkeypatch):
-    """凭证缺失必须抛**可操作**的错：两个环境变量名、kaggle.json、下载命令，一个都不能少。"""
+    """匿名端点被拒（401/403）时的可操作提示：两个环境变量名、kaggle.json、下载命令都不少。
+
+    **但它不再是下载的前置条件**（评审 F8）：本数据集是 CC0，匿名端点正常返回数据，
+    故提示的第一句必须是"正常情况下不需要凭证"，而不是让用户去申请一个用不上的 token。
+    """
     from ingest import kaggle_subset
     monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
     monkeypatch.delenv("KAGGLE_KEY", raising=False)
@@ -498,6 +652,7 @@ def test_credentials_missing_error_names_the_prerequisites(tmp_path, monkeypatch
     message = str(exc.value)
     for fragment in ("KAGGLE_USERNAME", "KAGGLE_KEY", "kaggle.json", "ingest.kaggle_subset"):
         assert fragment in message, f"提示里缺少 {fragment}：{message}"
+    assert "不需要凭证" in message, f"提示没有先说清「正常情况下无需凭证」：{message}"
 
     # 有 kaggle.json 时（哪怕没有环境变量）必须认得出来
     (tmp_path / ".kaggle").mkdir()
@@ -513,12 +668,138 @@ def test_credentials_missing_error_names_the_prerequisites(tmp_path, monkeypatch
     assert kaggle_subset.credentials_present() is True
 
 
-def test_cli_without_credentials_fails_gracefully(tmp_path):
-    """`python -m ingest.kaggle_subset` 在无凭证时必须**干净失败**：非零退出、可操作提示、
-    没有 traceback，更不会去下载 506 MB。
+def test_build_client_uses_credentials_when_present_and_falls_back_otherwise(monkeypatch):
+    """客户端选择（评审 F8）：**有凭证走官方客户端（默认）**，没有则走匿名端点。
 
-    环境刻意清干净：`KAGGLE_*` 置空（dotenv 不覆盖已存在的变量，故仓库根的 `.env` 也救不回来）、
-    `KAGGLE_CONFIG_DIR`/`HOME` 指向空目录、cwd 指向临时目录。
+    注入假 `_build_api`/`credentials_present`，故这条不 import kaggle、不碰网络。
+    """
+    from ingest import kaggle_subset
+
+    sentinel = object()
+    monkeypatch.setattr(kaggle_subset, "credentials_present", lambda: True)
+    monkeypatch.setattr(kaggle_subset, "_build_api", lambda: sentinel)
+    assert kaggle_subset.build_client(log=_nolog) is sentinel
+
+    monkeypatch.setattr(kaggle_subset, "credentials_present", lambda: False)
+    client = kaggle_subset.build_client(log=_nolog)
+    assert isinstance(client, kaggle_subset.AnonymousKaggleApi)
+    client.close()
+
+    # 有凭证但 kaggle 依赖缺失 → 退回匿名，而不是让"照着文档跑"失败
+    monkeypatch.setattr(kaggle_subset, "credentials_present", lambda: True)
+
+    def _missing():
+        raise kaggle_subset.KaggleDependencyMissing("no kaggle")
+
+    monkeypatch.setattr(kaggle_subset, "_build_api", _missing)
+    client = kaggle_subset.build_client(log=_nolog)
+    assert isinstance(client, kaggle_subset.AnonymousKaggleApi)
+    client.close()
+
+
+def test_anonymous_client_lists_files_and_downloads_without_credentials(tmp_path):
+    """匿名客户端的两个端点形状（`httpx.MockTransport`，不碰网络）：
+
+    - 清单：`GET /api/v1/datasets/list/{slug}?pageSize=&pageToken=` → 200 JSON，
+      `datasetFiles[]`/`nextPageToken` 映射成与官方客户端同名的字段；
+    - 下载：`GET /api/v1/datasets/download/{slug}/{quote(file_name)}` —— 文件名里的 `/`
+      **必须**编码成 `%2F`（不编码时服务器把目录当额外路径段 → 404，实测），
+      落盘到 `path/<basename>`。
+    """
+    import httpx
+
+    from ingest import kaggle_subset
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.startswith("/api/v1/datasets/list/"):
+            return httpx.Response(200, json={
+                "datasetFiles": [{"name": "2016/picks_bans.csv", "totalBytes": 12},
+                                 {"name": "README.md", "totalBytes": 3}],
+                "nextPageToken": "tok-1"})
+        if request.url.path.startswith("/api/v1/datasets/download/"):
+            return httpx.Response(200, content=b"match_id,order\n")
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = kaggle_subset.AnonymousKaggleApi(
+        client=httpx.Client(transport=transport, follow_redirects=True))
+
+    page = client.dataset_list_files(kaggle_subset.DATASET, page_size=2)
+    assert [f["name"] for f in page.files] == ["2016/picks_bans.csv", "README.md"]
+    assert page.next_page_token == "tok-1"
+    assert page.error_message is None
+    assert seen[0].url.params["pageSize"] == "2"
+
+    client.dataset_download_file(kaggle_subset.DATASET, "2016/picks_bans.csv", path=str(tmp_path))
+    assert seen[1].url.raw_path.decode().endswith("/2016%2Fpicks_bans.csv"), seen[1].url
+    assert (tmp_path / "picks_bans.csv").read_bytes() == b"match_id,order\n"
+    client.close()
+
+
+def test_anonymous_client_turns_401_into_an_actionable_credentials_error():
+    """上游若收紧匿名访问（401/403），必须转成 `KaggleCredentialsMissing` + 补齐方式，
+    而不是一个裸 HTTPStatusError（CLI 会把它变成非零退出 + 一行提示）。"""
+    import httpx
+
+    from ingest import kaggle_subset
+
+    client = kaggle_subset.AnonymousKaggleApi(client=httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(403, json={"code": 403}))))
+    with pytest.raises(kaggle_subset.KaggleCredentialsMissing) as exc:
+        client.dataset_list_files(kaggle_subset.DATASET)
+    assert "KAGGLE_USERNAME" in str(exc.value) and "不需要凭证" in str(exc.value)
+    client.close()
+
+
+def test_download_no_longer_requires_credentials(tmp_path, monkeypatch):
+    """评审 F8 的核心回归：**无凭证也必须能下载**。
+
+    上一版 `download()` 无论是否注入 `api` 都先 `require_credentials()`，所以在没有凭证的
+    机器上（文档给出的复现命令）根本走不到下载 —— 而那正是这份缓存被造出来的环境。
+    这里把环境清干净（`KAGGLE_*` 置空、`HOME` 指向空目录）后用假客户端跑完整 `download()`：
+    必须正常下载、且不再要求凭证。
+    """
+    from ingest import kaggle_subset
+
+    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
+    monkeypatch.delenv("KAGGLE_KEY", raising=False)
+    monkeypatch.delenv("KAGGLE_API_TOKEN", raising=False)
+    monkeypatch.delenv("KAGGLE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    assert kaggle_subset.credentials_present() is False
+
+    api = _FakeApi(_one_page("2018/picks_bans.csv", "2018/main_metadata.csv"))
+    summary = kaggle_subset.download(tmp_path / "cache", api=api, log=_nolog)
+
+    assert api.requested == ["2018/picks_bans.csv", "2018/main_metadata.csv"]
+    assert (tmp_path / "cache" / "2018" / "picks_bans.csv").is_file()
+    assert summary["downloaded_files"] == 2
+
+
+def test_list_only_reports_the_whitelist_and_downloads_nothing(tmp_path):
+    """`--list-only`：只拉清单、报白名单命中与总字节数，一个文件都不下（自检/预览用）。"""
+    from ingest import kaggle_subset
+
+    api = _FakeApi(_one_page(("2018/picks_bans.csv", 11), ("2018/players.csv", 99),
+                             ("Constants/Constants.Leagues.csv", 7)))
+    summary = kaggle_subset.download(tmp_path, api=api, log=_nolog, list_only=True)
+
+    assert api.requested == []
+    assert summary["manifest_files"] == 3
+    assert summary["requested_files"] == 2
+    assert summary["expected_bytes"] == 18
+    assert summary["downloaded_files"] == 0
+    assert not any(tmp_path.rglob("*.csv"))
+
+
+def test_cli_help_documents_the_anonymous_path_and_list_only(tmp_path):
+    """CLI 的自述与 `--help` 必须说清"无需凭证"（评审 F8 之前的帮助文案是反的）。
+
+    只跑 `--help`（不联网、不下载）：上一版这条测试断言"无凭证 → 退出码 2 + 让用户去建
+    token"，那正好把缺陷写成了规格。
     """
     env = {
         "PATH": "/usr/bin:/bin",
@@ -528,16 +809,15 @@ def test_cli_without_credentials_fails_gracefully(tmp_path):
         "KAGGLE_KEY": "",
         "KAGGLE_API_TOKEN": "",
         "KAGGLE_CONFIG_DIR": str(tmp_path),
+        "COLUMNS": "200",          # argparse 按终端宽度折行，窄宽度会把待断言的话切断
     }
-    proc = subprocess.run([sys.executable, "-m", "ingest.kaggle_subset",
-                           "--cache-dir", str(tmp_path / "out")],
+    proc = subprocess.run([sys.executable, "-m", "ingest.kaggle_subset", "--help"],
                           cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     combined = proc.stdout + proc.stderr
-    assert proc.returncode == 2, combined
+    assert proc.returncode == 0, combined
     assert "Traceback" not in combined, combined
-    assert "KAGGLE_USERNAME" in combined and "kaggle.json" in combined, combined
-    assert "ingest.kaggle_subset" in combined, combined
-    assert not (tmp_path / "out").exists(), "无凭证时不该创建缓存目录，更不该下载"
+    assert "CC0" in combined and "--list-only" in combined, combined
+    assert "无需 Kaggle 凭证" in combined, combined
 
 
 # ===========================================================================
@@ -567,7 +847,7 @@ def test_missing_required_metadata_column_fails_loudly(db, synthetic_cache):
 
 
 def test_synthetic_bootstrap_writes_matches_actions_leagues_and_teams(db, synthetic_cache):
-    """入库端到端：8 场比赛 / 161 手 / 2 联赛；BOM、1-based、浮点串、两种表头都要过。"""
+    """入库端到端：8 场比赛 / 161 手 / 2 联赛；BOM（合成）、1-based、空 `ord`、浮点串、两种表头都要过。"""
     stats = _load(db, synthetic_cache)
 
     assert db.execute("SELECT count(*) FROM matches").fetchone()[0] == 8
@@ -602,7 +882,7 @@ def test_synthetic_bootstrap_writes_matches_actions_leagues_and_teams(db, synthe
     assert db.execute("SELECT first_pick_team FROM matches WHERE match_id = 900000002"
                       ).fetchone()[0] == 1
 
-    # 1-based + BOM 目录（2016）也必须归一到 0..23
+    # 1-based + 空 ord + BOM 的目录（2016）也必须归一到 0..23
     assert db.execute("SELECT min(ord), max(ord) FROM draft_actions WHERE match_id = 900000008"
                       ).fetchone() == (0, 21)
     assert db.execute("SELECT count(*) FROM draft_actions WHERE ord NOT BETWEEN 0 AND 23"
@@ -647,6 +927,23 @@ def test_team_names_are_used_when_the_upstream_provides_them(db, synthetic_cache
     assert db.execute("SELECT name FROM teams WHERE team_id = 104").fetchone()[0] == "Delta"
     assert db.execute("SELECT radiant_team_id FROM matches WHERE match_id = 900000001"
                       ).fetchone()[0] == 101
+
+
+def test_order_column_is_primary_because_the_ord_column_can_be_empty(db, synthetic_cache):
+    """`order` 是主列、`ord` 只是别名：真实 2016/2023 目录的 `ord` 有 26,539 行为空
+    （1,213 场），而 `order` 行行有值。合成侧刻意让 2016 目录的 `ord` 全空、`order` 为
+    1-based 浮点串 —— 实现若改用 `ord` 当主列，这一场的手会整批丢成 pending/异常。
+    """
+    with open(synthetic_cache / "2016" / "picks_bans.csv", newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    assert rows and all(r["ord"] == "" for r in rows), "合成数据没有复现 ord 全空的形状"
+    assert all(r["order"] not in ("", None) for r in rows)
+
+    _load(db, synthetic_cache)
+    assert db.execute("SELECT n_draft_actions FROM matches WHERE match_id = 900000008"
+                      ).fetchone()[0] == 22
+    assert db.execute("SELECT min(ord), max(ord) FROM draft_actions WHERE match_id = 900000008"
+                      ).fetchone() == (0, 21)
 
 
 def test_patch_attribution_never_clamps_pre_2018_matches_to_the_earliest_patch(db, synthetic_cache):
@@ -697,7 +994,7 @@ def test_anomaly_rows_agree_with_the_anomaly_flag(db, synthetic_cache):
     recorded = dict(db.execute("SELECT match_id, kinds FROM draft_anomalies").fetchall())
     assert set(recorded) == flagged
     assert recorded[900000003] == ["type_deviation"]
-    assert recorded[900000006] == ["short_draft"]
+    assert recorded[900000006] == ["unregistered_hand_count"]
     assert db.execute("SELECT count(*) FROM matches WHERE anomaly").fetchone()[0] == \
         db.execute("SELECT count(*) FROM draft_anomalies").fetchone()[0]
     # n_actions 与 matches.n_draft_actions 同口径
@@ -718,11 +1015,17 @@ def test_order_family_distribution_matches_the_measured_families(db, synthetic_c
     stats = _load(db, synthetic_cache)
     assert stats["order_families"] == {"spec_6_0_24": 1, "cm24_a": 1,
                                        "cm22_a": 2, "cm22_c": 1}
-    assert stats["anomaly_kinds"] == {"type_deviation": 1, "short_draft": 1}
+    assert stats["anomaly_kinds"] == {"type_deviation": 1, "unregistered_hand_count": 1}
 
 
-def test_bootstrap_reports_the_pre_2018_share(db, synthetic_cache):
-    """规格 §3.2/§15：pre-2018 占比是**测量结果**，必须报出来（不是预设预算）。"""
+def test_bootstrap_reports_the_pre_2018_share_and_distinct_table_counts(db, synthetic_cache):
+    """规格 §3.2/§15：pre-2018 占比是**测量结果**，必须报出来（不是预设预算）。
+
+    评审 F6：运行摘要里的 `leagues`/`teams` 必须是**表里的行数（distinct）**，不是逐目录
+    累加和 —— 真实语料里同一个 `league_id` 出现在多个年度目录，累加和是 1,808 而表里只有
+    1,557 行（多出 16%）。`duplicate_ord` 也必须进摘要（上一版只在 `draft_anomalies.detail`
+    里，摘要里看不到）。
+    """
     lines: list[str] = []
     stats = _load(db, synthetic_cache, log=lines.append)
 
@@ -731,9 +1034,16 @@ def test_bootstrap_reports_the_pre_2018_share(db, synthetic_cache):
     assert stats["pre_2018_null_patch"] == 3
     assert stats["post_2018_null_patch"] == 0
     assert stats["pre_2018_share"] == pytest.approx(3 / 8)
+    # 表行数（distinct），而不是逐目录累加和
+    assert stats["leagues"] == db.execute("SELECT count(*) FROM leagues").fetchone()[0] == 2
+    assert stats["teams"] == db.execute("SELECT count(*) FROM teams").fetchone()[0] == 0
+    assert "leagues_upserted" in stats and "teams_upserted" in stats
+    assert "duplicate_ord" in stats and stats["duplicate_ord"] == 0
     text = "\n".join(lines)
     assert "pre-2018" in text and "37.5%" in text, text
     assert "顺序族分布" in text and "patch 列交叉校验" in text, text
+    assert "leagues=2" in text, text                    # 摘要报的是表行数
+    assert "重复 ord=0" in text, text
 
 
 def test_reload_is_idempotent_and_delete_then_insert_refreshes_actions(db, synthetic_cache):
@@ -790,9 +1100,14 @@ def test_session_bootstrap_owns_its_own_database_and_leaves_the_shared_test_db_c
     这同时解决两件事：Task 11 记录的 18 个 `UniqueViolation: constants_snapshot_pkey`
     （提交污染），以及"改成 `commit=False` 后未提交事务的写锁把同 session 的
     `load_constants(commit=False)` 挂死"（顺序执行也会挂）。
+
+    ⚠ **本测试刻意用另一个库名**（`<db>_test_isolation`）：它要 DROP + CREATE 派生库，
+    若沿用会话 fixture 的 `<db>_test_bootstrap`，`db_after_bootstrap` 的连接会被从底下抽掉，
+    排在本文件之后的任何数据侧测试都会炸（实测：新增 `tests/ingest/test_order_families.py`
+    后 4 failed）。库名后缀是可参数化的，隔离测试因此互不干扰。
     """
-    bdsn = bootstrap_dsn(dsn)
-    conn = open_bootstrap_connection(dsn, synthetic_cache)
+    bdsn = bootstrap_dsn(dsn, ISOLATION_SUFFIX)
+    conn = open_bootstrap_connection(dsn, synthetic_cache, suffix=ISOLATION_SUFFIX)
     try:
         assert conn.execute("SELECT count(*) FROM matches").fetchone()[0] == 8
         assert conn.execute("SELECT count(*) FROM patches").fetchone()[0] == 118

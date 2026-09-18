@@ -16,8 +16,16 @@
    （`'0.0'`/`'78.0'`），2025 里是整数串；直接 `int()` 会 ValueError。故统一
    `int(float(...))`。
 4. **规格 §6.0 的 24 手模板只是诸多合法 CM 顺序中的一种**：Valve 改过 ban 顺序，
-   2025 年的比赛里 95.4% 用的是与 §6.0 不同的顺序（见 `DRAFT_ORDERS`）。
+   2025 年的比赛里 95.4% 用的是与 §6.0 不同的顺序（见 `ingest.order_families.DRAFT_ORDERS`）。
    按 §6.0 一种模板判异常会把 95%+ 的正常比赛判成异常 —— 异常率断言必然假红。
+5. `picks_bans.csv` 的 `ord` 列（OpenDota 自己的序号）**只存在于 2016–2023**，且其中
+   **26,539 行为空**（涉及 1,213 场：2016 目录 632 场、2023 目录 581 场）；`order` 列则在
+   全部 19 个目录里行行有值。故逻辑列 `order` **以 `order` 为主、`ord` 只作别名**，
+   且不得假设两列逐行相同。
+6. 真实 CSV **没有 BOM**（49 个文件全部无 BOM，实测）：真正的坑是**首列的空列名**
+   （pandas 导出的 index 列，2016–2023 的 24 个 CSV —— 8 个目录 ×
+   `main_metadata`/`picks_bans`/`draft_timings` —— 都有）。
+   故列一律**按名字**解析（`resolve_columns`），不得按位置取；`utf-8-sig` 只是廉价保险。
 
 **前置：常量层必须先入库。** `draft_actions.hero_id` 是 `heroes(hero_id)` 的外键、
 `matches.patch_id` 是 `patches(patch_id)` 的外键，且归属要读 `patches`。没有它，第一条
@@ -25,14 +33,16 @@ INSERT 会以 FK 违规炸在深处；本模块在动手之前显式检查并给
 
 **`order` → `ord` 的入库边界（规格 §17-7）**：CSV 的 `order` 起点**不假设**为 0。
 `detect_ord_origin()` 按整个文件的 `min(order)` 判定（0 → 原样，1 → 统一减 1），两者都不是
-就报错。实测 2016/2018/2025 全部是 0 起（且 2016/2018 还带一列 OpenDota 自己的 `ord`，
-与 `order` 逐行相同）。
+就报错。实测全部 19 个目录都是 0 起（1-based 只是**约定**上的可能，不是实测到的形态）。
 
 **异常判定（规格 §5.3）**：`anomaly=true` 的语义是「这份 draft 不符合**任何一种已知的合法
 CM 顺序**」，而不是「不符合 §6.0 那一种」。理由见第 4 条：Valve 改过顺序，而 §6.0 的模板
-如今只覆盖 2025 年 3.4% 的比赛。每个场次命中的顺序族记在 `detail["order_family"]`，
-并在入库报告里按族统计 —— **下游（序列模型）必须自己按族过滤**，因为
-`shared.draft_template.resolve()` 只对 `spec_6_0_24` 族正确。
+如今只覆盖 2025 年 3.4% 的比赛。顺序族逻辑**不在本模块**：它住在 `ingest/order_families.py`
+（`DRAFT_ORDERS` / `family_for` / `is_legal`），本模块只 import 并 re-export ——
+下游（`analysis/`、序列模型）**必须调用该 helper**，不要各自抄一份表，也不要用
+`shared.draft_template.resolve()` 去对齐非 `spec_6_0_24` 的场次（它只对那一族正确）。
+族是**派生量、不落库**（`matches` 无该列；`draft_anomalies.detail["order_family"]` 只对
+命中的场次有值，异常行是 null）；入库报告按族统计便于人核对，但它不是消费接口。
 
 **`patch_id` 归属（规格 §3.2/§15）**：走
 `constants.patches.subpatch_for_timestamp(start_time)` 拿**版本名**，再按 `version_name`
@@ -60,7 +70,11 @@ from collections import defaultdict
 from typing import Iterable, Mapping, Sequence
 
 from constants.patches import subpatch_for_timestamp
-from shared.draft_template import TEMPLATE as SPEC_TEMPLATE
+# noqa: F401 —— `DRAFT_ORDERS` / `resolve_in` / `SPEC_FAMILY` / `is_legal` 是**再导出**：
+# 历史调用方（与 tests/ingest/conftest.py）从这里取；权威定义与契约在 ingest/order_families.py。
+from ingest.order_families import (  # noqa: F401
+    DRAFT_ORDERS, HAND_COUNTS, SPEC_FAMILY, closest_family, family_for, is_legal, resolve_in)
+from ingest.order_families import deviations as family_deviations
 from shared.draft_template import first_pick_team_from_actions
 
 REPO = pathlib.Path(__file__).parents[1]
@@ -76,94 +90,6 @@ LEAGUES_FILENAME = "Constants/Constants.Leagues.csv"
 PATCH_ATTRIBUTION_MIN_START_TIME = 1517472000
 
 ORD_MAX = 23
-_F = "F"          # 先手方（first pick team）
-_O = "O"          # 后手方
-
-#: 实测的合法 CM 顺序族（2026-09-18 对 **205,005 场**真实数据的全量频次统计得出，
-#: 并用 OpenDota 实时 API 的 `picks_bans` 抽样交叉验证）。
-#:
-#: 「归属」列是相对**先手方** F（由 ord=0 的 team 推出，规格 §8①）的：
-#: 实测 ord=0 的队与第一手 pick 的队永远相同（§16.3 的不变式在真实数据上成立）。
-#:
-#: **为什么必须是一张表而不是一个模板**：Valve 在历次改版里换过 CM 的 ban 顺序，语料横跨
-#: 2016–2026（20 / 22 / 24 三种手数、共十种顺序）。按 §6.0 那**一种**模板判异常，首次真实
-#: 入库实测把 **58.33%** 的正常比赛判成了异常 —— 异常率断言必然假红，而"异常"这个字段也就
-#: 失去了意义。
-#:
-#: 登记门槛：**在各自手数里支持度 >= 1%** 的顺序（尾部稀有 pattern 一律算异常）。
-#: 十族合计覆盖 24 手的全部 149,522 场、22 手的 99.88%、20 手的 99.75%；未登记的
-#: （各奇零手数 + 尾部）合计约 1.0%，落在 §15 的 2% 之内，且这个数是**测出来的**。
-#: 每族后面标注：实测场次、占比、出现的年度目录。
-DRAFT_ORDERS: dict[str, tuple[tuple[bool, str], ...]] = {
-    # bbbbPPPPbbbbPPPPbbPP / FOFOFOOFOFOFOFOFOFFO —— 12340 场（84.85%），2016/2017
-    "cm20_a": (
-        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
-        (True, _O), (True, _F), (False, _O), (False, _F), (False, _O), (False, _F),
-        (True, _O), (True, _F), (True, _O), (True, _F), (False, _O), (False, _F),
-        (True, _F), (True, _O),
-    ),
-    # bbbbPPPPbbbbPPPPbbPP / FOFOFOOFFOFOOFOFOFOF —— 2167 场（14.90%），仅 2016
-    "cm20_b": (
-        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
-        (True, _O), (True, _F), (False, _F), (False, _O), (False, _F), (False, _O),
-        (True, _O), (True, _F), (True, _O), (True, _F), (False, _O), (False, _F),
-        (True, _O), (True, _F),
-    ),
-    # bbbbbbPPPPbbbbPPPPbbPP / FOFOFOFOOFFOFOOFOFOFFO —— 26126 场（67.04%），2018-2020
-    "cm22_a": (
-        (False, _F), (False, _O), (False, _F), (False, _O), (False, _F), (False, _O),
-        (True, _F), (True, _O), (True, _O), (True, _F), (False, _F), (False, _O),
-        (False, _F), (False, _O), (True, _O), (True, _F), (True, _O), (True, _F),
-        (False, _O), (False, _F), (True, _F), (True, _O),
-    ),
-    # bbbbbbbbPPPPbbPPPPbbPP / FOFOFOFOFOOFFOOFOFOFFO —— 8035 场（20.62%），仅 2020
-    "cm22_b": (
-        (False, _F), (False, _O), (False, _F), (False, _O), (False, _F), (False, _O),
-        (False, _F), (False, _O), (True, _F), (True, _O), (True, _O), (True, _F),
-        (False, _F), (False, _O), (True, _O), (True, _F), (True, _O), (True, _F),
-        (False, _O), (False, _F), (True, _F), (True, _O),
-    ),
-    # bbbbbbPPPPbbbbPPPPbbPP / FOFOFOFOOFOFOFOFOFOFFO —— 4767 场（12.23%），2017/2018
-    "cm22_c": (
-        (False, _F), (False, _O), (False, _F), (False, _O), (False, _F), (False, _O),
-        (True, _F), (True, _O), (True, _O), (True, _F), (False, _O), (False, _F),
-        (False, _O), (False, _F), (True, _O), (True, _F), (True, _O), (True, _F),
-        (False, _O), (False, _F), (True, _F), (True, _O),
-    ),
-    # bbbbbbbPPbbbPPPPPPbbbbPP / FOOFOOFFOFFOOFFOOFFOOFFO —— 68775 场（46.00%），2023-2025
-    "cm24_a": (
-        (False, _F), (False, _O), (False, _O), (False, _F), (False, _O), (False, _O),
-        (False, _F), (True, _F), (True, _O), (False, _F), (False, _F), (False, _O),
-        (True, _O), (True, _F), (True, _F), (True, _O), (True, _O), (True, _F),
-        (False, _F), (False, _O), (False, _O), (False, _F), (True, _F), (True, _O),
-    ),
-    # bbbbPPPPbbbbbbPPPPbbbbPP / FOFOFOOFFOFOFOOFFOFOFOFO —— 46347 场（31.00%），2021-2023
-    "cm24_b": (
-        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
-        (True, _O), (True, _F), (False, _F), (False, _O), (False, _F), (False, _O),
-        (False, _F), (False, _O), (True, _O), (True, _F), (True, _F), (True, _O),
-        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
-    ),
-    # bbbbPPPPbbbbbbPPPPbbbbPP / FOFOFOFOFOFOFOOFOFFOFOFO —— 14045 场（9.39%），2020/2021
-    "cm24_c": (
-        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
-        (True, _F), (True, _O), (False, _F), (False, _O), (False, _F), (False, _O),
-        (False, _F), (False, _O), (True, _O), (True, _F), (True, _O), (True, _F),
-        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
-    ),
-    # bbbbPPPPbbbbbbPPPPbbbbPP / FOFOFOOFFOFOFOOFOFFOFOFO —— 5220 场（3.49%），仅 2021
-    "cm24_d": (
-        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
-        (True, _O), (True, _F), (False, _F), (False, _O), (False, _F), (False, _O),
-        (False, _F), (False, _O), (True, _O), (True, _F), (True, _O), (True, _F),
-        (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
-    ),
-    # 规格 §6.0 / `shared/draft_template.TEMPLATE`（**直接 import，不复制**）。
-    # 实测就是 2025 年下半年起 + 全部 2026 目录在用的那一族（15135 场 = 10.12%），也是
-    # OpenDota 实时 API 上 match 8996973546 的顺序 —— 即**当下**的 CM 顺序。
-    # 2023-2025 上半年的比赛用的是 cm24_a（46.00%），与它只差两段 ban。
-    "spec_6_0_24": tuple(SPEC_TEMPLATE),
-}
 
 #: 逻辑列名 → CSV 里可接受的列名。只放**实测过**的别名；猜错时 `resolve_columns` 会报错
 #: 并打印实际列名，而不是静默写 NULL（规格 §17-7）。
@@ -188,7 +114,9 @@ REQUIRED_METADATA = ("match_id", "start_time")
 
 ACTIONS_COLUMNS: dict[str, tuple[str, ...]] = {
     "match_id": ("match_id",),
-    "order": ("order", "ord"),                  # 实测两列都有且逐行相同
+    # 实测 `order` 在 19 个目录里行行有值；`ord` 只在 2016–2023 存在，且其中 26,539 行
+    # 为空（1,213 场：2016 632 场、2023 581 场）。故 `order` 是主列，`ord` 只作别名。
+    "order": ("order", "ord"),
     "is_pick": ("is_pick",),
     "team": ("team",),
     "hero_id": ("hero_id",),
@@ -269,9 +197,12 @@ def parse_timestamp(value) -> int:
 def read_csv(path: pathlib.Path) -> tuple[list[str], list[dict[str, str]]]:
     """读 CSV，返回 `(列名, 行)`。
 
-    `utf-8-sig` 是**必需**的：Kaggle 的 CSV 常带 BOM，否则首列名会变成 `'\\ufeffmatch_id'`，
-    于是"列名不符"会以最难查的形式出现（只有第一列对不上）。列名与取值都 strip —— 上游
-    导出工具会在逗号后留空格。
+    `utf-8-sig` 只是**廉价保险**：实测 49 个真实 CSV **没有 BOM**（计划里"Kaggle CSV 常带
+    BOM"的说法是猜的，已按实测改正）。真正的坑是**首列的空列名**：2016–2023 的 24 个 CSV
+    （8 个目录 × `main_metadata`/`picks_bans`/`draft_timings`）首列都是 pandas 导出的空名
+    index 列，于是"按位置取列"
+    会整体错位一格，而列名本身看起来毫无异常。故本模块一律**按列名**解析（`resolve_columns`），
+    不按位置。列名与取值都 strip —— 上游导出工具会在逗号后留空格。
     """
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -404,60 +335,37 @@ def normalize_actions(rows: Sequence[Mapping[str, object]], *, ord_origin: int =
     return [by_ord[k] for k in sorted(by_ord)], problems
 
 
-# ------------------------------------------------------- 顺序族与异常判定（§5.3）
+# ------------------------------------------------- 顺序族（§5.3）：见 ingest.order_families
 
-def resolve_in(family: str, ord_: int, first_pick_team: int) -> tuple[bool, int]:
-    """按**指定顺序族**推导该手的 (is_pick, team)，语义与 `shared.draft_template.resolve` 相同。
+def matching_order(actions: Sequence[Mapping[str, object]],
+                   first_pick_team: int | None) -> str | None:
+    """**兼容别名**：`ingest.order_families.family_for` 的历史名字。
 
-    `shared.draft_template` 只定义 §6.0 那一种（`spec_6_0_24`），而 Valve 改过 ban 顺序，
-    所以异常判定不能只问它。引擎/模型侧仍以 `shared.draft_template` 为准（那份是契约），
-    本函数只服务入库期的结构判定。
+    新代码请直接调用 `family_for(n_actions, first_pick_team, actions)`（契约见该模块：
+    族是**派生量、不落库**，下游必须走那个 helper，不要各自抄一份 `DRAFT_ORDERS`）。
     """
-    is_pick, who = DRAFT_ORDERS[family][ord_]
-    return is_pick, (first_pick_team if who == _F else 1 - first_pick_team)
+    return family_for(len(actions), first_pick_team, actions)
 
 
-def matching_order(actions: Sequence[Mapping[str, object]], first_pick_team: int | None) -> str | None:
-    """返回该 draft 命中的顺序族名（没有命中返回 None）。"""
-    if first_pick_team not in (0, 1):
-        return None
-    n_actions = len(actions)
-    for family, template in DRAFT_ORDERS.items():
-        if len(template) != n_actions:
-            continue
-        if all((a["is_pick"], a["team"]) == resolve_in(family, a["ord"], first_pick_team)
-               for a in actions):
-            return family
-    return None
-
-
-def _deviations(actions: Sequence[Mapping[str, object]], first_pick_team: int, family: str) -> list[dict]:
-    out = []
-    for action in actions:
-        want_pick, want_team = resolve_in(family, action["ord"], first_pick_team)
-        if action["is_pick"] != want_pick or action["team"] != want_team:
-            out.append({"ord": action["ord"], "is_pick": action["is_pick"], "team": action["team"],
-                        "expected_is_pick": want_pick, "expected_team": want_team})
-    return out
-
-
-def closest_order_family(actions: Sequence[Mapping[str, object]], first_pick_team: int | None) -> str | None:
-    """手数相同、与实测差得最少的顺序族（只为把偏差说清楚，不改变异常判定）。"""
-    if first_pick_team not in (0, 1):
-        return None
-    candidates = [f for f, t in DRAFT_ORDERS.items() if len(t) == len(actions)]
-    if not candidates:
-        return None
-    return min(candidates, key=lambda f: len(_deviations(actions, first_pick_team, f)))
+def closest_order_family(actions: Sequence[Mapping[str, object]],
+                         first_pick_team: int | None) -> str | None:
+    """**兼容别名**：`ingest.order_families.closest_family` 的历史名字。"""
+    return closest_family(len(actions), first_pick_team, actions)
 
 
 def detect_anomaly(actions: Sequence[Mapping[str, object]], first_pick_team: int | None, *,
                    ord_out_of_range: int = 0, duplicate_ord: int = 0) -> dict | None:
     """规格 §5.3：draft 结构异常 → 返回 `{"n_actions", "kinds", "detail"}`；否则 None。
 
-    异常 = **不符合任何一种已知的合法 CM 顺序**（见 `DRAFT_ORDERS`），或手数不在 {22, 24}，
-    或推不出先手方，或有被丢弃/重复的手。0 手**不是**异常：规格 §5.2 里 `picks_bans` 不存在
-    就是 `pending`（状态机还在等数据）。
+    异常 = **不符合任何一种已登记的合法 CM 顺序**（`ingest.order_families.DRAFT_ORDERS`），
+    或手数不落在任何已登记族的手数（`HAND_COUNTS` = {20, 22, 24}）里，或推不出先手方，
+    或有被丢弃/重复的手。0 手**不是**异常：规格 §5.2 里 `picks_bans` 不存在就是 `pending`
+    （状态机还在等数据）。**时代不同但合法的顺序不是异常**（20/22 手的历史族同样登记在册）。
+
+    `kinds` 的两档（命名刻意不暗示"手太少"——20 手是合法手数）：
+
+    - `type_deviation`：手数已登记（20/22/24）但逐手对不上**任何**一族 —— 是这一场的顺序问题；
+    - `unregistered_hand_count`：手数本身没登记（10–19、21、23 手等）—— 是手数的问题。
 
     `detail["order_family"]` 记录命中的族（异常行为 None），`detail["deviations"]` 记录与
     **最接近的族**的逐手偏差 —— 只报"异常"而不报"差在哪"等于没报。
@@ -469,7 +377,7 @@ def detect_anomaly(actions: Sequence[Mapping[str, object]], first_pick_team: int
     kinds: list[str] = []
     detail: dict[str, object] = {"n_actions": n_actions}
 
-    family = matching_order(actions, first_pick_team) if actions else None
+    family = family_for(n_actions, first_pick_team, actions) if actions else None
     detail["order_family"] = family
 
     if actions and first_pick_team not in (0, 1):
@@ -478,16 +386,16 @@ def detect_anomaly(actions: Sequence[Mapping[str, object]], first_pick_team: int
     elif actions and family is None:
         if n_actions > 24:
             kinds.append("long_draft")
-        elif n_actions in (22, 24):
+        elif n_actions in HAND_COUNTS:
             kinds.append("type_deviation")
-        else:                                   # < 22 或 23 手：少手
-            kinds.append("short_draft")
-        if n_actions in (22, 24):
-            nearest = closest_order_family(actions, first_pick_team)
-            deviations = _deviations(actions, first_pick_team, nearest) if nearest else []
+        else:
+            kinds.append("unregistered_hand_count")
+        nearest = closest_family(n_actions, first_pick_team, actions)
+        if nearest is not None:
+            per_action = family_deviations(actions, first_pick_team, nearest)
             detail["closest_order_family"] = nearest
-            detail["n_deviations"] = len(deviations)
-            detail["deviations"] = deviations[:20]     # 只留前 20 条，避免 detail 无界增长
+            detail["n_deviations"] = len(per_action)
+            detail["deviations"] = per_action[:20]     # 只留前 20 条，避免 detail 无界增长
 
     if ord_out_of_range:
         kinds.append("ord_out_of_range")
@@ -721,8 +629,7 @@ def _write_match(conn, row: Mapping, actions: Sequence[Mapping], problems: Mappi
     stats["anomalies"] += anomaly is not None
     stats["pending"] += not actions
     if anomaly is None and actions:
-        family = matching_order(actions, first_pick_team)
-        stats["order_families"][family] += 1
+        stats["order_families"][family_for(len(actions), first_pick_team, actions)] += 1
     if row["start_time"] < PATCH_ATTRIBUTION_MIN_START_TIME:
         stats["pre_2018"] += 1
         stats["pre_2018_null_patch"] += patch_id is None
@@ -759,11 +666,14 @@ def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
     if not folders:
         raise FileNotFoundError(
             f"{cache_dir} 下没有任何 <folder>/{METADATA_FILENAME}（也没有 {ACTIONS_FILENAME}）："
-            f"先跑 `python -m ingest.kaggle_subset`（需要 KAGGLE_USERNAME/KAGGLE_KEY 或 "
-            f"~/.kaggle/kaggle.json），或把 CSV 放到该目录下。")
+            f"先跑 `python -m ingest.kaggle_subset`（该数据集是 CC0 公共数据集，"
+            f"**无凭证也能下载**；有凭证时自动走已认证路径），或把 CSV 放到该目录下。")
 
+    # `leagues`/`teams` 是**表里的行数**（结束时直查），不是逐目录累加和：跨目录重复的
+    # league_id 会让累加和大出 ~16%（实测 1,808 vs 1,557），报出去就是错的信息。
     stats: dict = {"folders": [p.name for p in folders], "matches": 0, "draft_actions": 0,
-                   "leagues": 0, "teams": 0, "anomalies": 0, "pending": 0, "actions_dropped": 0,
+                   "leagues": 0, "teams": 0, "leagues_upserted": 0, "teams_upserted": 0,
+                   "anomalies": 0, "pending": 0, "actions_dropped": 0, "duplicate_ord": 0,
                    "orphan_action_matches": 0, "unnamed_leagues": 0, "unresolved_team_refs": 0,
                    "total": 0, "pre_2018": 0, "pre_2018_null_patch": 0, "post_2018_null_patch": 0,
                    "pre_2018_share": 0.0, "patch_column_agree": 0, "patch_column_mismatch": 0,
@@ -806,19 +716,20 @@ def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
                                    ON CONFLICT (league_id) DO UPDATE
                                    SET name = EXCLUDED.name, tier = EXCLUDED.tier""",
                                 [(lid, name, tier) for lid, (name, tier) in sorted(leagues.items())])
-            stats["leagues"] += len(leagues)
+            stats["leagues_upserted"] += len(leagues)
         if teams:
             with conn.cursor() as cur:
                 cur.executemany("""INSERT INTO teams (team_id, name) VALUES (%s, %s)
                                    ON CONFLICT (team_id) DO UPDATE SET name = EXCLUDED.name""",
                                 sorted(teams.items()))
-            stats["teams"] += len(teams)
+            stats["teams_upserted"] += len(teams)
 
         known_matches = {row["match_id"] for row in rows}
         stats["orphan_action_matches"] += len(set(actions_by_match) - known_matches)
         for row in rows:
             actions, problems = actions_by_match.get(row["match_id"], ([], {}))
             stats["actions_dropped"] += problems.get("ord_out_of_range", 0)
+            stats["duplicate_ord"] += problems.get("duplicate_ord", 0)
             _write_match(conn, row, actions, problems, teams, leagues, patch_ids, patch_numbers,
                          stats)
             since_commit += 1
@@ -836,11 +747,15 @@ def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
     stats["pre_2018_share"] = stats["pre_2018"] / stats["total"] if stats["total"] else 0.0
     stats["order_families"] = dict(stats["order_families"])
     stats["anomaly_kinds"] = dict(stats["anomaly_kinds"])
+    # 表行数（distinct），不是逐目录累加和 —— 同一 league_id 会在多个目录里出现。
+    stats["leagues"] = conn.execute("SELECT count(*) FROM leagues").fetchone()[0]
+    stats["teams"] = conn.execute("SELECT count(*) FROM teams").fetchone()[0]
     log(f"引导入库完成：folders={len(folders)} matches={stats['matches']} "
-        f"draft_actions={stats['draft_actions']} leagues={stats['leagues']} teams={stats['teams']} "
-        f"anomalies={stats['anomalies']} pending={stats['pending']} "
-        f"丢弃的越界手={stats['actions_dropped']} 无 metadata 的 picks_bans 场次="
-        f"{stats['orphan_action_matches']}")
+        f"draft_actions={stats['draft_actions']} leagues={stats['leagues']}（逐目录累计 "
+        f"{stats['leagues_upserted']}，跨目录重复） teams={stats['teams']}（逐目录累计 "
+        f"{stats['teams_upserted']}） anomalies={stats['anomalies']} pending={stats['pending']} "
+        f"丢弃的越界手={stats['actions_dropped']} 重复 ord={stats['duplicate_ord']} "
+        f"无 metadata 的 picks_bans 场次={stats['orphan_action_matches']}")
     pre, total = stats["pre_2018"], stats["total"]
     log(f"pre-2018 场次 {pre}/{total}（{stats['pre_2018_share']:.1%}），"
         f"其中 patch_id IS NULL 的 {stats['pre_2018_null_patch']} 场；"
