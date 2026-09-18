@@ -4624,6 +4624,23 @@ git commit -m "feat(constants): 常量入库（127 英雄/501 道具/118 版本/
 
 ### Task 12: Kaggle 引导数据集（选择性下载 506 MB）
 
+> **⚠ 本节嵌入的代码块是 Task 12 当时的草稿，权威来源是提交。** 与「前置说明」里 Task 1–8 的
+> 约定一致：`git log -p -- <path>` 与工作树里的文件才是真的。**Task 12 评审修复（2026-09-18）
+> 之后的实现与本节代码块有以下差异**，逐字重放本节会复活已修好的缺陷（详见文末
+> 「### Task 12 评审修复」）：
+>
+> 1. `ingest/load_bootstrap.py` 的族逻辑已抽到 **`ingest/order_families.py`**（`DRAFT_ORDERS` /
+>    `family_for` / `is_legal` / `resolve_in`），`load_bootstrap` 只 import 并 re-export；
+> 2. `tests/ingest/test_bootstrap.py` 的 `patch` 列交叉校验已从 `agree > 1000`（空过）改成
+>    真守护（读 CSV 的 `patch` 列 + 逐场比对 + 吻合率下限 + ±1 约束）；
+> 3. 真实 CSV **没有 BOM**（本节 conftest 注释里"2016/2018 带 BOM"是猜的），真正的坑是首列
+>    空列名；`ord` 列存在于 2016–2023 且 26,539 行为空；
+> 4. 下载不再要求凭证（本节写的是"CLI 先查凭证再下载"）：无凭证走匿名 HTTP 端点；
+> 5. 异常 kind `short_draft` 已改名 `unregistered_hand_count`（20 手是合法手数），并新增
+>    `type_deviation` 的 20 手分支；
+> 6. 运行摘要的 `leagues`/`teams` 改为**表行数（distinct）**，并汇总 `duplicate_ord`；
+> 7. 隔离测试改用 `<db>_test_isolation`（与会话 fixture 的 `<db>_test_bootstrap` 分开）。
+
 **Files:**
 - Create: `ingest/__init__.py`, `ingest/kaggle_subset.py`, `ingest/load_bootstrap.py`
 - Create: `tests/ingest/__init__.py`, `tests/ingest/conftest.py`
@@ -4658,7 +4675,7 @@ git commit -m "feat(constants): 常量入库（127 英雄/501 道具/118 版本/
 **合成数据刻意照抄真实 CSV 的形状**（2026-09-18 实测，见 `ingest/load_bootstrap.py` 的
 docstring）：`start_date_time` 朴素字符串、`order`/`team`/`hero_id` 是**浮点字符串**
 （`'0.0'`）、`main_metadata.csv` **没有** `league_name`/队名列、联赛名只在
-`Constants/Constants.Leagues.csv` 里、`picks_bans.csv` 在 2016/2018 带 BOM + 首列空名。
+`Constants/Constants.Leagues.csv` 里、**首列是空列名**（2016–2023 的 24 个 CSV；实测无 BOM）。
 照着计划里的列名（`start_time`/`league_name`）造合成数据能全绿，却与真实数据毫无关系 ——
 那正是 Task 12 要避免的"写了没验"。
 
@@ -4697,16 +4714,17 @@ BOOTSTRAP_SUFFIX = "_bootstrap"
 METADATA_HEADER = ["", "match_id", "duration", "leagueid", "lobby_type", "radiant_win",
                    "start_date_time", "series_id", "series_type", "patch", "region",
                    "dire_team_id", "radiant_team_id"]
-# --- 真实 2016/2018 形状：带 OpenDota 自己的 ord 列，值是浮点字符串 ---
+# --- 真实 2016–2023 形状：带 OpenDota 自己的 ord 列（部分行为空），值是浮点字符串 ---
 ACTIONS_HEADER_OLD = ["", "is_pick", "hero_id", "team", "order", "ord", "match_id", "leagueid"]
-# --- 真实 2025 形状：没有首列、没有 ord 列，值是整数串 ---
+# --- 真实 2024+ 形状：没有空首列、没有 ord 列，值是整数串（2024 起 schema 换成 version 打头）---
 ACTIONS_HEADER_NEW = ["is_pick", "hero_id", "team", "order", "match_id", "leagueid"]
 
 LEAGUES_HEADER = ["leagueid", "leaguename", "tier"]
 SYNTHETIC_LEAGUES = {4194: ("Synthetic League One", "professional"),
                      9584: ("Synthetic League Two", "premium")}
 
-#: 目录形状：2016 用旧表头 + BOM + 1-based order；2025 用新表头 + 整数串。
+#: 目录形状：2016 用旧表头 + 1-based order + 空 ord（BOM 是合成专有的健壮性用例）；
+#: 2018 用旧表头 + ord 有值；2025 用新表头 + 整数串。
 FOLDER_STYLE = {"2016": {"header": ACTIONS_HEADER_OLD, "bom": True, "one_based": True},
                 "2018": {"header": ACTIONS_HEADER_OLD, "bom": False, "one_based": False},
                 "2025": {"header": ACTIONS_HEADER_NEW, "bom": False, "one_based": False}}
@@ -4747,7 +4765,7 @@ MATCHES: list[dict] = [
      "duration": 3000, "leagueid": 4194, "series_id": 5007, "series_type": 1,
      "radiant_team_id": 103, "dire_team_id": 104, "radiant_win": True, "lobby_type": 1,
      "patch": 27, "family": None, "first_pick": None},
-    # 1-based + BOM 的旧表头目录
+    # 1-based + 空 ord 的旧表头目录（BOM 是合成的健壮性用例，真实 CSV 无 BOM）
     {"folder": "2016", "match_id": 900000008, "start_date_time": "2016-01-01 00:00:01",
      "duration": 3100, "leagueid": 4194, "series_id": 5008, "series_type": 1,
      "radiant_team_id": 101, "dire_team_id": 102, "radiant_win": True, "lobby_type": 1,
@@ -4965,7 +4983,7 @@ def sample_csv() -> pathlib.Path:
   `python -m ingest.kaggle_subset` 的机器）它们 `pytest.skip` 并给出补齐方式与下载命令 ——
   **绝不失败，也绝不静默通过**。
 - **合成侧**：`tests/ingest/conftest.py` 自己构造迷你数据集（**照抄真实 CSV 的形状**：
-  `start_date_time`、浮点字符串、没有 `league_name`、BOM、两种表头），配**真实常量层**
+  `start_date_time`、浮点字符串、没有 `league_name`、空首列、`ord` 空/有值/不存在，配**真实常量层**
   （`load_constants(commit=False)`，走仓库里的网络缓存）。CSV 列名与 order 起点归一化、
   顺序族判定、异常判定、版本归属（含反钳位）、先查后插的幂等性、会话 fixture 的数据库隔离
   —— 全部是**实际执行过**的。
@@ -5018,7 +5036,7 @@ def test_picks_bans_columns_and_order_origin(sample_csv):
     抽样全部 min=0）。1-based 的处置说明保留在 `_cell_origin` 的注释里，因为它是**约定**：
     真遇到 1-based，必须在入库边界统一减 1，并把本测试的断言改成 `min(orders) == 1`。
 
-    用 utf-8-sig 读：Kaggle 的 CSV 带 BOM（2016/2018 实测如此），否则首列名会变成 '\\ufeff'。
+    用 utf-8-sig 读只是廉价保险：**真实 CSV 没有 BOM**（49 个文件实测）；真正的坑是首列的空列名。
     """
     with open(sample_csv, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
@@ -5526,7 +5544,7 @@ def test_missing_required_metadata_column_fails_loudly(db, synthetic_cache):
 
 
 def test_synthetic_bootstrap_writes_matches_actions_leagues_and_teams(db, synthetic_cache):
-    """入库端到端：8 场比赛 / 161 手 / 2 联赛；BOM、1-based、浮点串、两种表头都要过。"""
+    """入库端到端：8 场比赛 / 161 手 / 2 联赛；1-based、空 ord、浮点串、两种表头都要过。"""
     stats = _load(db, synthetic_cache)
 
     assert db.execute("SELECT count(*) FROM matches").fetchone()[0] == 8
@@ -5561,7 +5579,7 @@ def test_synthetic_bootstrap_writes_matches_actions_leagues_and_teams(db, synthe
     assert db.execute("SELECT first_pick_team FROM matches WHERE match_id = 900000002"
                       ).fetchone()[0] == 1
 
-    # 1-based + BOM 目录（2016）也必须归一到 0..23
+    # 1-based + 空 ord 的目录（2016）也必须归一到 0..23
     assert db.execute("SELECT min(ord), max(ord) FROM draft_actions WHERE match_id = 900000008"
                       ).fetchone() == (0, 21)
     assert db.execute("SELECT count(*) FROM draft_actions WHERE ord NOT BETWEEN 0 AND 23"
@@ -6339,7 +6357,8 @@ DRAFT_ORDERS: dict[str, tuple[tuple[bool, str], ...]] = {
         (False, _F), (False, _O), (False, _F), (False, _O), (True, _F), (True, _O),
     ),
     # 规格 §6.0 / `shared/draft_template.TEMPLATE`（**直接 import，不复制**）。
-    # 实测就是 2025 年下半年起 + 全部 2026 目录在用的那一族（15135 场 = 10.12%），也是
+    # 实测就是 2025 年下半年起 + 全部 2026 目录在用的那一族（15135 场 = 全库 7.17% /
+    # 24 手场次的 10.12%；2026 有 BP 序列的场次里 99.59%），也是
     # OpenDota 实时 API 上 match 8996973546 的顺序 —— 即**当下**的 CM 顺序。
     # 2023-2025 上半年的比赛用的是 cm24_a（46.00%），与它只差两段 ban。
     "spec_6_0_24": tuple(SPEC_TEMPLATE),
@@ -6449,9 +6468,9 @@ def parse_timestamp(value) -> int:
 def read_csv(path: pathlib.Path) -> tuple[list[str], list[dict[str, str]]]:
     """读 CSV，返回 `(列名, 行)`。
 
-    `utf-8-sig` 是**必需**的：Kaggle 的 CSV 常带 BOM，否则首列名会变成 `'\\ufeffmatch_id'`，
-    于是"列名不符"会以最难查的形式出现（只有第一列对不上）。列名与取值都 strip —— 上游
-    导出工具会在逗号后留空格。
+    `utf-8-sig` 只是**廉价保险**：实测 49 个真实 CSV **没有 BOM**；真正的坑是**首列的空列名**
+    （pandas 的 index 列，2016–2023 的 24 个 CSV 都有），故一律按列名解析、不按位置取列。
+    列名与取值都 strip —— 上游导出工具会在逗号后留空格。
     """
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -7070,13 +7089,38 @@ git commit -m "test(ingest): 无凭证/无数据时 skip + 合成数据全覆盖
 
 #### Task 12 实测记录（2026-09-18；凭证缺失下完成的一切与仍未验证的部分）
 
-**凭证状态（必须先说清）**：本机 `KAGGLE_USERNAME`/`KAGGLE_KEY` **未设置**、`~/.kaggle/kaggle.json`
-**不存在**（`credentials_present()` 返回 False）。但**数据集仍然下到了**：这个数据集是 CC0 公共
-数据集，Kaggle 的 `dataset_list_files` / `dataset_download_file` 两个接口对**无有效凭证的请求
-也返回数据**（用 `KAGGLE_USERNAME=bogus KAGGLE_KEY=bogus` 实测：清单 8 页 / 1546 个文件，
-下载得到 49 个白名单文件 / 506.7 MB，逐字节可用）。CLI 仍按规格 §10.2 先查凭证再下载，故
-"无凭证"路径给出的是可操作提示（下面有实测），而**绕过 gate 后下载是通的**这一点如实记在这里 ——
-计划/规格若认为"无凭证不能下载"，这条实测事实需要更新那一句。
+**凭证状态（本轮评审 F8 后已改正代码）**：本机 `KAGGLE_USERNAME`/`KAGGLE_KEY` **未设置**、
+`~/.kaggle/kaggle.json` **不存在**（`credentials_present()` 返回 False）。这个数据集是 CC0 公共
+数据集：Kaggle 的清单/下载端点对**无有效凭证的请求也返回数据**（首次下载是用
+`KAGGLE_USERNAME=bogus KAGGLE_KEY=bogus` 绕过去的：清单 8 页 / 1546 个文件 → 49 个白名单文件 /
+506.7 MB）。
+
+**上一版的缺陷（评审 F8）**：CLI 却**硬性要求**凭证（`authenticate()` 失败即 `SystemExit(1)`），
+于是文档里给出的复现命令在一台**没有凭证**的机器上跑不出这份缓存 —— 与实际能跑通的
+`bogus` 凭证相矛盾；conftest 的 skip 文案还在让用户去申请一个**不需要**的 token。
+本轮改为：
+
+- 无凭证 → 走 `AnonymousKaggleApi`（纯 httpx，核心依赖即可），**默认就能下载**；
+- 有凭证 → 仍走 `kaggle` 官方客户端（**默认路径**）；`kaggle` 依赖缺失但有凭证时退回匿名并警告；
+- 匿名端点若被上游拒绝（401/403）→ `KaggleCredentialsMissing` + 补齐方式（提示里第一句写明
+  "正常情况下不需要凭证"）；
+- 新增 `--list-only`（只列清单、不下文件），供自检与"先看清要下什么"。
+
+**匿名路径实测（2026-09-18 本轮，无任何凭证）**：
+```
+$ env -u KAGGLE_USERNAME -u KAGGLE_KEY -u KAGGLE_API_TOKEN HOME=<空目录> \
+    python -m ingest.kaggle_subset --cache-dir /tmp/... --list-only
+未检测到 Kaggle 凭证：走匿名 HTTP 端点（本数据集是 CC0 公共数据集，…有凭证时自动走已认证路径）
+清单共 8 页 / 1546 个文件
+白名单命中 49 个文件 / 清单合计 506.7 MB
+--list-only：未下载任何文件（缓存现有 0.0 MB，0 个目录）
+→ 退出码 0
+```
+有凭证路径同一条命令（`KAGGLE_USERNAME=bogus KAGGLE_KEY=bogus`，走官方客户端）输出相同；
+另做了**端到端下载**核对：匿名客户端经
+`/api/v1/datasets/download/{slug}/{quote(file_name)}`（文件名整体百分号编码，
+`Constants%2FConstants.Leagues.csv`；不编码时 404）下载 `Constants/Constants.Leagues.csv`
+→ 428,930 字节，sha256 `8924ff0a…` 与仓库缓存里的同名文件**逐字节相同**。
 
 **下载侧实测**：
 - 清单：8 页 / **1546** 个文件（`dataset_list_files` 默认 `page_size=20`，实测服务端上限 200；
@@ -7086,65 +7130,98 @@ git commit -m "test(ingest): 无凭证/无数据时 skip + 合成数据全覆盖
   19/19/10 与 506.2 MB 吻合，多出的 0.43 MB 就是联赛名文件）。
 - 整包规模核对：`players.csv` = 19 个分片 / 41.04 GB；数据集合计 48.52 GB（与规格 §10.2 逐字吻合）。
 - 年度目录：2016–2025 + `202601`–`202609`（共 19 个）。
-- 无凭证 CLI 实测：`python -m ingest.kaggle_subset` → 退出码 **2**、stderr 给出补齐方式与下载命令、
-  **无 traceback**、缓存目录未被创建（由 `test_cli_without_credentials_fails_gracefully` 守护）。
+- 无凭证 CLI 实测（**本轮已改为匿名可用**）：`python -m ingest.kaggle_subset --list-only`
+  → 退出码 **0**、清单 1546 个文件 / 白名单 49 个 / 506.7 MB（见上面的"匿名路径实测"）。
+  上一版这里是"退出码 2 + 让用户去建 token"，正是评审 F8 指出的那道不该有的门。
 - 依赖安装实测：`python -m pip install -e ".[dev,ingest]"` **成功**（kaggle 2.2.4）。
 
 **计划三处假设被实测推翻（全部已改正并写进测试）**：
 
-| 计划原文 | 实测（2016/2018/2025 三个年度的列集 + 全量入库） |
+| 计划原文 | 实测（**全部 49 个文件**逐列核对 + 全量入库；2026-09-18，本轮评审后复测） |
 |---|---|
 | `main_metadata.csv` 有 `start_time` | **没有**。只有 `start_date_time`（`'2016-01-02 15:12:19'`，朴素字符串；按 **UTC** 解释） |
 | `main_metadata.csv` 有 `league_name` | **没有**（也没有队名）。联赛名只在 `Constants/Constants.Leagues.csv`（`leagueid,leaguename,tier`，10099 行，覆盖全部 metadata 的 leagueid） |
-| `picks_bans.csv` 的 `order` 是整数、起点待确认 | 是**浮点字符串**（`'0.0'`/`'78.0'`）；`int()` 直接 `ValueError`。起点实测 **0 起**（2016/2017/2018/2025 四个年度抽样全部 min=0）。2016/2018 还带一列 OpenDota 自己的 `ord`，与 `order` 逐行相同 |
+| `picks_bans.csv` 的 `order` 是整数、起点待确认 | 是**浮点字符串**（`'0.0'`/`'78.0'`）；`int()` 直接 `ValueError`。起点实测 **0 起**（全部 19 个目录的 `min(order)` 都是 0） |
+| （上一版写）"2016/2018 带 `ord` 列，与 `order` 逐行相同" | **错两处**。`ord` 列存在于 **2016–2023 全部 8 个目录**（不是只有 2016/2018），2024+ 没有；且其中 **26,539 行为空**，涉及 **1,213 场**（2016 目录 632 场、2023 目录 581 场）。两列都有值的 2,972,716 行**逐行相同**（0 处不一致）。故 loader 的逻辑列 `order` **以 `order` 为主、`ord` 只作别名** |
+| （上一版写）"Kaggle 的 CSV 带 BOM" | **没有一个文件有 BOM**（49 个文件逐字节核对，`b'\xef\xbb\xbf'` 零命中）。真正的坑是**首列的空列名**（pandas 的 index 列）：2016–2023 的 **24 个** CSV（8 个目录 × `main_metadata`/`picks_bans`/`draft_timings`）都是这个形状，按位置取列会整体错位一格；2024 起换成 `version` 打头的新 schema。BOM 只作为**合成的健壮性用例**留在 `tests/ingest/conftest.py`（显式标注为 synthetic） |
 
 **最重要的数据事实：Valve 换过 CM 的 ban 顺序，规格 §6.0 的模板只覆盖其中一族。**
 对 205,005 场逐场把 `(is_pick, team)` 归一化成相对先手方的串后统计，语料里有
 **20 / 22 / 24 三种手数、十种支持度 >= 1% 的合法顺序**（详见 `DRAFT_ORDERS` 的逐族注释）：
 
-| 族 | 手数 | 实测场次 | 占比 | 出现的年度 |
-|---|---|---|---|---|
-| `cm20_a` / `cm20_b` | 20 | 12340 / 2167 | 84.85% / 14.90% | 2016–2017 |
-| `cm22_a` / `cm22_b` / `cm22_c` | 22 | 26126 / 8035 / 4767 | 67.04% / 20.62% / 12.23% | 2017–2020 |
-| `cm24_a` | 24 | 68775 | 46.00% | 2023–2025 |
-| `cm24_b` | 24 | 46347 | 31.00% | 2021–2023 |
-| `cm24_c` / `cm24_d` | 24 | 14045 / 5220 | 9.39% / 3.49% | 2020–2021 |
-| `spec_6_0_24`（规格 §6.0 = `shared/draft_template.TEMPLATE`） | 24 | 15135 | 10.12% | **2025 下半年 + 全部 2026 目录** |
+逐族定义的**唯一权威**是 `ingest/order_families.py` 的 `DRAFT_ORDERS`（本轮评审后从
+`load_bootstrap.py` 抽出：族要与 `analysis/`、`models/` 共用，不能只活在入库模块里）。
+下表是 2026-09-18 对**全量缓存**的实测（命令见本节末的「复核命令」）：
 
-`spec_6_0_24` 是 OpenDota 实时 API 上 match 8996973546 的顺序（本轮实拉核对过），即**当下**的 CM
-顺序；2023–2025 上半年的比赛用的是 `cm24_a`，与它只差两段 ban。**首次实现只登记了四种顺序，
+| 族 | 手数 | 实测场次 | 占**该手数**的比例 | 占**全库** 211,051 | 出现的年度 |
+|---|---|---|---|---|---|
+| `cm20_a` / `cm20_b` | 20 | 12340 / 2167 | 84.85% / 14.90% | 5.85% / 1.03% | 2016–2017 |
+| `cm22_a` / `cm22_b` / `cm22_c` | 22 | 26126 / 8035 / 4767 | 67.04% / 20.62% / 12.23% | 12.38% / 3.81% / 2.26% | 2017–2020 |
+| `cm24_a` | 24 | 68775 | 46.00% | 32.59% | 2023–2025 |
+| `cm24_b` | 24 | 46347 | 31.00% | 21.96% | 2021–2023 |
+| `cm24_c` / `cm24_d` | 24 | 14045 / 5220 | 9.39% / 3.49% | 6.65% / 2.47% | 2020–2021 |
+| `spec_6_0_24`（规格 §6.0 = `shared/draft_template.TEMPLATE`） | 24 | 15135 | **10.12%** | **7.17%** | 2025 下半年 + 全部 2026 目录 |
+
+**口径必须说清（上一版只写了 10.12%，容易被读成"全库 10.12%"）**：`spec_6_0_24` 的
+15,135 场 = **全库 7.17%**（15,135/211,051）= **有 BP 序列场次的 7.38%**（15,135/205,005）
+= **24 手场次的 10.12%**（15,135/149,522）。2026 年有 BP 序列的 14,189 场里 **14,131 场**是它
+（**99.59%**，其余 58 场是异常）—— 所以它是"当下"的 CM 顺序，但**不是**全库口径的合法性判据。
+
+`spec_6_0_24` 也是 OpenDota 实时 API 上 match 8996973546 的顺序（本轮实拉核对过）；
+2023–2025 上半年的比赛用的是 `cm24_a`，与它只差两段 ban。**首次实现只登记了四种顺序，
 真实入库实测异常率 58.33%**（把九成正常比赛判成异常）；按 >= 1% 支持度登记十族后降到 **0.97%**。
-下游影响（不在 Task 12 范围内，但必须记下来）：`shared/draft_template.resolve()` 只对
-`spec_6_0_24` 正确，2020–2025 的历史比赛（约 19 万场）按它的 `ord→(type, team)` 映射是错的；
-序列模型/Policy 必须按族过滤（族可由 `matches.n_draft_actions` + 该场 `draft_actions` 复算）。
+
+**下游契约（本轮评审 F2 补齐，规格 §6.0 已同步澄清）**：
+- 族是**派生量、不落库**：`matches` 没有族列，`draft_anomalies.detail->>'order_family'` 对异常行
+  是 `null`（实测 2,048 行全为 null）。契约的 DDL 冻结，不为它加列。
+- 消费方（`analysis/`、`models/`）**必须调用** `ingest.order_families.family_for(n_actions,
+  first_pick_team, actions)`（或 `is_legal(...)`）——由 `matches.n_draft_actions` +
+  `matches.first_pick_team` + 该场 `draft_actions` **唯一复算**；**不得**各自再抄一份
+  `DRAFT_ORDERS`（多份副本必然漂移）。
+- `shared/draft_template.resolve()` **只对 `spec_6_0_24` 正确**；其余九族用
+  `ingest.order_families.resolve_in(family, ord, first_pick_team)`。2020–2025 的历史比赛
+  （约 19 万场）按前者的 `ord→(type, team)` 映射是错的。
+- 全量守护在 `tests/ingest/test_order_families.py`：202,957 场 `anomaly=false` 且有 BP 序列的
+  场次**零未分类、恰好一族**，逐族支持度等于上表，且与入库写下的 `matches.anomaly` 逐场互证。
 
 **M1 相关实测数（真实数据，19 个目录全量入库）**：
 - `matches` **211,051**；`draft_actions` **4,772,342**；`leagues` **1,557**（DB 直查的 distinct 行数；
   loader 日志里逐目录累加的 1,808 是**跨目录重复计数**，不是表里的行数 —— 以 DB 为准）；
-  `teams` **0**（CSV 没有队名 → 不编造，FK 写 NULL；未解析的队引用 137,371 次，
-  已计入 `stats["unresolved_team_refs"]`）。
+  `teams` **0**（CSV 没有队名 → 不编造，FK 写 NULL；未解析的队引用 **150,809** 次，
+  已计入 `stats["unresolved_team_refs"]`。上一版写 137,371 是错的，本轮按 loader 复测改正）。
 - `anomaly=true` **2,048 / 211,051 = 0.97%**（规格 §15 要求 < 2%）；`draft_anomalies` 行数
-  与 `matches.anomaly` 计数**逐场一致**；异常原因分布：各奇零手数（10–19 手共 1,022 场、
-  21 手 262 场、23 手 640 场）+ 20 手尾部 36 场 + 22 手尾部 45 场 + 24 手 0 场。
+  与 `matches.anomaly` 计数**逐场一致**。异常原因分布（本轮按手数重测，两种 kind 的语义见
+  `detect_anomaly` 的 docstring）：
+  - `unregistered_hand_count` **1,967** = 手数不在已登记集合 {20,22,24} 里：10–19 手共
+    **1,060** 场（上一版写 1,022，错）+ 21 手 262 + 23 手 640 + 1/2/6/9 手 5；
+  - `type_deviation` **81** = 手数已登记但顺序对不上任何族：20 手尾部 36 + 22 手尾部 45
+    （24 手尾部 0）；
+  - 上一版把 20 手尾部那 36 场记成 `short_draft`（"手太少"），这是错的命名：**20 手是合法
+    手数**（`cm20_a`/`cm20_b`），故已改名为 `unregistered_hand_count` 并按"手数是否登记"分档。
 - `draft_state='pending'` **6,046**（有 metadata、无 picks_bans；规格 §5.2 的状态机语义，
   不算异常）。
 - **pre-2018 场次 17,552 / 211,051 = 8.3%**，其中 `patch_id IS NULL` 的 **17,552**（全部）；
   `started_at >= 1517472000` 的场次里 `patch_id IS NULL` 的 **0** 场。
 - `patch` 列交叉校验（CSV 自带 OpenDota 粗粒度 id vs 本模块归属出的 `patches.opendota_patch`）：
-  **吻合 191,149 / 不吻合 2,350**（可比对 193,499 场，吻合率 98.79%）。不吻合集中在补丁发布
-  边界附近（Valve 的发布时间 vs patchdates 的公告时间本就相差 0–2 天，见 Task 10 的交叉校验），
-  这里**只报数不设阈值**：它是一个独立证据，不是本模块的判据。
+  **吻合 191,149 / 不吻合 2,350**（可比对 193,499 场，吻合率 **98.79%**）。不吻合集中在补丁发布
+  边界附近（Valve 的发布时间 vs patchdates 的公告时间本就相差 0–2 天，见 Task 10 的交叉校验）：
+  **差值分布 = 1,613 个 `-1` + 737 个 `+1`，没有一个在 ±1 之外**。
+  **本轮（评审 F1）把它从"只报数"升级成硬守护**：上一版的测试根本没读 `patch` 列，唯一断言是
+  `agree > 1000`（而 `agree` 数的还是"可比对场次"）—— 实测把 post-2018 全部钳到 7.08 后
+  `pytest tests/ingest -q` 仍是 **34 passed**（零守护）。现在断言三条：post-2018 `patch_id IS NULL`
+  为 0；不吻合只允许 ±1 个粗粒度 id；吻合率 >= 98%（可比对场次 >= 190,000）。
 - `hero_id` 外键：全量 4,772,342 行 **0 个未知 hero_id**；`ord` 越界 0 行、重复 `(match_id, ord)` 0 行。
 
-**测试计数（两套状态实测）**：
+**测试计数（Tasks 12 评审修复后复测）**：
 
-| 状态 | `pytest tests/ingest -q` | `pytest -q`（默认顺序） | `pytest tests/ingest tests/constants tests/contracts tests/db tests/shared -q` |
-|---|---|---|---|
-| 缓存存在（本机） | **34 passed**（128 s，含真实入库） | **199 passed** | **199 passed** |
-| 缓存不存在（模拟无凭证机器） | **25 passed, 9 skipped**（0.6 s） | **190 passed, 9 skipped** | 同上 |
+| 状态 | `pytest tests/ingest -q` | `pytest -q`（默认顺序） |
+|---|---|---|
+| 缓存存在（本机） | **49 passed**（160 s，含真实入库 + 21 万场全量分类 SQL） | **214 passed**（168 s） |
+| 缓存不存在（把 `tests/fixtures/kaggle` 移走） | **36 passed, 13 skipped**（0.75 s，**零失败**） | — |
 
-skip 的 9 条 = `sample_csv` 2 条 + `db_after_bootstrap` 7 条，跳过消息写明缓存路径、
-缺哪个凭证、以及补齐后要跑的命令。**零失败**。
+skip 的文案写明缓存路径、**"该数据集是 CC0，无需 Kaggle 凭证"**、以及补缓存的两条命令
+（`python -m ingest.kaggle_subset [--list-only]`）；上一版让用户去申请一个用不到的 token
+（评审 F8）。**零失败**。
 
 **变异守护（4 条，apply → run → restore → sha256 复原 `fab0262842d4` / `0cb7b7103810`）**：
 (a) 摘掉 20 手族 → `2 failed, 1 error`（顺序族分布 + 异常判定测试）；
@@ -7160,18 +7237,114 @@ skip 的 9 条 = `sample_csv` 2 条 + `db_after_bootstrap` 7 条，跳过消息�
    （时区若错 8 小时，补丁边界附近的场次会系统性错配）；未做直接的时区核对。
 3. **2,350 场 patch 列不吻合**已做距离诊断（2025 年度代表样本）：**251/251 = 100% 落在距最近
    补丁发布 <= 2 天之内** —— 与 Task 10 记录的两来源时间差（Valve 发布时间 vs patchdates 公告
-   时间，0–2 天）完全一致，即不吻合来自**补丁边界的时间差**而非归属规则出错。仍未做的是逐场
-   人工核对，也没给吻合率设断言阈值（只断言"可比对场次 > 1000 以免空过"）。
+   时间，0–2 天）完全一致，即不吻合来自**补丁边界的时间差**而非归属规则出错。本轮补齐了
+   **全量的差值分布**（1,613 个 `-1` + 737 个 `+1`，无 ±1 之外）并把它变成断言；仍未做的是
+   逐场人工核对。
 4. `draft_timings.csv`（240.7 MB）**下了但没入库** —— 规格 §10.2 说它只作补充（思考耗时），
    本任务的范围是 BP 序列，故未写 loader。
 5. `teams` 仍为空：数据集里唯一带队名的是 `*/teams.csv`（55.4 MB，19 个文件），
    实测只覆盖约 66% 的 metadata team id，故**没有**纳入白名单（会把子集从 506.7 MB 推到 562 MB
    且仍有三分之一的队 id 解析不出）。补齐路径留给定计划 3（OpenDota `/teams` 或该文件）。
-6. Task 13 的 M1 异常率断言需按本记录修正：`anom/total < 0.02` 在"全部年份"口径下**成立**
-   （0.97%），但它的语义是"不符合任何一种实测合法顺序"；若要表达规格 §5.3 的
-   "可入模的现代模板比赛"，应改成 `WHERE n_draft_actions = 24` 或按 `order_family` 过滤。
+6. Task 13 的 M1 异常率断言**保持全库分母**：`anom/total < 0.02`（实测 2,048/211,051 = 0.97%）。
+   **不要**改成 `WHERE n_draft_actions = 24` —— 那个子集实测 **0/149,522**，任何阈值都恒真，
+   断言会空过（本计划 Task 12 的旧版修正意见里有这条错误建议，本轮已改正，见 Task 13 的修正块）。
+   要表达"可入模"是**另一个**条件，与异常率无关：`anomaly = false AND draft_state = 'complete'`
+   （实测 6,046 场 `pending` 满足 `anomaly=false` 却没有 BP 序列），并按其 `order_family` 对齐
+   `resolve`（规格 §10.1 已按此澄清）。
 
 ---
+
+#### Task 12 评审修复（2026-09-18；8 条发现全部修完 + 规格裁定落地）
+
+评审对未评审的 Task 12（853 行 loader + 808 行测试）提出 8 条发现。逐条修复与实证如下。
+（发现编号按评审原文：F8 = 凭证门的反讽；F1 = 假守护。其余按本节的分组对应。）
+
+**F1 · 归属断言是假守护（最高优先级）**。上一版的
+`test_patch_attribution_agrees_with_the_csv_opendota_patch_column` 的 docstring 承诺"低于 99%
+就失败"，但函数体**从没读过 CSV 的 `patch` 列**，唯一断言是 `agree > 1000` —— 而 `agree` 数的
+还是"可比对场次"。实证它守护不了任何东西：把 post-2018 的归属一律钳到 7.08
+（`patch_id_for` 里 `name = "7.08"`），旧断言仍成立（可比对 193,499 > 1000）。
+现在按三条硬断言重写（`tests/ingest/test_bootstrap.py`）：(a) post-2018 `patch_id IS NULL` 为 0；
+(b) 不吻合**只允许差 ±1 个粗粒度 patch id**；(c) 吻合率 >= 98% 且可比对场次 >= 190,000。
+实测 191,149/193,499 = **98.79%**，差值分布 **{−1: 1,613, +1: 737}**（无 ±1 之外）。
+
+**F2 · 族感知只活在一个 log 行里，下游用不上**。族的定义原本只在 `load_bootstrap.DRAFT_ORDERS`
+里，`draft_anomalies.detail->>'order_family'` 对全部 2,048 行都是 `null`、`matches` 也没有该列
+（契约 DDL 冻结，不加列）。现在抽成**可复用的唯一入口** `ingest/order_families.py`：
+
+| 导出 | 契约 |
+|---|---|
+| `DRAFT_ORDERS` | 十族模板（20/22/24 手），唯一权威 |
+| `family_for(n_actions, first_pick_team, actions)` | 族名或 `None`；`actions` 顺序无关；`n_actions != len(actions)` / 非法先手方 → `None` |
+| `is_legal(...)` | `family_for(...) is not None`（规格 §5.3 的 `anomaly=false` 口径） |
+| `resolve_in(family, ord, first_pick_team)` | 逐手 `(is_pick, team)`；**非 `spec_6_0_24` 族唯一正确的推导** |
+| `HAND_COUNTS` / `SPEC_FAMILY` / `closest_family` / `deviations` | 手数集合 {20,22,24} / `"spec_6_0_24"` / 最近族 / 逐手偏差 |
+
+`load_bootstrap` 只 import 并 re-export（保留 `matching_order` / `closest_order_family` 兼容别名）。
+**族是派生量、不落库**：由 `matches.n_draft_actions` + `matches.first_pick_team` + 该场
+`draft_actions` 唯一复算，消费方必须调用该 helper（契约写在模块 docstring 的表格里，
+规格 §6.0/§10.1/§15 同步澄清）。
+
+新增 `tests/ingest/test_order_families.py`（7 条）：纯函数契约 + **全量**数据侧守护：
+202,957 场 `anomaly=false` 且有 BP 序列的场次 **零未分类、恰好一族**（SQL 由 `DRAFT_ORDERS`
+生成，与入库用的 Python 实现互证），逐族支持度等于实测表，**入库写的 `matches.anomaly` 与
+独立判定逐场一致**；重跑稳定性用合成数据双跑（族分布逐项相同）。
+
+**F3 · 实测数字更正**（每条都给命令，可直接复跑）：
+
+| 原claim | 原文 | 实测 | 怎么测的 |
+|---|---|---|---|
+| §6.0 模板的全库匹配率 | 10.12% | **7.17%**（15,135/211,051）；占有 BP 序列场次 **7.38%**；10.12% 是 **24 手子集**的份额 | `pytest tests/ingest/test_order_families.py -q -k support_counts` 的 SQL；`15135/211051`、`15135/205005`、`15135/149522` |
+| 2026 覆盖率 | 100% | **99.59%**（14,131/14,189 有 BP 序列的 2026 场次；其余 58 场是异常） | SQL：`started_at >= '2026-01-01' AND n_draft_actions IS NOT NULL` vs 同口径命中 `spec_6_0_24` |
+| `unresolved_team_refs` | 137,371 | **150,809** | loader 统计（`stats["unresolved_team_refs"]`，日志可见） |
+| 10–19 手场次 | 1,022 | **1,060** | SQL：`count(*) WHERE n_draft_actions BETWEEN 10 AND 19` |
+| `leagues` 表行数 | 提交信息里写 1,808 | **1,557**（1,808 是逐目录累加和） | `SELECT count(*) FROM leagues`；本轮起运行摘要也改报表行数 |
+| BOM | "Kaggle 的 CSV 带 BOM（2016/2018 实测如此）" | **一个都没有**（49 个文件逐字节核对）；真正的坑是**首列空列名**（2016–2023 的 24 个 CSV） | `pytest tests/ingest/test_bootstrap.py -q -k no_bom` |
+| `ord` 列 | "2016/2018 带该列，与 `order` 逐行相同" | **2016–2023 都有**；**26,539 行为空 / 1,213 场**（2016 目录 632 场、2023 目录 581 场）；两列都有值的 2,972,716 行 0 处不一致。故 `order` 为主列 | `pytest tests/ingest/test_bootstrap.py -q -k ord_column_exists` |
+| `short_draft` 命名 | 20 手尾部 36 场记成"手太少" | 改名 **`unregistered_hand_count`**（手数未登记），并新增 `type_deviation` 的 20/22 手分支 | `detect_anomaly` 的单测 + `anomalies=2048` 不变 |
+
+> 注：`02650ae` 的提交信息里 `leagues 1,808` 与本条同源（历史提交信息不改写；以本表与
+> `SELECT count(*) FROM leagues` 为准）。`9ac55f8` 的提交信息里"BOM"同样按本表更正。
+
+**F4/F8 · 凭证门的反讽**：数据集是 CC0、端点匿名可用，但上一版 CLI 硬性要求凭证
+（`authenticate()` 失败即退出码 2），文档给出的复现命令在一台无凭证的机器上跑不出这份缓存 ——
+真正work的是 `KAGGLE_USERNAME=bogus KAGGLE_KEY=bogus`。现在：无凭证 → `AnonymousKaggleApi`
+（httpx，核心依赖）直接下载；有凭证 → 官方客户端（默认路径，缺依赖时退回匿名并警告）；
+匿名端点 401/403 → `KaggleCredentialsMissing` + 补齐提示（并写明"正常情况下不需要凭证"）；
+新增 `--list-only`。skip 文案也改成"无需 Kaggle 凭证"。实测见上面的「匿名路径实测」。
+
+**F5 · 规格澄清（裁定：选项 1）**：规格新增/改写 §6.0（`TEMPLATE` 是 2026 年族定义、契约不变、
+族感知下沉、< 2% 是全库口径）、§5.3（0.6% 的历史provenance + 本语料 0.97%）、§8①、§10.1
+（`anomaly=false AND draft_state='complete'` + 按 `order_family` 对齐）、§15（①②③ 重写 + ④⑤）。
+
+**F6 · 小项**：运行摘要改报**表行数（distinct）**并汇总 `duplicate_ord`；
+`short_draft` → `unregistered_hand_count`；Task 13 的修正块去掉
+`WHERE n_draft_actions = 24`（那会让断言空过：24 手子集实测 0/149,522），保持全库分母。
+
+**F7 · 顺带发现并修掉的真实缺陷（不是评审提出，是本轮新增测试逼出来的）**：
+`test_session_bootstrap_owns_its_own_database_and_leaves_the_shared_test_db_clean`
+原先与会话 fixture **共用** `<db>_test_bootstrap`，却要 DROP + CREATE 它 —— 排在该文件之后的
+任何数据侧测试都会连到一个已被重建/删除的库。实测：新增 `tests/ingest/test_order_families.py`
+后 **4 failed**（两条 SQL 家族测试 + BOM 计数 + CLI help 折行）。修法：隔离测试改用
+`<db>_test_isolation`（`ISOLATION_SUFFIX`，`bootstrap_dsn/open_bootstrap_connection` 支持后缀参数）。
+
+**变异守护（3 条，apply → run → restore → sha256 复原；restore 用备份而非 `git checkout`，
+因为被测文件本身是本轮未提交的修改）**：
+
+| 变异 | 结果 | 说明 |
+|---|---|---|
+| 把 post-2018 归属一律钳到 7.08 | `1 failed, 1 passed` | 新守护：吻合率 98.79% → **0.23%**，193,049 场差值超出 ±1；**同一变异下旧断言（可比对 193,499 > 1000）仍成立** |
+| `DRAFT_ORDERS.pop("cm20_b")`（摘掉一族） | `2 failed` | 全量分类测试（`classified 200,790 != universe 202,957`）+ 支持度表测试 |
+| `family_for` 退回"只认 `spec_6_0_24`" | `3 failed` | 纯函数契约 + 支持度表（loader 侧的异常数同时从 2,048 涨到 189,870，即 58.33% 那种坏法） |
+
+复原校验：`load_bootstrap.py` sha256 `33e89d92…`（复现前）/`order_families.py` `4e384429…`，
+三次变异后逐一比对一致。
+
+**测试计数（本轮实测）**：`pytest tests/ingest -q` → **49 passed**（160 s，含真实入库 + 21 万场
+全量分类 SQL）；全量 `pytest -q` → **214 passed**（168 s，上一版 199）；把
+`tests/fixtures/kaggle` 移走后 `pytest tests/ingest -q` → **36 passed, 13 skipped**（0.75 s，
+**零失败**；13 skip = `test_bootstrap` 11 条 + `test_order_families` 2 条，文案写明
+"无需 Kaggle 凭证"）；移回后缓存 49 个 CSV / 483 MB 完好。
 
 ### Task 13: M1 验收
 
@@ -7222,8 +7395,7 @@ def test_m1_acceptance(db_after_bootstrap):
 Run: `pytest tests/test_m1_acceptance.py -q`
 Expected: **1 passed**
 
-> **Task 12 实测后对本任务的两条修正（2026-09-18，必须照改，否则这条验收要么找不到 fixture、
-> 要么用了错的口径）**：
+> **Task 12 实测后对本任务的两条修正（2026-09-18；第 2 条已于 2026-09-18 本轮评审修复时改正）**：
 >
 > 1. **fixture 可见性**：`db_after_bootstrap` 定义在 `tests/ingest/conftest.py` 里（Task 12 的
 >    Files 就是这么定的），而本任务的测试文件在 `tests/` 下 —— **跨目录的 conftest 不生效**，
@@ -7231,12 +7403,15 @@ Expected: **1 passed**
 >    `tests/test_m1_acceptance.py` 顶部加一行
 >    `pytest_plugins = ["tests.ingest.conftest"]`（本仓 `tests/` 与 `tests/ingest/` 都有
 >    `__init__.py`，故模块路径就是这个）。
-> 2. **异常率的口径**：`anom / total < 0.02` 在"全部年份"口径下**成立**（实测 0.97% =
->    2,048/211,051），但 `anomaly` 的语义是"不符合任何一种**实测的合法 CM 顺序**"，
->    不等于规格 §5.3 的"可入模的现代模板比赛"。若要表达后者，把第 3 条改成
->    `WHERE n_draft_actions = 24`（或按 `draft_actions` 复算的顺序族过滤）—— 详见
->    Task 12 实测记录里的顺序族表：20/22 手是 2016–2020 的历史顺序，24 手里也只有
->    `spec_6_0_24` 一族与 `shared/draft_template.TEMPLATE` 一致。
+> 2. **异常率的口径：保持全库分母，断言全库比率。**
+>    `anom / total < 0.02` 在"全部年份"口径下**成立**（实测 0.97% = 2,048/211,051），
+>    这就是规格 §15 的口径（全库），**原样保留**。
+>    ⚠ 上一版这里建议改成 `WHERE n_draft_actions = 24` —— **那是错的，会让断言空过**：
+>    24 手子集的异常数实测 **0/149,522**，任何 `< 2%` 阈值都恒真。**不要**加这个 WHERE。
+> 3. **"可入模"是另一个条件，不要塞进异常率断言**：规格 §10.1 澄清后是
+>    `anomaly = false AND draft_state = 'complete'`（实测 6,046 场 `pending` 满足
+>    `anomaly=false` 却没有 BP 序列），且下游必须按 `order_family` 对齐 `resolve`
+>    （`ingest.order_families`）。M1 的异常率条款只要求"异常场次占比 < 2%"。
 >
 > 另：`test_m1_acceptance` 会用到 `db_after_bootstrap`，即**整个 211,051 场的真实入库**
 > （约 2 分钟/次），这是会话级 fixture 的设计意图（每 session 只跑一次）。
@@ -7293,11 +7468,17 @@ git commit -m "test: M1 验收（127/501/84/异常率/三表可查/token 索引/
    （关键字 `all` / `any` / `none`，如 `splitpush = {"all": ["Carry", "Escape"], "none": ["Pusher"]}`），
    由求值器解释，`RULES` 退化成它的默认值与测试基准。
 
-**Kaggle 引导数据集（Task 12 收尾，2026-09-18）**：CSV 的列名与 `order` 起始值**已对真实数据
-核对完毕**（结论与计划原文的假设不同三处：`start_date_time` 而非 `start_time`、没有 `league_name`、
-`order` 是浮点字符串），并已在两个年度目录上实测 `min(order) == 0`。本机凭证缺失，但该数据集是
-CC0 公共数据集、其清单/下载接口对无有效凭证的请求也返回数据，故 506.7 MB 子集**已实际下载并全量
-入库**（211,051 场 / 4,772,342 手 / 异常率 0.97%），数据侧测试不再 skip。**仍未验证**的部分逐条列在
-Task 12 实测记录里（下载端点的长期行为、`start_date_time` 的时区假设、2,350 场 patch 列不吻合的
-逐场归因、`draft_timings.csv` 未入库、`teams` 仍为空）。缺缓存时相关测试仍会 `skip` 而非变红
-（实测 190 passed / 9 skipped）。
+**Kaggle 引导数据集（Task 12 收尾 + 评审修复，2026-09-18）**：CSV 的列名与 `order` 起始值**已对
+全部 49 个真实文件逐列核对**（与计划原文的假设不同：`start_date_time` 而非 `start_time`、没有
+`league_name`、`order` 是浮点字符串、**没有 BOM**、首列是空列名、`ord` 列 2016–2023 存在且
+26,539 行为空），全部 19 个目录实测 `min(order) == 0`。该数据集是 CC0 公共数据集、其清单/下载
+接口对无有效凭证的请求也返回数据，故 506.7 MB 子集**已实际下载并全量入库**（211,051 场 /
+4,772,342 手 / 异常率 0.97%），数据侧测试不再 skip；**CLI 已改成无凭证也能直接下载**
+（评审 F8）。**仍未验证**的部分逐条列在 Task 12 实测记录里（下载端点的长期行为、
+`start_date_time` 的时区假设、2,350 场 patch 列不吻合的逐场归因、`draft_timings.csv` 未入库、
+`teams` 仍为空）。缺缓存时相关测试仍会 `skip` 而非变红（实测 36 passed / 13 skipped，零失败）。
+
+**顺序族契约（评审 F2，2026-09-18）**：`ingest/order_families.py` 是族判定的唯一入口
+（`DRAFT_ORDERS` / `family_for` / `is_legal` / `resolve_in`），族是**派生量、不落库**；
+`shared/draft_template.resolve()` 只对 `spec_6_0_24` 族正确。规格 §6.0/§5.3/§8①/§10.1/§15
+已按裁定（选项 1）澄清：契约不变、族感知下沉到 ingest/analysis/models。
