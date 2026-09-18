@@ -1,12 +1,12 @@
 # 交接说明
 
-**更新于**：2026-09-18（Task 12 评审修复轮）
+**更新于**：2026-09-18（Task 13 完成 —— 本计划的 13 个任务全部落地）
 **当前分支**：`plan-1-contract-and-data-foundation`（在 `.worktrees/plan-1-contract-and-data-foundation`）
-**已完成**：Task 1–12 / 共 13 —— **M0（契约冻结）已达成，M1（数据地基）的常量层与引导数据集已入库**
-**下一步**：Task 13（M1 验收）。文末的「24 手模板只匹配 2026 年手序」**已由人裁决（选项 1，2026-09-18）**：契约不变、族感知下沉到 ingest/analysis/models，规格 §6.0/§5.3/§8①/§10.1/§15 已澄清
+**已完成**：**Task 1–13 / 共 13** —— **M0（契约冻结）与 M1（数据地基）均已达成**；M1 验收门在 `tests/test_m1_acceptance.py`（缺数据即失败、不跳过）
+**下一步**：开三条并行 worktree（线 A 画像/剧本引擎、线 C 序列模型、前端）——计划 2/3/4/5 尚未编写。文末的「24 手模板只匹配 2026 年手序」**已由人裁决（选项 1，2026-09-18）**：契约不变、族感知下沉到 ingest/analysis/models，规格 §6.0/§5.3/§8①/§10.1/§15 已澄清
 **族感知的唯一入口**：`ingest/order_families.py`（`DRAFT_ORDERS` / `family_for` / `is_legal` / `resolve_in`）；族是**派生量、不落库**，`shared/draft_template.resolve()` 只对 `spec_6_0_24` 族正确
 **M0 冻结提交**：`64c89a9`（M0 的代码与计划都在这个提交上）。⚠ **它不再是并行线的基点**：`64c89a9` 里**没有 `ingest/`**（族判定的唯一权威 `ingest/order_families.py` 在 Task 12 才落地），也早于 §6.0 的澄清；线 A / 线 C / 前端一律从**当前 HEAD** 开（或先把本分支 merge 进去），见下方三条线的命令
-**当前 HEAD**：`243f610`（Task 12 修复收尾）+ 本轮「Task 12 质量评审修复」三个提交 —— `fix(ingest): 族分类对 ord 空洞不抛异常 + 目录级 preflight + 汇总日志补两项`、`docs(handoff): 无凭证可下载、HEAD 与并行线基点更正`、`docs(plan): Task 13 验收不得空过（1 passed, 0 skipped）`。`pytest tests/ingest -q`：**50 passed**（含真实 Kaggle 数据入库，约 160 秒）；`pytest -q`：**215 passed**
+**当前 HEAD**：`1ff8bb5`（Task 13 验收门）。`pytest -q`：**216 passed**（含真实 Kaggle 数据入库的一次完整 bootstrap，约 3 分钟）；`pytest tests/contracts tests/constants tests/db tests/shared -q`（快速子集）：**165 passed / <1 秒**。M1 实测：`matches` 211,051、`draft_actions` 4,772,342、`leagues` 1,557、`patches` 118/84 字母、`heroes` 127、`items` 501、`anomaly` 2,048 = **0.97%**、`pending` 6,046、2018 前 17,552（8.32%）且 `patch_id IS NULL`、晚归属 NULL **0**、族判定 **202,957/202,957**
 
 ---
 
@@ -294,14 +294,15 @@ ingest/analysis/models**。规格已按此澄清（§6.0 新增一段、§5.3/§
 - **Task 12** 引导数据集：**该数据集无需 Kaggle 凭证即可下载**（CC0；本轮起 CLI **无凭证也直接能跑** —— 无凭证走匿名 HTTP 端点、有凭证走官方客户端，`--list-only` 可只看清单不下载）。缓存 498 MB 在 `tests/fixtures/kaggle/`（已 gitignore）。实测 M1 数字：`matches` **211,051**、`draft_actions` **4,772,342**、`leagues` **1,557**、`anomaly=true` **2,048 = 0.97%**、2018 前 **17,552（8.3%）且 `patch_id IS NULL`**、2018 后晚归属 NULL **0**。
 - **已知空缺**：`teams` 为空（CSV 不含队名），`matches.*_team_id` 为 NULL，需 Plan 3 用 `Constants/Constants.Leagues.csv` 之外的来源补全；另有 **3 个 `league_id`（20159 / 20169 / 20206）在 `Constants/Constants.Leagues.csv` 里查不到** → 这 **69 场** 的 `matches.league_id` 为 NULL（入库摘要现在会逐个报出 id 与场次数）。
 
-## 评审债（下一会话请补）
+## 评审债状态（2026-09-18 收尾）
 
-本轮 Task 3–10 都走完了"实施者 → 规格评审 → 质量评审 → 修复 → 复审"。**未走完的是**：
+Task 3–12 都走完了「实施者 → 规格评审 → 质量评审 → 修复 → 复审」，且 **Task 11 第二轮复审 ✅**、**Task 12 规格+质量评审与两轮修复 ✅**（含把一处"假守护"——把 2018 年后所有比赛强行归到 7.08 而 34 条测试照样全绿——换成真断言并经变异证明）。
 
-1. **Task 11 的第二轮修复**（`0ff2a56`/`2c12762`/`e955ff1`：快照冻结守护等）**尚未独立复审**；
-2. ~~**Task 12 完全没有评审**~~ → **已评审并修复（2026-09-18）**：8 条发现全部修完，见计划
-   「### Task 12 评审修复」；随后又走了一轮**质量评审**（ord 空洞不抛异常 / 目录级 preflight /
-   汇总日志补两项 + Task 13 不得空过），三个提交列在本文件开头「当前 HEAD」一行；评审债已清。
-3. **Task 13 未开始**（它的验收测试**缺缓存时必须失败**，不是 skip —— 见计划 Task 13 的修正块）。
+**仍未走的是 Task 13 自己的两段评审**（`1ff8bb5` 只派了实施者）：规格评审（验收口径是否与规格 §14/§15 一致、有没有把 M0 条款冒充 M1）与质量评审（断言是否够强、缺数据时是否真的失败而非空过）。按本项目已多次证实的经验，这两处最可能发现的是"绿而不守"的断言，请照 Task 6/9 的做法要求评审者**执行变异验证**（改坏被测对象，确认变红），而不是只读代码。
 
-按本项目已证实的经验，这两处复审最可能发现的是"绿而不守"的断言与跨套件污染，请照 Task 6/9 的做法要求评审者**执行变异验证**（改坏被测对象，确认测试变红），而不是只读代码。
+**已知的非阻塞残余**（都有记录，不影响 M1 达成）：
+
+- Task 11 的 `hero_token_index` 快照冻结守护只看 `hero_token_index` 是否为空，**首次装载路径不看 `heroes`**；后果由 M1-6 的 dense_index 派生规则兜住，但装载时不会立刻报错。
+- 真实 roster 变更时 `load_constants` **没有删除退役英雄的路径**（每个英雄都被 `draft_actions` 外键引用，删除会被 FK 拒绝）——下次提升 `SNAPSHOT_VERSION` 时会撞上。
+- `analysis/` 与 `models/` 仍是空包（`.gitkeep`）；线 A / 线 C 的实现属计划 2/3。
+- `teams` 为 0 行（CSV 不含队名，`matches.*_team_id` 为 NULL）、`draft_timings.csv`（240.7 MB）下载但未入库、§5.1 要求 3 的跨快照不变性检查归 Plan 2。
