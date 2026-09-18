@@ -7385,8 +7385,41 @@ skip 的文案写明缓存路径、**"该数据集是 CC0，无需 Kaggle 凭证
 - [ ] **Step 1: 写验收脚本（逐条对应规格 §14 的 M1）**
 
 ```python
-def test_m1_acceptance(db_after_bootstrap):
-    db = db_after_bootstrap
+import pathlib
+
+import pytest
+
+CACHE = pathlib.Path(__file__).parents[1] / "tests" / "fixtures" / "kaggle"
+
+
+@pytest.fixture(scope="session")
+def m1_db(request):
+    """M1 验收的数据入口：**缺缓存时返回 `None`（不 skip、也不 raise），由测试体自己 fail**。
+
+    `db_after_bootstrap` 缺缓存时 `pytest.skip` —— 本文件若直接请求它，报告会是 "1 skipped"、
+    退出码 0，看起来像"验收通过"。**没有数据的 M1 不是 M1**：skip 是给"数据侧补充测试"的礼貌
+    （缓存缺失时不该让整个套件变红），不是给验收的。
+
+    两点实现约束：(1) 缺缓存时**不能**请求 `db_after_bootstrap`，否则 skip 在 fixture setup 阶段
+    就发生了，测试体根本没机会说话；(2) 这里也**不能** `pytest.fail`/`assert` —— fixture 里抛异常
+    会被记成 **error 而不是 failed**，报告读起来还是"不是验收失败"。
+
+    **不要**在本文件顶部写 `pytest_plugins = ["tests.ingest.conftest"]`（旧修法）：单独跑本文件
+    能用，但全量 `pytest -q` 时该 conftest 已作为插件注册，直接
+    `ValueError: Plugin already registered` 中止收集。`db_after_bootstrap` 已因此**上移到根
+    `tests/conftest.py`**（两处都能解析，引导入库仍只跑一次）。
+    """
+    if not any(CACHE.glob("*/picks_bans.csv")):
+        return None
+    return request.getfixturevalue("db_after_bootstrap")
+
+
+def test_m1_acceptance(m1_db):
+    from tests.ingest.conftest import missing_dataset_message
+
+    assert m1_db is not None, (
+        f"M1 验收不能空过：缺数据时本测试**失败**（不是 skip）—— {missing_dataset_message()}")
+    db = m1_db
 
     # 条款 1：常量表英雄 = 127、道具 = 501
     assert db.execute("SELECT count(*) FROM heroes").fetchone()[0] == 127
@@ -7406,7 +7439,9 @@ def test_m1_acceptance(db_after_bootstrap):
     # 条款 4：matches / draft_actions / leagues 可查
     assert db.execute("SELECT count(*) FROM draft_actions").fetchone()[0] > 200000
     assert db.execute("SELECT count(*) FROM leagues").fetchone()[0] > 50
-    assert db.execute("SELECT count(*) FROM matches LIMIT 1").fetchone()[0] == 1
+    # 「可查」= 能取出一行。⚠ 原文写的是 `SELECT count(*) FROM matches LIMIT 1) == 1` —— 那是错的：
+    # `count(*)` 返回表的总行数（实测 211,051），LIMIT 只作用于聚合后的那一行，永远不等于 1。
+    assert db.execute("SELECT 1 FROM matches LIMIT 1").fetchone() == (1,)
 
     # 补充：token 索引完备且满足派生规则
     assert db.execute("SELECT count(*) FROM hero_token_index").fetchone()[0] == 127
@@ -7424,16 +7459,27 @@ def test_m1_acceptance(db_after_bootstrap):
 - [ ] **Step 2: 运行**
 
 Run: `pytest tests/test_m1_acceptance.py -q`
-Expected: **1 passed**
+Expected: **1 passed, 0 skipped**
 
-> **Task 12 实测后对本任务的两条修正（2026-09-18；第 2 条已于 2026-09-18 本轮评审修复时改正）**：
+> **缓存缺失时的期望行为是 `1 failed`（不是 `1 skipped`）**：这一条是 2026-09-18 质量评审的
+> 修复（Fix 4）——上一版写法直接请求 `db_after_bootstrap`，缓存不在时得到 `1 skipped`、退出码 0，
+> 在没下过数据的机器上会**看起来像验收通过**。`m1_db` + 测试体内 `assert` 的组合已在真实环境
+> 两侧都验过：缓存存在 → `1 passed, 0 skipped`（全量 `pytest -q` = **216 passed**，含本测试）；
+> 把 `tests/fixtures/kaggle` 移走 → `1 failed`（报错文案就是 `missing_dataset_message()` 里那两条
+> 补齐命令），套件其余部分不受影响（数据侧仍 `skip`：`tests/ingest` = `37 passed, 13 skipped`，
+> 全量 = `202 passed, 13 skipped` + 本测试 `1 failed`）。
+
+> **Task 12 实测后对本任务的修正（2026-09-18；第 2 条于本轮评审修复时改正、第 4 条为本轮质量评审新增）**：
 >
-> 1. **fixture 可见性**：`db_after_bootstrap` 定义在 `tests/ingest/conftest.py` 里（Task 12 的
->    Files 就是这么定的），而本任务的测试文件在 `tests/` 下 —— **跨目录的 conftest 不生效**，
->    直接跑会以 `fixture 'db_after_bootstrap' not found` 报错。修法：在
->    `tests/test_m1_acceptance.py` 顶部加一行
->    `pytest_plugins = ["tests.ingest.conftest"]`（本仓 `tests/` 与 `tests/ingest/` 都有
->    `__init__.py`，故模块路径就是这个）。
+> 1. **fixture 可见性（2026-09-18 质量评审核正）**：`db_after_bootstrap` 原定义在
+>    `tests/ingest/conftest.py`（Task 12 的 Files 就是这么定的），而本任务的测试文件在 `tests/`
+>    下 —— **跨目录的 conftest 不生效**。上一版给的修法
+>    `pytest_plugins = ["tests.ingest.conftest"]` **只对"单独跑本文件"有效**：全量
+>    `pytest -q` 收集 `tests/` 时该 conftest 已注册为插件，测试模块再登记一次即
+>    `ValueError: Plugin already registered under a different name`（pytest 9.1.1 实测），
+>    整个会话中止在收集阶段。**正确修法是上移 fixture**：`db_after_bootstrap` 现在住在根
+>    `tests/conftest.py`（本评审轮已改），`tests/ingest/` 与本文件都能解析它，且引导入库
+>    仍只跑一次、引导库仍是同一个 `<db>_test_bootstrap`。
 > 2. **异常率的口径：保持全库分母，断言全库比率。**
 >    `anom / total < 0.02` 在"全部年份"口径下**成立**（实测 0.97% = 2,048/211,051），
 >    这就是规格 §15 的口径（全库），**原样保留**。
@@ -7443,8 +7489,19 @@ Expected: **1 passed**
 >    `anomaly = false AND draft_state = 'complete'`（实测 6,046 场 `pending` 满足
 >    `anomaly=false` 却没有 BP 序列），且下游必须按 `order_family` 对齐 `resolve`
 >    （`ingest.order_families`）。M1 的异常率条款只要求"异常场次占比 < 2%"。
+> 4. **验收不得空过（本轮 Fix 4）**：本文件必须经 `m1_db` 取数，**不能**直接请求
+>    `db_after_bootstrap`。后者缺缓存时 `pytest.skip`，于是本文件会报 `1 skipped`、退出码 0 ——
+>    在没跑过 `python -m ingest.kaggle_subset` 的机器上那看起来就是"验收通过"。M1 的验收对象
+>    就是那份数据，**没有数据的 M1 是失败**：缺缓存 → `1 failed` 并打印补齐命令。
+>    套件其余部分的行为不变（数据侧测试缓存缺失时仍 `skip`，零失败）。
+> 5. **条款 4 的"可查"断言原文是错的（本轮实测发现并改正）**：原文
+>    `db.execute("SELECT count(*) FROM matches LIMIT 1").fetchone()[0] == 1` 在真实数据上
+>    必然失败（`count(*)` 是表的总行数，LIMIT 只作用于聚合后的那一行；实测 `211051 == 1` 失败）。
+>    已改成 `SELECT 1 FROM matches LIMIT 1` 取出一行 —— 这才是"可查"。**注意这条与本文件
+>    其余断言一样，必须真的跑一遍才知道对错**：前四条（127/501、84 字母子版本、异常率 < 2%、
+>    draft_actions/leagues 数量）在真实缓存上实测全部通过，条款 4 只有这一行是坏的。
 >
-> 另：`test_m1_acceptance` 会用到 `db_after_bootstrap`，即**整个 211,051 场的真实入库**
+> 另：`test_m1_acceptance` 走 `m1_db` → `db_after_bootstrap`，即**整个 211,051 场的真实入库**
 > （约 2 分钟/次），这是会话级 fixture 的设计意图（每 session 只跑一次）。
 
 - [ ] **Step 3: Commit**
@@ -7507,7 +7564,8 @@ git commit -m "test: M1 验收（127/501/84/异常率/三表可查/token 索引/
 4,772,342 手 / 异常率 0.97%），数据侧测试不再 skip；**CLI 已改成无凭证也能直接下载**
 （评审 F8）。**仍未验证**的部分逐条列在 Task 12 实测记录里（下载端点的长期行为、
 `start_date_time` 的时区假设、2,350 场 patch 列不吻合的逐场归因、`draft_timings.csv` 未入库、
-`teams` 仍为空）。缺缓存时**数据侧**测试仍会 `skip` 而非变红（实测 37 passed / 13 skipped，零失败）。
+`teams` 仍为空）。缺缓存时**数据侧**测试仍会 `skip` 而非变红（实测 37 passed / 13 skipped，零失败）；
+**唯一的例外是 Task 13 的 M1 验收**：它缺缓存时**失败**（Fix 4，见 Task 13 的修正块第 4 条）。
 
 **顺序族契约（评审 F2，2026-09-18）**：`ingest/order_families.py` 是族判定的唯一入口
 （`DRAFT_ORDERS` / `family_for` / `is_legal` / `resolve_in`），族是**派生量、不落库**；
