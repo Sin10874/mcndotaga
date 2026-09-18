@@ -5,8 +5,8 @@
 **已完成**：Task 1–12 / 共 13 —— **M0（契约冻结）已达成，M1（数据地基）的常量层与引导数据集已入库**
 **下一步**：Task 13（M1 验收）。文末的「24 手模板只匹配 2026 年手序」**已由人裁决（选项 1，2026-09-18）**：契约不变、族感知下沉到 ingest/analysis/models，规格 §6.0/§5.3/§8①/§10.1/§15 已澄清
 **族感知的唯一入口**：`ingest/order_families.py`（`DRAFT_ORDERS` / `family_for` / `is_legal` / `resolve_in`）；族是**派生量、不落库**，`shared/draft_template.resolve()` 只对 `spec_6_0_24` 族正确
-**M0 冻结提交**：`64c89a9`（代码与计划都在这个提交上）。本文件自身的最后更新在它**之后**——开 worktree 一律用 `64c89a9`（见开头三条线的命令）
-**当前 HEAD**：`02650ae`（Task 12 完成）+ 本轮「Task 12 评审修复」三个提交（见文末）。`pytest tests/ingest -q`：**49 passed**（含真实 Kaggle 数据入库，约 160 秒）
+**M0 冻结提交**：`64c89a9`（M0 的代码与计划都在这个提交上）。⚠ **它不再是并行线的基点**：`64c89a9` 里**没有 `ingest/`**（族判定的唯一权威 `ingest/order_families.py` 在 Task 12 才落地），也早于 §6.0 的澄清；线 A / 线 C / 前端一律从**当前 HEAD** 开（或先把本分支 merge 进去），见下方三条线的命令
+**当前 HEAD**：`243f610`（Task 12 修复收尾）+ 本轮「Task 12 质量评审修复」三个提交 —— `fix(ingest): 族分类对 ord 空洞不抛异常 + 目录级 preflight + 汇总日志补两项`、`docs(handoff): 无凭证可下载、HEAD 与并行线基点更正`、`docs(plan): Task 13 验收不得空过（1 passed, 0 skipped）`。`pytest tests/ingest -q`：**50 passed**（含真实 Kaggle 数据入库，约 160 秒）；`pytest -q`：**215 passed**
 
 ---
 
@@ -20,33 +20,37 @@
 
 开三条并行 worktree（线 A / 线 C / 前端）：
 
-> 从 M0 冻结提交开分支，**不要从 `main` 开**——`main` 停在 `c486c0d`，距离 M0 冻结提交 `64c89a9` 有 **25 个提交**（`git rev-list --count main..64c89a9`），**不含任何 M0 产出**：`contracts/openapi.yaml`、`contracts/fixtures/`、`contracts/tools/gen_ts_types.py`、`web/src/types/contract.ts`、`shared/` 全都不在 `main` 上。默认方式（从 `main`）建的 worktree 拿到的是一个空壳：目录在、文件不在，而且**不会报错**。
+> **基点 = 当前 HEAD，不是 `64c89a9`**：`64c89a9` 只到 M0，**不含 `ingest/`**（`order_families.py` 是 CM 顺序族的唯一权威，线 A 的 `analysis/` 与线 C 的 `models/` 都必须用它做族对齐），也早于规格 §6.0 的澄清。故线 A / 线 C / 前端一律**从当前 HEAD 开**（下一条命令用的就是这个分支名），或先把 `plan-1-contract-and-data-foundation` merge 进各自分支。
+>
+> **同时也不要从 `main` 开**：`main` 停在 `c486c0d`，距离 M0 冻结提交 `64c89a9` 有 **25 个提交**（`git rev-list --count main..64c89a9`），**不含任何 M0 产出**：`contracts/openapi.yaml`、`contracts/fixtures/`、`contracts/tools/gen_ts_types.py`、`web/src/types/contract.ts`、`shared/` 全都不在 `main` 上。默认方式（从 `main`）建的 worktree 拿到的是一个空壳：目录在、文件不在，而且**不会报错**。
 
 ## 目录情况
 
 | 位置 | 状态 |
 |---|---|
-| `.worktrees/plan-1-contract-and-data-foundation`（同名分支） | **在这里继续**。`.venv/` 已装好、依赖齐全；HEAD 含 Task 1–8 全部产出 |
+| `.worktrees/plan-1-contract-and-data-foundation`（同名分支） | **在这里继续**。`.venv/` 已装好、依赖齐全；HEAD 含 Task 1–12 全部产出（含 `ingest/` 与 §6.0 澄清） |
 | `/Users/xinzechao/MCNDOTAGA`（`main`） | **只有 Task 1–2**（`c486c0d`）。**没有 M0 的任何东西**，也没有 `.venv`。别从这里开 worktree、别在这里跑 pytest |
 | `/tmp/taskN.md` | 上一会话抽取的任务文本，**新会话不存在，需重新抽取** |
 
-**先做一件事（可选但推荐）**：把 `main` 快进到 M0 冻结提交，之后从 `main` 开 worktree 就安全了：
+**先做一件事（可选但推荐）**：把 `main` 快进到当前 HEAD，之后从 `main` 开 worktree 就安全了：
 
 ```bash
 cd /Users/xinzechao/MCNDOTAGA
 git checkout main && git merge --ff-only plan-1-contract-and-data-foundation
 ```
 
-**没快进就按基点开**（三条线各自的分支名按计划里的边界取）：
+**没快进就按基点开**（三条线各自的分支名按计划里的边界取；基点写**分支名**而不是写死某个 sha，
+这样它永远等于当前 HEAD，且含 `ingest/` 与 §6.0 澄清）：
 
 ```bash
 cd /Users/xinzechao/MCNDOTAGA
-git worktree add -b plan-2-analysis .worktrees/plan-2-analysis 64c89a9
-git worktree add -b plan-5-models   .worktrees/plan-5-models   64c89a9
-git worktree add -b plan-4-frontend .worktrees/plan-4-frontend 64c89a9
+git worktree add -b plan-2-analysis .worktrees/plan-2-analysis plan-1-contract-and-data-foundation
+git worktree add -b plan-5-models   .worktrees/plan-5-models   plan-1-contract-and-data-foundation
+git worktree add -b plan-4-frontend .worktrees/plan-4-frontend plan-1-contract-and-data-foundation
 ```
 
-（`64c89a9` = M0 冻结提交；用 `git log --oneline -1 plan-1-contract-and-data-foundation` 随时复核。
+（用 `git log --oneline -1 plan-1-contract-and-data-foundation` 随时复核基点。`64c89a9` 只是 M0 冻结提交，
+**不要**再拿它当线 A / 线 C / 前端的基点：它没有 `ingest/`、也早于 §6.0 澄清。
 新 worktree 里**没有 `.venv`**——要么从本 worktree 复制，要么在新 worktree 里重新
 `python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"`。）
 
@@ -210,7 +214,7 @@ export DATABASE_URL="postgresql://dota@localhost:55432/dota"
 | 12 | Kaggle 引导数据集（506 MB 子集） | Task 11 |
 | 13 | M1 验收 | Task 12 |
 
-**Task 12 的前置**：需要 Kaggle 凭证（`KAGGLE_USERNAME` / `KAGGLE_KEY`）。凭证缺失时相关测试应 `skip` 而非变红。另需先 `python -m pip install -e ".[dev,ingest]"`（`ingest` extra 含 `python-dotenv` 与 `kaggle`）。
+**Task 12 的前置**：**不需要 Kaggle 凭证** —— 该数据集是 CC0 公共数据集，`python -m ingest.kaggle_subset` 无凭证也直接能跑（无凭证走匿名 HTTP 端点、有凭证走官方客户端；`--list-only` 只看清单、不下载）。缓存缺失时数据侧测试 `skip` 而非变红（实测 37 passed / 13 skipped，零失败）——**唯一例外是 Task 13 的 M1 验收：缺缓存必须失败（不是 skip）**，见计划 Task 13。另需先 `python -m pip install -e ".[dev,ingest]"`（`ingest` extra 含 `python-dotenv` 与 `kaggle`）。
 
 ---
 
@@ -224,7 +228,7 @@ export DATABASE_URL="postgresql://dota@localhost:55432/dota"
 4. 评审发现问题 → **同一个实施者子代理**修（`send_message`），修完重新评审。
 5. 任务完成才进下一个。
 
-**三个 worktree 的边界**（规格 §11）：线 A → `db/` + `analysis/`，线 C → `models/`，前端 → `web/`。`shared/` 不属于任何一条线。契约冻结（Task 8）已完成——**三条线现在可以真正并行**，但三条都必须从 M0 冻结提交开（见开头）。
+**三个 worktree 的边界**（规格 §11）：线 A → `db/` + `analysis/`，线 C → `models/`，前端 → `web/`。`shared/` 不属于任何一条线。契约冻结（Task 8）已完成——**三条线现在可以真正并行**，但三条都必须从**当前 HEAD**开（见开头；`64c89a9` 只到 M0，不含 `ingest/`）。
 
 ---
 
@@ -242,7 +246,7 @@ Task 2 的实施者按控制者要求把计划里的代码块同步成了实现�
 
 M0（Task 1–8）已达成，契约冻结：`contracts/openapi.yaml` 通过 schema 校验、17 个 fixtures 全部通过契约校验、三条线的目录边界已建立。
 
-三条 worktree 从此可并行（基点提交 `64c89a9`；本说明文档的最后更新在它之后，只补充说明、不改产出）：线 A 做画像与剧本引擎（计划 3）、线 C 做序列模型（计划 5）、前端做可视化（计划 4）。M5 之前不建议动 `contracts/openapi.yaml`；确需变更时按上面的"三处一起改"流程走，并回头同步冻结基线。
+三条 worktree 从此可并行（基点 = **当前 HEAD**，见开头三条线的命令；`64c89a9` 只是 M0 冻结提交，**不含 `ingest/`**、也早于 §6.0 澄清）：线 A 做画像与剧本引擎（计划 3）、线 C 做序列模型（计划 5）、前端做可视化（计划 4）。M5 之前不建议动 `contracts/openapi.yaml`；确需变更时按上面的"三处一起改"流程走，并回头同步冻结基线。
 
 计划 2/3/4/5/6 尚未编写。
 
@@ -288,7 +292,7 @@ ingest/analysis/models**。规格已按此澄清（§6.0 新增一段、§5.3/§
 - **Task 10** 版本表：Valve 权威 118 版本 / 84 字母子版本；`dates[]` 位置映射（**不排序**，排序会与 §3.2 的 34/48/1 校准冲突）；**7.25 不移位**（移位会造出不存在的 7.25d）；7.06 有一个错档日期，已由"槽位不得早于前一系列 `main`"的通用不变式丢弃；`opendota_patch` 由 patchdates 的键导出（34/34 覆盖）。
 - **Task 11** 常量入库：六张表幂等写入；**快照冻结守护**（库中 `hero_token_index` 与本次派生不一致时拒绝写入并报错，防止静默重映射）；测试用 `commit=False` 留在 fixture 事务里，共享测试库保持 0 行。
 - **Task 12** 引导数据集：**该数据集无需 Kaggle 凭证即可下载**（CC0；本轮起 CLI **无凭证也直接能跑** —— 无凭证走匿名 HTTP 端点、有凭证走官方客户端，`--list-only` 可只看清单不下载）。缓存 498 MB 在 `tests/fixtures/kaggle/`（已 gitignore）。实测 M1 数字：`matches` **211,051**、`draft_actions` **4,772,342**、`leagues` **1,557**、`anomaly=true` **2,048 = 0.97%**、2018 前 **17,552（8.3%）且 `patch_id IS NULL`**、2018 后晚归属 NULL **0**。
-- **已知空缺**：`teams` 为空（CSV 不含队名），`matches.*_team_id` 为 NULL，需 Plan 3 用 `Constants/Constants.Leagues.csv` 之外的来源补全。
+- **已知空缺**：`teams` 为空（CSV 不含队名），`matches.*_team_id` 为 NULL，需 Plan 3 用 `Constants/Constants.Leagues.csv` 之外的来源补全；另有 **3 个 `league_id`（20159 / 20169 / 20206）在 `Constants/Constants.Leagues.csv` 里查不到** → 这 **69 场** 的 `matches.league_id` 为 NULL（入库摘要现在会逐个报出 id 与场次数）。
 
 ## 评审债（下一会话请补）
 
@@ -296,7 +300,8 @@ ingest/analysis/models**。规格已按此澄清（§6.0 新增一段、§5.3/§
 
 1. **Task 11 的第二轮修复**（`0ff2a56`/`2c12762`/`e955ff1`：快照冻结守护等）**尚未独立复审**；
 2. ~~**Task 12 完全没有评审**~~ → **已评审并修复（2026-09-18）**：8 条发现全部修完，见计划
-   「### Task 12 评审修复」与本节文末的提交列表；评审债已清。
-3. **Task 13 未开始**。
+   「### Task 12 评审修复」；随后又走了一轮**质量评审**（ord 空洞不抛异常 / 目录级 preflight /
+   汇总日志补两项 + Task 13 不得空过），三个提交列在本文件开头「当前 HEAD」一行；评审债已清。
+3. **Task 13 未开始**（它的验收测试**缺缓存时必须失败**，不是 skip —— 见计划 Task 13 的修正块）。
 
 按本项目已证实的经验，这两处复审最可能发现的是"绿而不守"的断言与跨套件污染，请照 Task 6/9 的做法要求评审者**执行变异验证**（改坏被测对象，确认测试变红），而不是只读代码。
