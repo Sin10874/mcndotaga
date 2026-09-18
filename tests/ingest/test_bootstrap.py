@@ -825,10 +825,14 @@ def test_cli_help_documents_the_anonymous_path_and_list_only(tmp_path):
 # ===========================================================================
 
 def test_missing_required_metadata_column_fails_loudly(db, synthetic_cache):
-    """列名契约：缺时间列时必须**指名报错**，而且要在写第一行之前。
+    """列名/文件契约：缺时间列或缺 `picks_bans.csv` 时必须**指名报错**，而且要在写第一行之前。
 
     规格 §17-7 的教训（列名/语义未验证）在这里变成运行期守护：列名由上游 CSV 决定，
     猜错了要立刻炸，且报错里要带上逻辑列名、可接受的别名与实际列名。
+
+    第二条（**目录级**）是质量评审补的：缺/改名 `picks_bans.csv` 的目录**不是**"这批比赛还没有
+    BP 序列"—— 上一版把它当 pending 静默入库（`draft_state='pending'` 看起来完全正常）。
+    实测 19 个真实目录两个文件成对出现，故"成对"是可断言的契约。
     """
     path = synthetic_cache / "2018" / "main_metadata.csv"
     text = path.read_text(encoding="utf-8").replace("start_date_time", "start_ts")
@@ -844,6 +848,18 @@ def test_missing_required_metadata_column_fails_loudly(db, synthetic_cache):
     # preflight 在任何 INSERT 之前：一行都不该写进去
     assert db.execute("SELECT count(*) FROM matches").fetchone()[0] == 0
     assert db.execute("SELECT count(*) FROM leagues").fetchone()[0] == 0
+
+    # 第二条：metadata 在、actions 文件被改名 → 报错点名目录，且一行都不写
+    path.write_text(text.replace("start_ts", "start_date_time"), encoding="utf-8")
+    actions = synthetic_cache / "2018" / "picks_bans.csv"
+    actions.rename(actions.with_name("picks_bans.csv.renamed"))
+    with pytest.raises(FileNotFoundError) as exc2:
+        load_bootstrap(db, cache_dir=synthetic_cache, commit=False, log=_nolog)
+    message = str(exc2.value)
+    assert "2018" in message and "picks_bans.csv" in message, message
+    assert "pending" in message, message                 # 报错要点明"不得当成 pending"
+    assert db.execute("SELECT count(*) FROM matches").fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM draft_actions").fetchone()[0] == 0
 
 
 def test_synthetic_bootstrap_writes_matches_actions_leagues_and_teams(db, synthetic_cache):
@@ -1025,7 +1041,23 @@ def test_bootstrap_reports_the_pre_2018_share_and_distinct_table_counts(db, synt
     累加和 —— 真实语料里同一个 `league_id` 出现在多个年度目录，累加和是 1,808 而表里只有
     1,557 行（多出 16%）。`duplicate_ord` 也必须进摘要（上一版只在 `draft_anomalies.detail`
     里，摘要里看不到）。
+
+    质量评审又补一类：`unnamed_leagues` / `unresolved_team_refs` 与"`Constants.Leagues.csv`
+    里查不到的 league_id"上一版**只算不报**（计划还写着后者"日志可见"）。这里把一个合成场次的
+    `leagueid` 改成 Constants 里没有的 id，断言三项统计与摘要文字都真的出现 —— 真实数据里
+    有 3 个这样的 id（20159 / 20169 / 20206，共 69 场）。
     """
+    meta = synthetic_cache / "2018" / "main_metadata.csv"
+    with open(meta, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    for row in rows:
+        if row["match_id"] == "900000006.0":
+            row["leagueid"] = "424242.0"
+    with open(meta, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
     lines: list[str] = []
     stats = _load(db, synthetic_cache, log=lines.append)
 
@@ -1039,11 +1071,20 @@ def test_bootstrap_reports_the_pre_2018_share_and_distinct_table_counts(db, synt
     assert stats["teams"] == db.execute("SELECT count(*) FROM teams").fetchone()[0] == 0
     assert "leagues_upserted" in stats and "teams_upserted" in stats
     assert "duplicate_ord" in stats and stats["duplicate_ord"] == 0
+    # 查不到名字的联赛：id 要逐个报出，场次要数出来（那 69 场的 league_id 就是 NULL）
+    assert stats["unnamed_leagues"] == 1
+    assert stats["league_ids_missing_from_constants"] == [424242]
+    assert stats["league_id_null_matches"] == 1
+    assert db.execute("SELECT league_id FROM matches WHERE match_id = 900000006"
+                      ).fetchone()[0] is None
     text = "\n".join(lines)
     assert "pre-2018" in text and "37.5%" in text, text
     assert "顺序族分布" in text and "patch 列交叉校验" in text, text
     assert "leagues=2" in text, text                    # 摘要报的是表行数
     assert "重复 ord=0" in text, text
+    assert f"名字缺失的引用：联赛 {stats['unnamed_leagues']} 处、队 " \
+           f"{stats['unresolved_team_refs']} 处" in text, text
+    assert "[424242]" in text and "league_id 写 NULL：1 场" in text, text
 
 
 def test_reload_is_idempotent_and_delete_then_insert_refreshes_actions(db, synthetic_cache):

@@ -29,6 +29,12 @@ BOM 的合成文件是**刻意构造的健壮性用例**（见 `FOLDER_STYLE` �
 隔离性不是靠注释保证的：`tests/ingest/test_bootstrap.py` 里
 `test_session_bootstrap_owns_its_own_database_and_leaves_the_shared_test_db_clean`
 用合成数据实际跑一次 `open_bootstrap_connection()`，再从另一个连接确认共享库 11 张表全为 0 行。
+
+**fixture 本身在根 conftest**（`tests/conftest.py::db_after_bootstrap`）：Task 13 的
+`tests/test_m1_acceptance.py` 也在 `tests/` 下，而跨目录的 conftest 不生效（旧修法
+`pytest_plugins = ["tests.ingest.conftest"]` 在全量收集时会以 `Plugin already registered` 中止）。
+本模块保留引导库的机制（`bootstrap_dsn` / `reset_database` / `drop_database` /
+`open_bootstrap_connection`）与合成数据集构造器。
 """
 from __future__ import annotations
 
@@ -293,24 +299,6 @@ def open_bootstrap_connection(test_dsn: str, cache_dir, *,
         conn.close()
         raise
     return conn
-
-
-@pytest.fixture(scope="session")
-def db_after_bootstrap(dsn):
-    """跑完常量入库 + Kaggle 引导入库的**独占数据库连接**（凭证/数据缺失则 skip）。
-
-    会话级：引导入库很慢，不能每个测试重跑一次。**不碰共享的 `dota_test`**（理由见模块
-    docstring）：这既避免 Task 11 的 18 个主键冲突，也避免未提交事务的锁把同 session 的
-    `load_constants(commit=False)` 挂死。
-    """
-    if not any(CACHE.glob("*/picks_bans.csv")):
-        pytest.skip(missing_dataset_message())
-    conn = open_bootstrap_connection(dsn, CACHE)
-    try:
-        yield conn
-    finally:
-        conn.close()
-        drop_database(bootstrap_dsn(dsn))
 
 
 @pytest.fixture(scope="session")

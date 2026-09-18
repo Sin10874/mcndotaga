@@ -19,6 +19,8 @@
 | 唯一性 | 族由上述三者**唯一复算**：`family_for` 返回 `None` 当且仅当该场不与任何已登记族逐手一致 |
 | **派生量，不落库** | `matches` **没有**族列，`draft_anomalies.detail->>'order_family'` 对异常行是 `null`。族一律现算；**不得**要求入库层加列（契约 §5.1 的 DDL 冻结），也**不得**在别处再抄一份 `DRAFT_ORDERS`（多份副本必然漂移） |
 | 模板选择 | `shared.draft_template.resolve()` **只对 `spec_6_0_24` 族正确**；其它族必须用本模块的 `resolve_in()` |
+| `resolve_in` 的错误行为 | 与 `shared.draft_template.resolve` 一致：**未知族名 / `first_pick_team` 不在 {0,1} → `ValueError`**（不回落、不猜）。`ord` 必须在该族手数内，越界即调用方违约 —— 两个调用方（`family_for` / `deviations`）都已先行跳过越界 ord |
+| 畸形输入 | ord 有**空洞**（如 20 手但 ords = `0..18, 20`）时 `family_for` 返回 `None`、`is_legal` 返回 `False`，**绝不抛异常**：入库循环跑 21 万场，一次 `IndexError` 就会中断整轮（违反规格 §5.3 的"不阻断入库"），下游拿 `is_legal(...)` 当过滤器同样会被打挂 |
 | 异常口径 | `family_for(...) is None` 且手数属于 `HAND_COUNTS` → `type_deviation`；手数不在 `HAND_COUNTS` 里 → 手数本身未登记。**时代不同但合法的顺序不是异常**（`anomaly=false`、`draft_state='complete'`） |
 
 ## 登记门槛与实测支持度
@@ -137,12 +139,31 @@ DRAFT_ORDERS: dict[str, tuple[tuple[bool, str], ...]] = {
 HAND_COUNTS: frozenset[int] = frozenset(len(template) for template in DRAFT_ORDERS.values())
 
 
+def _template(family: str) -> tuple[tuple[bool, str], ...]:
+    """族模板；未知族名一律 `ValueError`（`resolve_in` / `deviations` 共用同一错误口径）。"""
+    try:
+        return DRAFT_ORDERS[family]
+    except KeyError:
+        raise ValueError(f"未登记的族：{family!r}（已登记：{sorted(DRAFT_ORDERS)}）") from None
+
+
 def resolve_in(family: str, ord_: int, first_pick_team: int) -> tuple[bool, int]:
     """按**指定顺序族**推导该手的 `(is_pick, team)`，语义与 `shared.draft_template.resolve` 相同。
 
     `shared.draft_template.resolve` 只定义 §6.0 那一种（`spec_6_0_24`）；其它族一律走这里。
+
+    错误行为（**显式**，与 `shared.draft_template.resolve` 同一口径 —— 不回落、不猜）：
+
+    - 未知族名 → `ValueError`（回落成 `spec_6_0_24` 会把别的年代的手序静默错判）；
+    - `first_pick_team` 不在 {0,1} → `ValueError`（没有先手方就没有"应当是哪一队"）；
+    - `ord_` 必须在该族的手数内 —— 越界是**调用方违约**，故本函数不做钳位，直接由模板索引
+      拒绝（`IndexError`）。两个调用方都已先行跳过越界 ord：`family_for` 在整族比较前跳过
+      有空洞的输入，`deviations` 逐手跳过越界 ord。
     """
-    is_pick, who = DRAFT_ORDERS[family][ord_]
+    template = _template(family)
+    if first_pick_team not in (0, 1):
+        raise ValueError(f"first_pick_team 必须是 0 或 1，收到 {first_pick_team!r}")
+    is_pick, who = template[ord_]
     return is_pick, (first_pick_team if who == _F else 1 - first_pick_team)
 
 
@@ -161,6 +182,9 @@ def family_for(n_actions: int, first_pick_team: int | None,
     - `first_pick_team` 必须是 0/1；`None` 或不合法时返回 `None`（缺 ord=0 的场次本就算异常）。
     - `actions` 顺序无关；元素只需 `{"ord", "is_pick", "team"}` 三个键（`hero_id` 不参与判定）。
     - 同一场**至多**命中一族（同手数的模板两两不同），故返回值可以直接当分类用。
+    - **ord 有空洞时返回 `None`，不抛异常**：任一手落在该族手数之外（如 20 手却出现 ord=20），
+      这一族就不可能逐手一致，`continue` 到下一族即可。异常是**数据**（写进
+      `draft_anomalies.kinds`），不是崩溃 —— 见模块 docstring 的「畸形输入」行。
     """
     if first_pick_team not in (0, 1):
         return None
@@ -169,6 +193,8 @@ def family_for(n_actions: int, first_pick_team: int | None,
     for family, template in DRAFT_ORDERS.items():
         if len(template) != n_actions:
             continue
+        if any(not 0 <= int(a["ord"]) < len(template) for a in actions):
+            continue                          # ord 有空洞/越界：这一族不可能匹配，且模板索引会炸
         if all((bool(a["is_pick"]), int(a["team"])) == resolve_in(family, int(a["ord"]),
                                                                  first_pick_team)
                for a in actions):
@@ -184,10 +210,18 @@ def is_legal(n_actions: int, first_pick_team: int | None,
 
 def deviations(actions: Sequence[Mapping[str, object]], first_pick_team: int,
                family: str) -> list[dict]:
-    """该场与**指定族**的逐手偏差（`draft_anomalies.detail.deviations` 用）。"""
+    """该场与**指定族**的逐手偏差（`draft_anomalies.detail.deviations` 用）。
+
+    越界 ord（该族手数之外，如有空洞的 20 手场次里的 ord=20）**跳过而不是索引模板**：
+    逐手偏差只回答"与模板对不上的手"，"手本身缺了/多了"是 `kinds` 那一路的事实。
+    未知族名与 `resolve_in` 同一口径：`ValueError`。
+    """
+    template_len = len(_template(family))
     out = []
     for action in _sorted_actions(actions):
         ord_ = int(action["ord"])
+        if not 0 <= ord_ < template_len:
+            continue
         want_pick, want_team = resolve_in(family, ord_, first_pick_team)
         if bool(action["is_pick"]) != want_pick or int(action["team"]) != want_team:
             out.append({"ord": ord_, "is_pick": bool(action["is_pick"]),

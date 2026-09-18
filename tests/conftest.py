@@ -67,6 +67,34 @@ def db(dsn):
         yield conn
         conn.rollback()
 
+@pytest.fixture(scope="session")
+def db_after_bootstrap(dsn):
+    """跑完常量入库 + Kaggle 引导入库的**独占数据库连接**（缓存缺失则 skip）。
+
+    **为什么定义在根 conftest**：它有两个消费者 —— `tests/ingest/` 的数据侧测试，以及
+    `tests/test_m1_acceptance.py`（Task 13 的 M1 验收，按计划的 Files 放在 `tests/` 下）。
+    fixture 放在 `tests/ingest/conftest.py` 里时跨目录不生效；而"在验收文件顶部写
+    `pytest_plugins = ["tests.ingest.conftest"]`"这条旧修法**在全量运行时会炸**：收集
+    `tests/` 时该 conftest 已注册为插件，测试模块再登记一次即
+    `ValueError: Plugin already registered`（pytest 9.1.1 实测），整个会话中止在收集阶段
+    （单独跑该文件才看不出问题）。故把它上移到根 conftest：两处都能解析，且**只跑一次引导入库**。
+
+    引导库与隔离逻辑仍住在 `tests/ingest/conftest.py`（`open_bootstrap_connection` 等），
+    这里只做 fixture 包装。**不碰共享的 `dota_test`**（理由见该模块 docstring）：这既避免
+    Task 11 的 18 个主键冲突，也避免未提交事务的锁把同 session 的 `load_constants(commit=False)` 挂死。
+    """
+    from tests.ingest.conftest import (CACHE, bootstrap_dsn, drop_database,
+                                       missing_dataset_message, open_bootstrap_connection)
+
+    if not any(CACHE.glob("*/picks_bans.csv")):
+        pytest.skip(missing_dataset_message())
+    conn = open_bootstrap_connection(dsn, CACHE)
+    try:
+        yield conn
+    finally:
+        conn.close()
+        drop_database(bootstrap_dsn(dsn))
+
 @contextmanager
 def expect_violation(conn, sqlstate: str | None = None,
                      constraint: str | tuple[str, ...] | None = None):

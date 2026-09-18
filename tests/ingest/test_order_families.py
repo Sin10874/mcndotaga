@@ -7,7 +7,8 @@
 本文件分三段：
 
 1. **纯函数**：登记表的自洽性、`family_for` 的契约（顺序无关、n_actions 必须等于 len、
-   `None` 的语义）、`spec_6_0_24` 逐字等于共享模板；
+   `None` 的语义、**ord 空洞只算不匹配而不抛异常**）、`resolve_in` 的显式错误行为、
+   `spec_6_0_24` 逐字等于共享模板；
 2. **全量数据侧**（需 506.7 MB 缓存）：202,957 场 `anomaly=false` 且有 BP 序列的场次
    **零未分类、恰好一族**，逐族支持度等于实测表，且入库写下的 `matches.anomaly` 与该判定
    逐场一致（两套独立实现互证）；
@@ -152,6 +153,51 @@ def test_family_for_contract_is_order_insensitive_and_rejects_inconsistent_input
 
     # 空 actions：0 手是 pending（规格 §5.2），不是"合法族"
     assert family_for(0, None, []) is None
+
+    # `resolve_in` 的错误行为是**显式**的（与 shared.draft_template.resolve 同一口径）：
+    # 未知族名 / 非法先手方 → ValueError，不回落、不猜。
+    from ingest.order_families import deviations, resolve_in
+    from shared.draft_template import resolve as spec_resolve
+
+    with pytest.raises(ValueError, match="未登记的族"):
+        resolve_in("cm24_zzz", 0, 0)
+    with pytest.raises(ValueError, match="first_pick_team"):
+        resolve_in("cm22_b", 0, None)
+    with pytest.raises(ValueError, match="未登记的族"):
+        deviations([], 0, "cm24_zzz")       # 未知族名：与 resolve_in 同一口径，不是 KeyError
+    assert resolve_in("spec_6_0_24", 23, 1) == spec_resolve(23, 1)
+
+
+def test_family_for_treats_an_ord_hole_as_no_match_and_never_raises():
+    """ord 有**空洞**（20 手，ords = `0..18` + `20`）时必须返回 `None`/`False`，不许抛异常。
+
+    这是入库路径上真实可达的输入：`load_bootstrap` 逐场调 `detect_anomaly`，而 21 万场的循环里
+    一次 `IndexError` 会中断整轮入库（违反规格 §5.3 的"不阻断入库"）；下游拿 `is_legal(...)`
+    当过滤器的代码同样会被打挂。上一版直接拿 `ord_` 索引族模板，遇到这种输入就炸。
+
+    变异守护：去掉 `family_for` 里"任一手 ord 超出该族模板即 `continue`"的那一行 → 本测试以
+    `IndexError` 失败（`resolve_in` 拿 `ord_=20` 去索引 20 手的 `cm20_a`）。
+    """
+    from ingest.load_bootstrap import detect_anomaly
+    from ingest.order_families import closest_family, deviations, family_for, is_legal
+
+    actions = [{"ord": ord_, "is_pick": is_pick, "team": team, "hero_id": ord_ + 1}
+               for ord_, is_pick, team, _hero in draft_actions_for("cm20_a", 0)]
+    holed = [a for a in actions if a["ord"] <= 18] + [{**actions[19], "ord": 20}]
+    assert [a["ord"] for a in holed] == [*range(19), 20], "构造失败：应当是 0..18 + 20"
+    assert len(holed) == 20, "手数仍是 20 —— 否则会早退在 n_actions != len(actions) 上，守护测不到"
+
+    assert family_for(20, 0, holed) is None
+    assert is_legal(20, 0, holed) is False
+    assert closest_family(20, 0, holed) is not None      # 偏差诊断同样不许抛
+    assert deviations(holed, 0, "cm20_a") == []         # 越界 ord 跳过，不是拿去索引模板
+
+    anomaly = detect_anomaly(holed, 0)                   # 入库调用方：异常是数据，不是崩溃
+    assert anomaly["kinds"] == ["type_deviation"], anomaly
+    assert anomaly["detail"]["n_actions"] == 20
+
+    # 负 ord 同样不许静默回绕（-1 会索引到模板最后一手，造出假命中）
+    assert family_for(20, 0, [{**holed[0], "ord": -1}, *holed[1:]]) is None
 
 
 def test_closest_family_points_at_the_least_deviating_registered_family():

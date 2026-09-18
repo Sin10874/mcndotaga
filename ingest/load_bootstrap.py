@@ -26,6 +26,14 @@
    （pandas 导出的 index 列，2016–2023 的 24 个 CSV —— 8 个目录 ×
    `main_metadata`/`picks_bans`/`draft_timings` —— 都有）。
    故列一律**按名字**解析（`resolve_columns`），不得按位置取；`utf-8-sig` 只是廉价保险。
+7. 联赛名/分级的**唯一来源**是 `Constants/Constants.Leagues.csv`（10,099 行）；实测有 **3 个
+   `league_id` 在那里查不到**（20159 / 20169 / 20206），涉及 **69 场** —— 这些场次的
+   `matches.league_id` 写 NULL，且**必须在运行摘要里逐个报出**（编造联赛名比留空更糟）。
+
+**目录级契约（规格 §17-7）**：`<folder>/main_metadata.csv` 与 `<folder>/picks_bans.csv` **必须成对
+出现**（实测 19 个真实目录都如此）。缺/改名 actions 文件的目录由 `actions_path_for` 在
+`preflight_columns` 里**报错**，不得被当成"这批比赛还没有 BP 序列"（上一版正是这么做的：改名一个
+文件会静默产出几万场 `pending`）。列名与文件存在性两项 preflight 都在写第一行之前完成。
 
 **前置：常量层必须先入库。** `draft_actions.hero_id` 是 `heroes(hero_id)` 的外键、
 `matches.patch_id` 是 `patches(patch_id)` 的外键，且归属要读 `patches`。没有它，第一条
@@ -235,22 +243,44 @@ def read_header(path: pathlib.Path) -> list[str]:
     return [n.strip() if isinstance(n, str) else n for n in row]
 
 
+def actions_path_for(folder: pathlib.Path) -> pathlib.Path:
+    """`<folder>/picks_bans.csv` 的路径；**文件不在就报错**（规格 §17-7 的"猜错必须炸"）。
+
+    上一版把"缺 `picks_bans.csv`"当成"这个目录的比赛都还没有 BP 序列"（全部 pending）——
+    那是把**契约违约写成了数据**：目录改名、下载中断、上游换文件名，都会静默变成几万场
+    "等数据"的比赛，而 `matches.draft_state` 看起来完全正常。实测 19 个真实目录**两个文件
+    成对出现**，故"成对"本身就可以断言。
+
+    `main_metadata.csv` 缺失的目录根本不会被扫到（`load_bootstrap` 只挑有 metadata 的目录），
+    所以这里只管 actions 这一侧。
+    """
+    path = folder / ACTIONS_FILENAME
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"{folder} 有 {METADATA_FILENAME} 却没有 {ACTIONS_FILENAME}：每个 <folder>/ 必须两个"
+            f"文件成对出现（实测 19 个真实目录都如此）。若下载被中断，重跑 "
+            f"`python -m ingest.kaggle_subset`（幂等，已下好的会跳过）；若上游改了文件名，"
+            f"先实测确认再改 ACTIONS_FILENAME —— **不得**当成 pending 静默入库。")
+    return path
+
+
 def preflight_columns(folders: Iterable[pathlib.Path], cache_dir: pathlib.Path) -> None:
     """**先**把所有输入文件的列名契约验完，再开始写。
 
     列名由上游决定（规格 §17-7 的未验证事项）。猜错时必须**在写第一行之前**炸：否则会跑完
     19 个目录里的前 18 个、写进几万场之后才因最后一个目录的列名报错 —— 虽然幂等重跑能收敛，
     但"看起来成功了一半"的运行本身就是误导。整个 preflight 只读表头，代价可忽略。
+
+    文件**存在性**也在这一步验（`actions_path_for`）：缺/改名 `picks_bans.csv` 的目录必须在这里
+    报错，而不是被当成"这场比赛还没有 BP 数据"。
     """
     leagues_path = cache_dir / LEAGUES_FILENAME
     if leagues_path.is_file():
         resolve_columns(read_header(leagues_path), LEAGUES_COLUMNS,
                         ("league_id", "name"), leagues_path)
     for folder in folders:
-        targets = [(folder / METADATA_FILENAME, METADATA_COLUMNS, REQUIRED_METADATA)]
-        actions_path = folder / ACTIONS_FILENAME
-        if actions_path.is_file():
-            targets.append((actions_path, ACTIONS_COLUMNS, tuple(ACTIONS_COLUMNS)))
+        targets = [(folder / METADATA_FILENAME, METADATA_COLUMNS, REQUIRED_METADATA),
+                   (actions_path_for(folder), ACTIONS_COLUMNS, tuple(ACTIONS_COLUMNS))]
         for path, spec, required in targets:
             resolve_columns(read_header(path), spec, required, path)
 
@@ -675,6 +705,7 @@ def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
                    "leagues": 0, "teams": 0, "leagues_upserted": 0, "teams_upserted": 0,
                    "anomalies": 0, "pending": 0, "actions_dropped": 0, "duplicate_ord": 0,
                    "orphan_action_matches": 0, "unnamed_leagues": 0, "unresolved_team_refs": 0,
+                   "league_ids_missing_from_constants": set(), "league_id_null_matches": 0,
                    "total": 0, "pre_2018": 0, "pre_2018_null_patch": 0, "post_2018_null_patch": 0,
                    "pre_2018_share": 0.0, "patch_column_agree": 0, "patch_column_mismatch": 0,
                    "patch_column_missing": 0, "patch_column_pre_2018": 0,
@@ -692,23 +723,32 @@ def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
         rows = [_metadata_row(r, mapping, meta_path) for r in raw_rows]
 
         actions_by_match: dict[int, tuple[list[dict], dict[str, int]]] = {}
-        actions_path = folder / ACTIONS_FILENAME
-        if actions_path.is_file():
-            a_fields, a_raw = read_csv(actions_path)
-            a_mapping = resolve_columns(a_fields, ACTIONS_COLUMNS, tuple(ACTIONS_COLUMNS),
-                                        actions_path)
-            parsed = [_action_row(r, a_mapping, actions_path) for r in a_raw]
-            ord_origin = detect_ord_origin(a["order"] for a in parsed)
-            grouped: dict[int, list[dict]] = defaultdict(list)
-            for action in parsed:
-                grouped[action["match_id"]].append(action)
-            for match_id, group in grouped.items():
-                actions_by_match[match_id] = normalize_actions(group, ord_origin=ord_origin)
+        actions_path = actions_path_for(folder)          # 缺文件在 preflight 已炸；这里再兜一次
+        a_fields, a_raw = read_csv(actions_path)
+        a_mapping = resolve_columns(a_fields, ACTIONS_COLUMNS, tuple(ACTIONS_COLUMNS),
+                                    actions_path)
+        parsed = [_action_row(r, a_mapping, actions_path) for r in a_raw]
+        ord_origin = detect_ord_origin(a["order"] for a in parsed)
+        grouped: dict[int, list[dict]] = defaultdict(list)
+        for action in parsed:
+            grouped[action["match_id"]].append(action)
+        for match_id, group in grouped.items():
+            actions_by_match[match_id] = normalize_actions(group, ord_origin=ord_origin)
 
         leagues, unnamed_leagues = _league_rows(rows, league_names)
         teams, unresolved_teams = _team_rows(rows)
         stats["unnamed_leagues"] += unnamed_leagues
         stats["unresolved_team_refs"] += unresolved_teams
+        for row in rows:
+            league_id = row["league_id"]
+            if league_id is None:
+                continue
+            if int(league_id) not in league_names:
+                # `Constants.Leagues.csv` 是联赛名的唯一来源（实测 metadata 没有该列）：
+                # 查不到就是查不到 —— 记下 id 并报出去，而不是安静地写 NULL。
+                stats["league_ids_missing_from_constants"].add(int(league_id))
+            if int(league_id) not in leagues:
+                stats["league_id_null_matches"] += 1
 
         if leagues:
             with conn.cursor() as cur:
@@ -747,6 +787,7 @@ def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
     stats["pre_2018_share"] = stats["pre_2018"] / stats["total"] if stats["total"] else 0.0
     stats["order_families"] = dict(stats["order_families"])
     stats["anomaly_kinds"] = dict(stats["anomaly_kinds"])
+    stats["league_ids_missing_from_constants"] = sorted(stats["league_ids_missing_from_constants"])
     # 表行数（distinct），不是逐目录累加和 —— 同一 league_id 会在多个目录里出现。
     stats["leagues"] = conn.execute("SELECT count(*) FROM leagues").fetchone()[0]
     stats["teams"] = conn.execute("SELECT count(*) FROM teams").fetchone()[0]
@@ -756,6 +797,12 @@ def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
         f"{stats['teams_upserted']}） anomalies={stats['anomalies']} pending={stats['pending']} "
         f"丢弃的越界手={stats['actions_dropped']} 重复 ord={stats['duplicate_ord']} "
         f"无 metadata 的 picks_bans 场次={stats['orphan_action_matches']}")
+    # 这两项上一版只算不报（评审：计划说 unresolved_team_refs「日志可见」，实际日志里没有）。
+    log(f"名字缺失的引用：联赛 {stats['unnamed_leagues']} 处、队 {stats['unresolved_team_refs']} 处"
+        f"（两处都写 NULL，不编造名字 —— teams/leagues 是外键目标）")
+    log(f"{LEAGUES_FILENAME} 里查不到的 league_id："
+        f"{stats['league_ids_missing_from_constants']} —— 这些场次的 matches.league_id 写 NULL："
+        f"{stats['league_id_null_matches']} 场")
     pre, total = stats["pre_2018"], stats["total"]
     log(f"pre-2018 场次 {pre}/{total}（{stats['pre_2018_share']:.1%}），"
         f"其中 patch_id IS NULL 的 {stats['pre_2018_null_patch']} 场；"

@@ -7212,12 +7212,12 @@ $ env -u KAGGLE_USERNAME -u KAGGLE_KEY -u KAGGLE_API_TOKEN HOME=<空目录> \
   为 0；不吻合只允许 ±1 个粗粒度 id；吻合率 >= 98%（可比对场次 >= 190,000）。
 - `hero_id` 外键：全量 4,772,342 行 **0 个未知 hero_id**；`ord` 越界 0 行、重复 `(match_id, ord)` 0 行。
 
-**测试计数（Tasks 12 评审修复后复测）**：
+**测试计数（Task 12 评审修复 + 质量评审修复后复测）**：
 
 | 状态 | `pytest tests/ingest -q` | `pytest -q`（默认顺序） |
 |---|---|---|
-| 缓存存在（本机） | **49 passed**（160 s，含真实入库 + 21 万场全量分类 SQL） | **214 passed**（168 s） |
-| 缓存不存在（把 `tests/fixtures/kaggle` 移走） | **36 passed, 13 skipped**（0.75 s，**零失败**） | — |
+| 缓存存在（本机） | **50 passed**（161 s，含真实入库 + 21 万场全量分类 SQL） | **215 passed**（182 s） |
+| 缓存不存在（把 `tests/fixtures/kaggle` 移走） | **37 passed, 13 skipped**（**零失败**） | — |
 
 skip 的文案写明缓存路径、**"该数据集是 CC0，无需 Kaggle 凭证"**、以及补缓存的两条命令
 （`python -m ingest.kaggle_subset [--list-only]`）；上一版让用户去申请一个用不到的 token
@@ -7345,6 +7345,37 @@ skip 的文案写明缓存路径、**"该数据集是 CC0，无需 Kaggle 凭证
 `tests/fixtures/kaggle` 移走后 `pytest tests/ingest -q` → **36 passed, 13 skipped**（0.75 s，
 **零失败**；13 skip = `test_bootstrap` 11 条 + `test_order_families` 2 条，文案写明
 "无需 Kaggle 凭证"）；移回后缓存 49 个 CSV / 483 MB 完好。
+
+> 紧随其后的**质量评审修复轮**（同日，见下）又补了 1 条纯函数测试（ord 空洞），故当前计数是
+> **50 passed / 全量 215 passed / 缓存缺失时 37 passed + 13 skipped**；本文件顶部的计数表已按此更新。
+
+#### Task 12 质量评审修复（第三轮，2026-09-18）
+
+对这轮的实现与测试做质量评审后修了两类（第 3 类在 Task 13：验收不得空过；HANDOFF 的三处
+过期说明另有 docs 提交）。**这两条都属于"绿而不守"或"静默吞掉事实"**：
+
+1. **族分类对 ord 空洞抛 `IndexError`（本轮唯一的真缺陷）**：`family_for` / `is_legal` /
+   `closest_family` 拿 `ord_` 直接索引族模板，20 手却出现 ord=20（ord 有洞）时抛 `IndexError`。
+   这违反本模块自己的返回契约（`None`/`False`），且**从 `load_bootstrap.detect_anomaly` 可达** ——
+   21 万场的入库循环会被一次 `IndexError` 整轮打断（直接违反规格 §5.3 的"不阻断入库"），
+   下游把 `is_legal(...)` 当过滤器同样会被打挂。
+   修法：`family_for` 在整族比较前 `continue`（任一手 ord 不在 `0..len(模板)-1` → 这一族不可能一致）；
+   `deviations` 逐手跳过越界 ord；`resolve_in` 把错误行为显式化（未知族名 / `first_pick_team`
+   不在 {0,1} → `ValueError`，与 `shared.draft_template.resolve` 同口径）并写进模块契约表。
+   新增纯函数测试 `test_family_for_treats_an_ord_hole_as_no_match_and_never_raises`
+   （20 手 ords `0..18,20` → `None` / `False` / `detect_anomaly` 的 `kinds == ["type_deviation"]`）。
+   **变异证明**：删掉那条 `continue` → `1 failed`，报错正是 `IndexError: tuple index out of range`
+   （`resolve_in` 拿 ord=20 索引 20 手的 `cm20_a`）；复原后重跑全绿。
+2. **两个计数器只算不报 + 缺 actions 文件被当成"全部 pending"**：
+   `unnamed_leagues` / `unresolved_team_refs` 上一版只累加、摘要里不打印（计划还写着后者"日志可见"）；
+   现在两项都在摘要里，并逐个报出 `Constants/Constants.Leagues.csv` 里查不到的 `league_id`
+   （实测 **20159 / 20169 / 20206 → 69 场** `league_id` 写 NULL）。目录级契约也在
+   `preflight_columns` 里补上：`<folder>/main_metadata.csv` 在、`picks_bans.csv` 被改名/缺失时
+   **报错点名目录**（`actions_path_for`，规格 §17-7），不再静默产出几万场 `pending`。
+   **变异证明**：把 loader 退回 HEAD 版本（即回到"缺文件当 pending"）→ 已有测试
+   `test_missing_required_metadata_column_fails_loudly`（本轮扩展了第二条用例）
+   `1 failed: DID NOT RAISE FileNotFoundError`；复原后全绿。合成侧另把一场的 `leagueid`
+   改成 Constants 里没有的 id，断言三项统计与摘要文字都真的出现。
 
 ### Task 13: M1 验收
 
@@ -7476,7 +7507,7 @@ git commit -m "test: M1 验收（127/501/84/异常率/三表可查/token 索引/
 4,772,342 手 / 异常率 0.97%），数据侧测试不再 skip；**CLI 已改成无凭证也能直接下载**
 （评审 F8）。**仍未验证**的部分逐条列在 Task 12 实测记录里（下载端点的长期行为、
 `start_date_time` 的时区假设、2,350 场 patch 列不吻合的逐场归因、`draft_timings.csv` 未入库、
-`teams` 仍为空）。缺缓存时相关测试仍会 `skip` 而非变红（实测 36 passed / 13 skipped，零失败）。
+`teams` 仍为空）。缺缓存时**数据侧**测试仍会 `skip` 而非变红（实测 37 passed / 13 skipped，零失败）。
 
 **顺序族契约（评审 F2，2026-09-18）**：`ingest/order_families.py` 是族判定的唯一入口
 （`DRAFT_ORDERS` / `family_for` / `is_legal` / `resolve_in`），族是**派生量、不落库**；
