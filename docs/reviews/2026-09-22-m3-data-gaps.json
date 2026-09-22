@@ -1,0 +1,157 @@
+{
+  "audit_scope": "M3 画像位置与赛事层级数据缺口，只读审计",
+  "snapshot_at": "2026-09-22T15:50:46.808773+08:00",
+  "database": {
+    "transaction_isolation": "repeatable read",
+    "transaction_read_only": true,
+    "connection_closed_after_commit": true
+  },
+  "conclusion": {
+    "position": "现有 13720 条 match_players 记录无法提供已落库且可追溯的精确 1 至 5 号位。全部 position 为 NULL。全部记录保留 lane_role、GPM、XPM、补刀和净经济，可支持确定性启发式推断，但当前没有推断实现、来源或置信度字段，不能把推断结果冒充提供方位置。",
+    "tier": "现有 leagues 没有任何 canonical tier。保留的上游或常量标签是 premium、professional、excluded 与 NULL。规格禁止把 premium 或 professional 自动映射为 tier1 或 tier2，因此当前同侪 tier 条件没有真实 canonical 分母。",
+    "minimum_next_step": "先补位置与 tier 的来源可追溯模型，再计算真实五维百分位。位置应区分 provider、heuristic、manual_event 与 replay，并保留方法版本和置信信息。对已有记录先以 lane_role 和队内经济结构实现可复算启发式，不使用 player_slot 或英雄直接猜位。tier 应按 league_id 建立有依据的赛事级 canonical 映射，不能做字符串全局替换。"
+  },
+  "position_evidence": {
+    "player_rows": 13720,
+    "position_known": 0,
+    "position_null": 13720,
+    "lane_role_known": 13720,
+    "stats_available": 13720,
+    "heuristic_inputs_complete": 13720,
+    "matches_with_players": 1372,
+    "matches_with_10_players": 1372,
+    "heuristic_match_inputs_complete": 1372,
+    "lane_role_counts": {
+      "1": 5430,
+      "2": 2983,
+      "3": 5298,
+      "4": 9
+    },
+    "provider_position": {
+      "state": "not_persisted",
+      "reason": "写入器把 position 固定写为 NULL，且数据库没有原始 payload 表。已采集请求中的任何精确位置字段都无法从当前数据库证明或恢复。"
+    },
+    "heuristic_position": {
+      "state": "inputs_available_implementation_missing",
+      "reason": "所有已落库选手行都有 lane_role 与经济字段，可按规格退化为启发式。lane_role 只有 1 至 4 的分路语义，不能直接当成 1 至 5 号位。4 号位与 5 号位等区分仍需队内经济结构规则。"
+    },
+    "manual_event_mapping": {
+      "state": "absent",
+      "roster_rows": 0,
+      "roster_position_known": 0,
+      "mapping_or_manual_tables": 0,
+      "reason": "rosters 表为空，也没有赛事位置映射表。即使后续导入当前 roster，也不能反推历史比赛位置。"
+    },
+    "replay_or_recollection": {
+      "replay_retained_matches": 0,
+      "replay_path_present_matches": 0,
+      "raw_named_tables": 0,
+      "reason": "当前 1372 场已有选手数据的比赛没有保留回放路径或原始 payload。精确提供方位置若曾出现在响应中，当前库内信息已经丢失，只能重新采集或新增回放解析。上游最新字段能力本次未联网验证。"
+    }
+  },
+  "tier_evidence": {
+    "league_counts": {
+      "premium": 208,
+      "professional": 1308,
+      "excluded": 41,
+      "null": 5,
+      "canonical": 0
+    },
+    "pro_matches": 211310,
+    "pro_matches_with_league": 211310,
+    "canonical_tier_matches": 0,
+    "premium_or_professional_matches": 187250,
+    "null_tier_matches": 138,
+    "player_rows_by_tier_class": {
+      "premium_or_professional": 11540,
+      "other_noncanonical": 800,
+      "null": 1380,
+      "canonical": 0
+    },
+    "provider_or_existing_labels": {
+      "state": "raw_noncanonical_only",
+      "reason": "league_id 与原标签仍在，可作为后续人工或权威映射的连接键，但现有标签本身不满足 tier1、tier2、qualifier、other 契约。"
+    },
+    "heuristic_mapping": {
+      "state": "forbidden",
+      "reason": "premium 与 professional 不是 canonical tier 的同义词，不能批量猜成 tier1 或 tier2。"
+    },
+    "manual_event_mapping": {
+      "state": "required",
+      "reason": "需要按 league_id 建立有来源证据的 canonical tier 映射，并保留映射来源与版本。"
+    },
+    "new_collection": {
+      "state": "may_be_required",
+      "reason": "若现有 league_id 与名称不足以完成权威人工映射，需要新增赛事元数据来源。上游最新文档本次未验证。"
+    }
+  },
+  "file_evidence": [
+    {
+      "file": "docs/superpowers/specs/2026-09-16-dota2-banpick-analysis-system-design.md",
+      "lines": "1063,1092至1107",
+      "finding": "位置优先使用上游已解析字段，缺失时按 lane_role 与经济结构启发式；同侪必须同 position 与 canonical tier，position 为 NULL 不进入分母。"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-16-dota2-banpick-analysis-system-design.md",
+      "lines": "370至406",
+      "finding": "player_slot 仅是两侧归一化 slot，position 是独立列，不能互相替代。"
+    },
+    {
+      "file": "ingest/live_store.py",
+      "lines": "219至264",
+      "finding": "选手写入时 position 参数固定为 None，只保留 lane_role 与经济统计。"
+    },
+    {
+      "file": "ingest/live_store.py",
+      "lines": "109至129",
+      "finding": "实时联赛写入只保存 league_id 与 name，不写 tier。"
+    },
+    {
+      "file": "ingest/load_bootstrap.py",
+      "lines": "294至307,769至775",
+      "finding": "历史 tier 来自 Constants.Leagues.csv 并原样写入，因此得到 premium、professional 等非 canonical 标签。"
+    },
+    {
+      "file": "analysis/profile_repository.py",
+      "lines": "107至128",
+      "finding": "查询层只把 tier1、tier2、qualifier、other 视为已知，其他值规范化为 NULL。"
+    },
+    {
+      "file": "analysis/profile_engine.py",
+      "lines": "283至306,470至494",
+      "finding": "五个位置维度严格依赖已知 position；目标 role 为 position 众数，NULL 时整体降级；tier 全未知时只允许 tier1 与 tier2。"
+    }
+  ],
+  "sql_aggregate_evidence": [
+    {
+      "purpose": "位置字段与启发式输入覆盖",
+      "sql": "SELECT count(*), count(position), count(*) FILTER (WHERE position IS NULL), count(lane_role), count(*) FILTER (WHERE stats_available), count(*) FILTER (WHERE position IS NULL AND stats_available AND lane_role IS NOT NULL AND gpm IS NOT NULL AND xpm IS NOT NULL AND last_hits IS NOT NULL AND net_worth IS NOT NULL) FROM match_players;"
+    },
+    {
+      "purpose": "每场启发式输入完整性",
+      "sql": "SELECT count(*), count(*) FILTER (WHERE n_players = 10), count(*) FILTER (WHERE n_players = 10 AND n_lane_role = 10 AND n_econ = 10) FROM (SELECT match_id, count(*) n_players, count(lane_role) n_lane_role, count(*) FILTER (WHERE gpm IS NOT NULL AND xpm IS NOT NULL AND last_hits IS NOT NULL AND net_worth IS NOT NULL) n_econ FROM match_players GROUP BY match_id) q;"
+    },
+    {
+      "purpose": "roster 与手工映射覆盖",
+      "sql": "SELECT count(*), count(position), count(*) FILTER (WHERE left_at IS NULL), count(*) FILTER (WHERE left_at IS NULL AND position IS NOT NULL) FROM rosters;"
+    },
+    {
+      "purpose": "联赛 tier 词表",
+      "sql": "SELECT coalesce(tier, 'NULL'), count(*) FROM leagues GROUP BY tier ORDER BY tier NULLS LAST;"
+    },
+    {
+      "purpose": "正式比赛 canonical tier 覆盖",
+      "sql": "SELECT count(*), count(*) FILTER (WHERE league_id IS NOT NULL), count(*) FILTER (WHERE tier IN ('tier1','tier2','qualifier','other')), count(*) FILTER (WHERE tier IN ('premium','professional')), count(*) FILTER (WHERE tier IS NULL) FROM (SELECT m.match_id, m.league_id, l.tier FROM matches m LEFT JOIN leagues l USING (league_id) WHERE m.data_source = 'pro_match') q;"
+    }
+  ],
+  "irrecoverable_from_current_database": [
+    "已采集上游响应中可能存在的精确 1 至 5 号位字段，因为写入器固定写 NULL，且未保留原始 payload。",
+    "基于回放重建位置所需的回放内容，因为相关比赛没有 replay_path，也没有 retained 标记。",
+    "canonical 赛事层级，因为库内只有非 canonical 原标签，没有权威映射或映射出处。",
+    "位置值的来源与置信度，因为 schema 没有 position_source、method_version 或 confidence 字段。"
+  ],
+  "verification": {
+    "coordinator_rechecked_aggregate_queries": true,
+    "precise_snapshot_counts_may_increase_during_collection": true
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "scope": "M0至M3已验证代码检查点",
+  "tests": {
+    "passed": 335,
+    "duration_seconds": 346.85,
+    "database": "mcndotaga_github_checkpoint_test"
+  },
+  "frequency_script": "scripts/evaluate_frequency_baseline.py",
+  "frequency_script_real_run": {
+    "strict_family_matches": 15381,
+    "holdout_matches": 3077,
+    "stratified_top5": 0.12716661,
+    "global_top5": 0.07484292
+  },
+  "excluded": [
+    "本地数据库",
+    "原始历史数据",
+    "回放",
+    "凭据",
+    "运行日志"
+  ],
+  "deployed": false
+}

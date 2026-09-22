@@ -1,0 +1,132 @@
+{
+  "generated_at": "2026-09-22T08:05:31.147438+00:00",
+  "passed": 335,
+  "duration_seconds": 314.1,
+  "test_database": "mcndotaga_m3_final_test",
+  "test_log": "data/m3-final-pytest.log",
+  "new_tests_since_m2": 75,
+  "detailed_matches": 1562,
+  "database_totals": {
+    "matches": 211311,
+    "draft_actions": 4778246,
+    "teams": 337,
+    "players": 2268,
+    "player_rows": 15620,
+    "detailed_matches": 1562,
+    "unknown_position_rows": 15620,
+    "metric_weights": 18
+  },
+  "queue": {
+    "non_cm": 47,
+    "pending": 1,
+    "complete": 1514
+  },
+  "due_queue": 0,
+  "remaining_queue": [
+    {
+      "match_id": 8866547078,
+      "status": "pending",
+      "next_attempt_at": "2026-09-22T16:34:48.974300+08:00"
+    }
+  ],
+  "http_attempts": [
+    {
+      "source": "match_details",
+      "outcome": "error",
+      "detail": "ReadTimeout",
+      "n": 1
+    },
+    {
+      "source": "match_details",
+      "outcome": "not_ready",
+      "detail": null,
+      "n": 1
+    },
+    {
+      "source": "match_details",
+      "outcome": "ok",
+      "detail": null,
+      "n": 1563
+    },
+    {
+      "source": "match_details",
+      "outcome": "ratelimited",
+      "detail": "HTTP 429 retry_after_s=1.000",
+      "n": 67
+    },
+    {
+      "source": "pro_matches",
+      "outcome": "error",
+      "detail": "ConnectTimeout",
+      "n": 1
+    },
+    {
+      "source": "pro_matches",
+      "outcome": "ok",
+      "detail": null,
+      "n": 24
+    }
+  ],
+  "daily_requests": 1657,
+  "daily_budget": 2400,
+  "actual_http": {
+    "transport": "真实本机 HTTP",
+    "cases": 4,
+    "valid_profiles": 4,
+    "insufficient_profiles": 0,
+    "error_checks": [
+      {
+        "status": 403,
+        "code": "source_not_allowed"
+      },
+      {
+        "status": 404,
+        "code": "not_found"
+      },
+      {
+        "status": 400,
+        "code": "invalid_request"
+      }
+    ],
+    "schema_and_invariants_rechecked": true,
+    "temporary_api_process_stopped": true
+  },
+  "source_isolation": {
+    "test": "真实HTTP前后插入40场scrim",
+    "response_bytes_equal": true
+  },
+  "independent_review": [
+    "画像查询与HTTP边界",
+    "画像计算与匿名同侪",
+    "限流回退与重启冷却"
+  ],
+  "frequency_review": {
+    "strict_public_pro_only": true,
+    "source_filter_rerun_unchanged": true,
+    "manual_reverse_order_topk_checked": true,
+    "exact_random_expectation_checked": true,
+    "same_timestamp_no_split_leakage": true,
+    "all_denominators_match": true
+  },
+  "unverified": [
+    "自动浏览器视觉",
+    "真实48小时连续采集",
+    "真实位置百分位",
+    "生产部署"
+  ],
+  "not_implemented": [
+    "天梯采集",
+    "回放导入和解析",
+    "Value API",
+    "剧本API",
+    "产品界面",
+    "序列模型与决策层"
+  ],
+  "runtime_closed": {
+    "collector": true,
+    "temporary_api": true,
+    "exclusive_postgres": true,
+    "postgres_status_exit_code": 3,
+    "data_directory_preserved": true
+  }
+}

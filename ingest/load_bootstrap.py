@@ -66,6 +66,12 @@ CM 顺序**」，而不是「不符合 §6.0 那一种」。理由见第 4 条�
 `match_id` **先删后插**（否则上一次运行残留的手会留下来，`n_draft_actions` 与实际手数分叉）；
 `draft_anomalies` 每场最多一行，重新加载后不再异常的场次要**删掉旧行**（否则
 `draft_anomalies` 的行数与 `matches.anomaly` 的计数会分叉，而 M1 正是这么校验的）。
+
+**与 live 采集器的写入所有权**：bootstrap 只允许刷新自己尚未被 live 路径接管的
+`pro_match`（`attempt_count = 0` 且 `last_attempt_at IS NULL`）。同 `match_id` 已属于
+`pub_match`/`scrim`，或 live 已经尝试过的职业比赛，一律整场跳过。这个保护必须与
+`matches` upsert 原子判定，并覆盖后续的 `draft_actions` 删除/重插与异常清理；只给 upsert
+加条件、却仍继续删逐手数据，会把采集器刚补全的结果破坏掉。
 """
 from __future__ import annotations
 
@@ -599,6 +605,10 @@ ON CONFLICT (match_id) DO UPDATE SET
     radiant_win = EXCLUDED.radiant_win, lobby_type = EXCLUDED.lobby_type,
     draft_state = EXCLUDED.draft_state, n_draft_actions = EXCLUDED.n_draft_actions,
     anomaly = EXCLUDED.anomaly
+WHERE matches.data_source = 'pro_match'
+  AND matches.attempt_count = 0
+  AND matches.last_attempt_at IS NULL
+RETURNING match_id
 """
 
 ANOMALY_UPSERT = """
@@ -627,7 +637,7 @@ def _write_match(conn, row: Mapping, actions: Sequence[Mapping], problems: Mappi
     patch_id = patch_id_for(conn, row["start_time"], patch_ids=patch_ids)
     draft_state = "complete" if actions else "pending"
 
-    conn.execute(MATCH_UPSERT, (
+    written = conn.execute(MATCH_UPSERT, (
         match_id, patch_id, row["start_time"], row["duration_s"],
         row["league_id"] if row["league_id"] in leagues else None,
         row["series_id"], row["series_type"], first_pick_team,
@@ -635,7 +645,13 @@ def _write_match(conn, row: Mapping, actions: Sequence[Mapping], problems: Mappi
         row["dire_team_id"] if row["dire_team_id"] in teams else None,
         row["radiant_win"], row["lobby_type"], draft_state,
         len(actions) if actions else None, anomaly is not None,
-    ))
+    )).fetchone()
+    if written is None:
+        # ON CONFLICT 的所有权谓词拒绝了刷新。必须在任何子表写入之前返回，保证
+        # matches、draft_actions、draft_anomalies 三者作为同一个受保护单元。
+        stats["protected_matches"] += 1
+        return
+    stats["matches"] += 1
 
     # 规格 §5.2：先按 match_id 删再整体插入，避免上一次运行残留旧手
     conn.execute("DELETE FROM draft_actions WHERE match_id = %s", (match_id,))
@@ -654,7 +670,6 @@ def _write_match(conn, row: Mapping, actions: Sequence[Mapping], problems: Mappi
     else:
         conn.execute("DELETE FROM draft_anomalies WHERE match_id = %s", (match_id,))
 
-    stats["matches"] += 1
     stats["draft_actions"] += len(actions)
     stats["anomalies"] += anomaly is not None
     stats["pending"] += not actions
@@ -703,7 +718,8 @@ def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
     # league_id 会让累加和大出 ~16%（实测 1,808 vs 1,557），报出去就是错的信息。
     stats: dict = {"folders": [p.name for p in folders], "matches": 0, "draft_actions": 0,
                    "leagues": 0, "teams": 0, "leagues_upserted": 0, "teams_upserted": 0,
-                   "anomalies": 0, "pending": 0, "actions_dropped": 0, "duplicate_ord": 0,
+                   "anomalies": 0, "pending": 0, "protected_matches": 0,
+                   "actions_dropped": 0, "duplicate_ord": 0,
                    "orphan_action_matches": 0, "unnamed_leagues": 0, "unresolved_team_refs": 0,
                    "league_ids_missing_from_constants": set(), "league_id_null_matches": 0,
                    "total": 0, "pre_2018": 0, "pre_2018_null_patch": 0, "post_2018_null_patch": 0,
@@ -795,6 +811,7 @@ def load_bootstrap(conn, *, cache_dir=DEFAULT_CACHE_DIR, commit: bool = True,
         f"draft_actions={stats['draft_actions']} leagues={stats['leagues']}（逐目录累计 "
         f"{stats['leagues_upserted']}，跨目录重复） teams={stats['teams']}（逐目录累计 "
         f"{stats['teams_upserted']}） anomalies={stats['anomalies']} pending={stats['pending']} "
+        f"受保护而跳过={stats['protected_matches']} "
         f"丢弃的越界手={stats['actions_dropped']} 重复 ord={stats['duplicate_ord']} "
         f"无 metadata 的 picks_bans 场次={stats['orphan_action_matches']}")
     # 这两项上一版只算不报（评审：计划说 unresolved_team_refs「日志可见」，实际日志里没有）。

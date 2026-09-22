@@ -1,0 +1,6082 @@
+{
+  "generated_at": "2026-09-22T08:05:22.015230+00:00",
+  "transport": "真实本机 HTTP",
+  "cases": [
+    {
+      "team_id": 7119388,
+      "team_name": "Team Spirit",
+      "patch": "7.41e",
+      "as_of": "2026-09-22",
+      "http_status": 200,
+      "elapsed_ms": 506.66,
+      "body": {
+        "team_id": 7119388,
+        "patch": "7.41e",
+        "as_of": "2026-09-22",
+        "sources_used": [
+          "pro_match"
+        ],
+        "coverage": {
+          "pro_match": {
+            "n_matches": 29,
+            "n_stat_available": 29,
+            "n_position_unknown": 29
+          },
+          "pub_match": {
+            "n_matches": 0,
+            "n_stat_available": 0,
+            "n_position_unknown": 0
+          }
+        },
+        "players": [
+          {
+            "account_id": 106305042,
+            "name": "Larl",
+            "role": null,
+            "hero_pool": {
+              "window_games": 29,
+              "signature": [
+                {
+                  "hero_id": 120,
+                  "games": 5,
+                  "wr": 1.0,
+                  "pct": 17
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 106,
+                  "games": 4,
+                  "wr": 0.5,
+                  "pct": 14
+                },
+                {
+                  "hero_id": 25,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 10
+                },
+                {
+                  "hero_id": 107,
+                  "games": 3,
+                  "wr": 1.0,
+                  "pct": 10
+                }
+              ],
+              "effective_count": 4,
+              "presence_pick_rate": 0.5172413793103449
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.22580645161290322,
+                "protect": 0.043010752688172046,
+                "push": 0.053763440860215055,
+                "teamfight": 0.3010752688172043,
+                "pickoff": 0.21505376344086022,
+                "splitpush": 0.16129032258064516
+              }
+            }
+          },
+          {
+            "account_id": 218231587,
+            "name": "not_me",
+            "role": null,
+            "hero_pool": {
+              "window_games": 29,
+              "signature": [
+                {
+                  "hero_id": 119,
+                  "games": 6,
+                  "wr": 0.8333333333333334,
+                  "pct": 21
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 21,
+                  "games": 4,
+                  "wr": 0.75,
+                  "pct": 14
+                },
+                {
+                  "hero_id": 51,
+                  "games": 4,
+                  "wr": 0.75,
+                  "pct": 14
+                },
+                {
+                  "hero_id": 86,
+                  "games": 4,
+                  "wr": 0.75,
+                  "pct": 14
+                },
+                {
+                  "hero_id": 9,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 10
+                }
+              ],
+              "effective_count": 5,
+              "presence_pick_rate": 0.7241379310344828
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.07058823529411765,
+                "protect": 0.29411764705882354,
+                "push": 0.0,
+                "teamfight": 0.3411764705882353,
+                "pickoff": 0.21176470588235294,
+                "splitpush": 0.08235294117647059
+              }
+            }
+          },
+          {
+            "account_id": 302214028,
+            "name": "Collapse",
+            "role": null,
+            "hero_pool": {
+              "window_games": 29,
+              "signature": [
+                {
+                  "hero_id": 108,
+                  "games": 6,
+                  "wr": 0.8333333333333334,
+                  "pct": 21
+                },
+                {
+                  "hero_id": 96,
+                  "games": 5,
+                  "wr": 0.8,
+                  "pct": 17
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 55,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 10
+                },
+                {
+                  "hero_id": 85,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 10
+                }
+              ],
+              "effective_count": 4,
+              "presence_pick_rate": 0.5862068965517241
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.2571428571428571,
+                "protect": 0.14285714285714285,
+                "push": 0.014285714285714285,
+                "teamfight": 0.4142857142857143,
+                "pickoff": 0.15714285714285714,
+                "splitpush": 0.014285714285714285
+              }
+            }
+          },
+          {
+            "account_id": 321580662,
+            "name": "Yatoro",
+            "role": null,
+            "hero_pool": {
+              "window_games": 29,
+              "signature": [
+                {
+                  "hero_id": 109,
+                  "games": 5,
+                  "wr": 0.8,
+                  "pct": 17
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 11,
+                  "games": 4,
+                  "wr": 0.75,
+                  "pct": 14
+                },
+                {
+                  "hero_id": 53,
+                  "games": 4,
+                  "wr": 0.75,
+                  "pct": 14
+                },
+                {
+                  "hero_id": 80,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 10
+                }
+              ],
+              "effective_count": 4,
+              "presence_pick_rate": 0.5517241379310345
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.03389830508474576,
+                "protect": 0.0,
+                "push": 0.3389830508474576,
+                "teamfight": 0.4745762711864407,
+                "pickoff": 0.0847457627118644,
+                "splitpush": 0.06779661016949153
+              }
+            }
+          },
+          {
+            "account_id": 847565596,
+            "name": "rue",
+            "role": null,
+            "hero_pool": {
+              "window_games": 29,
+              "signature": [],
+              "comfortable": [
+                {
+                  "hero_id": 112,
+                  "games": 7,
+                  "wr": 0.5714285714285714,
+                  "pct": 24
+                },
+                {
+                  "hero_id": 51,
+                  "games": 4,
+                  "wr": 0.5,
+                  "pct": 14
+                },
+                {
+                  "hero_id": 85,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 10
+                },
+                {
+                  "hero_id": 100,
+                  "games": 3,
+                  "wr": 1.0,
+                  "pct": 10
+                },
+                {
+                  "hero_id": 123,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 10
+                }
+              ],
+              "effective_count": 5,
+              "presence_pick_rate": 0.6896551724137931
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.13636363636363635,
+                "protect": 0.3181818181818182,
+                "push": 0.030303030303030304,
+                "teamfight": 0.4393939393939394,
+                "pickoff": 0.07575757575757576,
+                "splitpush": 0.0
+              }
+            }
+          }
+        ],
+        "team_bp_tendency": {
+          "first_phase_ban_freq": [
+            {
+              "hero_id": 90,
+              "freq": 0.5172413793103449,
+              "n": 29
+            },
+            {
+              "hero_id": 83,
+              "freq": 0.4482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 62,
+              "freq": 0.41379310344827586,
+              "n": 29
+            },
+            {
+              "hero_id": 155,
+              "freq": 0.3448275862068966,
+              "n": 29
+            },
+            {
+              "hero_id": 80,
+              "freq": 0.2413793103448276,
+              "n": 29
+            },
+            {
+              "hero_id": 107,
+              "freq": 0.2413793103448276,
+              "n": 29
+            },
+            {
+              "hero_id": 25,
+              "freq": 0.20689655172413793,
+              "n": 29
+            },
+            {
+              "hero_id": 53,
+              "freq": 0.1724137931034483,
+              "n": 29
+            },
+            {
+              "hero_id": 91,
+              "freq": 0.1724137931034483,
+              "n": 29
+            },
+            {
+              "hero_id": 112,
+              "freq": 0.1724137931034483,
+              "n": 29
+            },
+            {
+              "hero_id": 11,
+              "freq": 0.10344827586206896,
+              "n": 29
+            },
+            {
+              "hero_id": 55,
+              "freq": 0.10344827586206896,
+              "n": 29
+            },
+            {
+              "hero_id": 85,
+              "freq": 0.10344827586206896,
+              "n": 29
+            },
+            {
+              "hero_id": 106,
+              "freq": 0.06896551724137931,
+              "n": 29
+            },
+            {
+              "hero_id": 36,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 69,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 74,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 119,
+              "freq": 0.034482758620689655,
+              "n": 29
+            }
+          ],
+          "first_pick_freq": [
+            {
+              "hero_id": 112,
+              "freq": 0.20689655172413793,
+              "n": 29
+            },
+            {
+              "hero_id": 6,
+              "freq": 0.10344827586206896,
+              "n": 29
+            },
+            {
+              "hero_id": 53,
+              "freq": 0.10344827586206896,
+              "n": 29
+            },
+            {
+              "hero_id": 106,
+              "freq": 0.10344827586206896,
+              "n": 29
+            },
+            {
+              "hero_id": 3,
+              "freq": 0.06896551724137931,
+              "n": 29
+            },
+            {
+              "hero_id": 107,
+              "freq": 0.06896551724137931,
+              "n": 29
+            },
+            {
+              "hero_id": 123,
+              "freq": 0.06896551724137931,
+              "n": 29
+            },
+            {
+              "hero_id": 11,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 25,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 28,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 55,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 80,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 85,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 93,
+              "freq": 0.034482758620689655,
+              "n": 29
+            },
+            {
+              "hero_id": 96,
+              "freq": 0.034482758620689655,
+              "n": 29
+            }
+          ],
+          "ban_by_phase": [
+            {
+              "ord": 0,
+              "hero_id": 62,
+              "freq": 0.3125,
+              "n": 16
+            },
+            {
+              "ord": 0,
+              "hero_id": 155,
+              "freq": 0.25,
+              "n": 16
+            },
+            {
+              "ord": 0,
+              "hero_id": 90,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 0,
+              "hero_id": 91,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 0,
+              "hero_id": 25,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 0,
+              "hero_id": 55,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 0,
+              "hero_id": 112,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 1,
+              "hero_id": 25,
+              "freq": 0.1875,
+              "n": 16
+            },
+            {
+              "ord": 1,
+              "hero_id": 90,
+              "freq": 0.1875,
+              "n": 16
+            },
+            {
+              "ord": 1,
+              "hero_id": 155,
+              "freq": 0.1875,
+              "n": 16
+            },
+            {
+              "ord": 1,
+              "hero_id": 53,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 1,
+              "hero_id": 91,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 1,
+              "hero_id": 62,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 1,
+              "hero_id": 80,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 1,
+              "hero_id": 119,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 2,
+              "hero_id": 83,
+              "freq": 0.5384615384615384,
+              "n": 13
+            },
+            {
+              "ord": 2,
+              "hero_id": 62,
+              "freq": 0.23076923076923078,
+              "n": 13
+            },
+            {
+              "ord": 2,
+              "hero_id": 80,
+              "freq": 0.23076923076923078,
+              "n": 13
+            },
+            {
+              "ord": 3,
+              "hero_id": 83,
+              "freq": 0.46153846153846156,
+              "n": 13
+            },
+            {
+              "ord": 3,
+              "hero_id": 62,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 3,
+              "hero_id": 11,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 3,
+              "hero_id": 25,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 3,
+              "hero_id": 80,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 3,
+              "hero_id": 107,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 3,
+              "hero_id": 155,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 4,
+              "hero_id": 85,
+              "freq": 0.1875,
+              "n": 16
+            },
+            {
+              "ord": 4,
+              "hero_id": 112,
+              "freq": 0.1875,
+              "n": 16
+            },
+            {
+              "ord": 4,
+              "hero_id": 90,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 4,
+              "hero_id": 106,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 4,
+              "hero_id": 11,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 4,
+              "hero_id": 36,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 4,
+              "hero_id": 53,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 4,
+              "hero_id": 55,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 4,
+              "hero_id": 69,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 4,
+              "hero_id": 155,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 5,
+              "hero_id": 107,
+              "freq": 0.38461538461538464,
+              "n": 13
+            },
+            {
+              "ord": 5,
+              "hero_id": 80,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 5,
+              "hero_id": 90,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 5,
+              "hero_id": 11,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 5,
+              "hero_id": 53,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 5,
+              "hero_id": 112,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 5,
+              "hero_id": 155,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 6,
+              "hero_id": 90,
+              "freq": 0.46153846153846156,
+              "n": 13
+            },
+            {
+              "ord": 6,
+              "hero_id": 25,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 6,
+              "hero_id": 53,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 6,
+              "hero_id": 55,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 6,
+              "hero_id": 62,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 6,
+              "hero_id": 74,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 6,
+              "hero_id": 91,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 6,
+              "hero_id": 107,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 51,
+              "freq": 0.1875,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 9,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 112,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 145,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 2,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 3,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 55,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 80,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 106,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 119,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 9,
+              "hero_id": 155,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 123,
+              "freq": 0.1875,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 55,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 98,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 119,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 9,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 21,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 28,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 58,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 90,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 91,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 10,
+              "hero_id": 100,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 11,
+              "hero_id": 12,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 11,
+              "hero_id": 90,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 11,
+              "hero_id": 108,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 11,
+              "hero_id": 155,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 11,
+              "hero_id": 53,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 11,
+              "hero_id": 55,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 11,
+              "hero_id": 91,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 11,
+              "hero_id": 106,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 11,
+              "hero_id": 145,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 29,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 41,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 109,
+              "freq": 0.125,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 6,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 11,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 19,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 36,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 80,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 98,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 103,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 114,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 128,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 18,
+              "hero_id": 129,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 19,
+              "hero_id": 19,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 29,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 58,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 60,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 64,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 86,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 98,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 100,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 106,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 135,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 145,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 155,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 19,
+              "freq": 0.1875,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 2,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 11,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 13,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 20,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 46,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 67,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 69,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 73,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 89,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 96,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 108,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 109,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 20,
+              "hero_id": 121,
+              "freq": 0.0625,
+              "n": 16
+            },
+            {
+              "ord": 21,
+              "hero_id": 21,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 55,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 2,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 18,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 53,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 69,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 71,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 108,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 110,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 120,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 123,
+              "freq": 0.07692307692307693,
+              "n": 13
+            }
+          ]
+        }
+      }
+    },
+    {
+      "team_id": 9823272,
+      "team_name": "Team Yandex",
+      "patch": "7.41e",
+      "as_of": "2026-09-22",
+      "http_status": 200,
+      "elapsed_ms": 369.13,
+      "body": {
+        "team_id": 9823272,
+        "patch": "7.41e",
+        "as_of": "2026-09-22",
+        "sources_used": [
+          "pro_match"
+        ],
+        "coverage": {
+          "pro_match": {
+            "n_matches": 27,
+            "n_stat_available": 27,
+            "n_position_unknown": 27
+          },
+          "pub_match": {
+            "n_matches": 0,
+            "n_stat_available": 0,
+            "n_position_unknown": 0
+          }
+        },
+        "players": [
+          {
+            "account_id": 56351509,
+            "name": "DM",
+            "role": null,
+            "hero_pool": {
+              "window_games": 27,
+              "signature": [],
+              "comfortable": [
+                {
+                  "hero_id": 69,
+                  "games": 7,
+                  "wr": 0.5714285714285714,
+                  "pct": 26
+                },
+                {
+                  "hero_id": 29,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 11
+                },
+                {
+                  "hero_id": 55,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 11
+                }
+              ],
+              "effective_count": 3,
+              "presence_pick_rate": 0.48148148148148145
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.3220338983050847,
+                "protect": 0.06779661016949153,
+                "push": 0.0,
+                "teamfight": 0.4576271186440678,
+                "pickoff": 0.15254237288135594,
+                "splitpush": 0.0
+              }
+            }
+          },
+          {
+            "account_id": 93817671,
+            "name": "Maladych",
+            "role": null,
+            "hero_pool": {
+              "window_games": 27,
+              "signature": [
+                {
+                  "hero_id": 112,
+                  "games": 6,
+                  "wr": 0.8333333333333334,
+                  "pct": 22
+                }
+              ],
+              "comfortable": [],
+              "effective_count": 1,
+              "presence_pick_rate": 0.25
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.07936507936507936,
+                "protect": 0.36507936507936506,
+                "push": 0.031746031746031744,
+                "teamfight": 0.42857142857142855,
+                "pickoff": 0.06349206349206349,
+                "splitpush": 0.031746031746031744
+              }
+            }
+          },
+          {
+            "account_id": 103735745,
+            "name": "Saksa",
+            "role": null,
+            "hero_pool": {
+              "window_games": 27,
+              "signature": [
+                {
+                  "hero_id": 62,
+                  "games": 5,
+                  "wr": 1.0,
+                  "pct": 19
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 53,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 11
+                },
+                {
+                  "hero_id": 86,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 11
+                }
+              ],
+              "effective_count": 3,
+              "presence_pick_rate": 0.4230769230769231
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.04225352112676056,
+                "protect": 0.2676056338028169,
+                "push": 0.056338028169014086,
+                "teamfight": 0.30985915492957744,
+                "pickoff": 0.2535211267605634,
+                "splitpush": 0.07042253521126761
+              }
+            }
+          },
+          {
+            "account_id": 171262902,
+            "name": "医者watson`",
+            "role": null,
+            "hero_pool": {
+              "window_games": 27,
+              "signature": [
+                {
+                  "hero_id": 145,
+                  "games": 5,
+                  "wr": 0.6,
+                  "pct": 19
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 11,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 11
+                },
+                {
+                  "hero_id": 25,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 11
+                }
+              ],
+              "effective_count": 3,
+              "presence_pick_rate": 0.4074074074074074
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.03508771929824561,
+                "protect": 0.10526315789473684,
+                "push": 0.21052631578947367,
+                "teamfight": 0.43859649122807015,
+                "pickoff": 0.10526315789473684,
+                "splitpush": 0.10526315789473684
+              }
+            }
+          },
+          {
+            "account_id": 312436974,
+            "name": "CHIRA_JUNIOR",
+            "role": null,
+            "hero_pool": {
+              "window_games": 27,
+              "signature": [
+                {
+                  "hero_id": 74,
+                  "games": 5,
+                  "wr": 0.6,
+                  "pct": 19
+                },
+                {
+                  "hero_id": 128,
+                  "games": 5,
+                  "wr": 0.6,
+                  "pct": 19
+                }
+              ],
+              "comfortable": [],
+              "effective_count": 2,
+              "presence_pick_rate": 0.37037037037037035
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.15384615384615385,
+                "protect": 0.08974358974358974,
+                "push": 0.07692307692307693,
+                "teamfight": 0.3333333333333333,
+                "pickoff": 0.28205128205128205,
+                "splitpush": 0.0641025641025641
+              }
+            }
+          }
+        ],
+        "team_bp_tendency": {
+          "first_phase_ban_freq": [
+            {
+              "hero_id": 83,
+              "freq": 0.4074074074074074,
+              "n": 27
+            },
+            {
+              "hero_id": 25,
+              "freq": 0.37037037037037035,
+              "n": 27
+            },
+            {
+              "hero_id": 90,
+              "freq": 0.3333333333333333,
+              "n": 27
+            },
+            {
+              "hero_id": 13,
+              "freq": 0.2962962962962963,
+              "n": 27
+            },
+            {
+              "hero_id": 11,
+              "freq": 0.2222222222222222,
+              "n": 27
+            },
+            {
+              "hero_id": 107,
+              "freq": 0.2222222222222222,
+              "n": 27
+            },
+            {
+              "hero_id": 155,
+              "freq": 0.2222222222222222,
+              "n": 27
+            },
+            {
+              "hero_id": 106,
+              "freq": 0.18518518518518517,
+              "n": 27
+            },
+            {
+              "hero_id": 80,
+              "freq": 0.14814814814814814,
+              "n": 27
+            },
+            {
+              "hero_id": 96,
+              "freq": 0.14814814814814814,
+              "n": 27
+            },
+            {
+              "hero_id": 3,
+              "freq": 0.1111111111111111,
+              "n": 27
+            },
+            {
+              "hero_id": 6,
+              "freq": 0.1111111111111111,
+              "n": 27
+            },
+            {
+              "hero_id": 36,
+              "freq": 0.1111111111111111,
+              "n": 27
+            },
+            {
+              "hero_id": 74,
+              "freq": 0.1111111111111111,
+              "n": 27
+            },
+            {
+              "hero_id": 28,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 33,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 53,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 55,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 62,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 108,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 2,
+              "freq": 0.037037037037037035,
+              "n": 27
+            },
+            {
+              "hero_id": 112,
+              "freq": 0.037037037037037035,
+              "n": 27
+            }
+          ],
+          "first_pick_freq": [
+            {
+              "hero_id": 53,
+              "freq": 0.14814814814814814,
+              "n": 27
+            },
+            {
+              "hero_id": 107,
+              "freq": 0.1111111111111111,
+              "n": 27
+            },
+            {
+              "hero_id": 25,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 62,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 74,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 85,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 96,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 112,
+              "freq": 0.07407407407407407,
+              "n": 27
+            },
+            {
+              "hero_id": 13,
+              "freq": 0.037037037037037035,
+              "n": 27
+            },
+            {
+              "hero_id": 55,
+              "freq": 0.037037037037037035,
+              "n": 27
+            },
+            {
+              "hero_id": 69,
+              "freq": 0.037037037037037035,
+              "n": 27
+            },
+            {
+              "hero_id": 80,
+              "freq": 0.037037037037037035,
+              "n": 27
+            },
+            {
+              "hero_id": 83,
+              "freq": 0.037037037037037035,
+              "n": 27
+            },
+            {
+              "hero_id": 86,
+              "freq": 0.037037037037037035,
+              "n": 27
+            },
+            {
+              "hero_id": 91,
+              "freq": 0.037037037037037035,
+              "n": 27
+            },
+            {
+              "hero_id": 123,
+              "freq": 0.037037037037037035,
+              "n": 27
+            }
+          ],
+          "ban_by_phase": [
+            {
+              "ord": 0,
+              "hero_id": 80,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 0,
+              "hero_id": 106,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 0,
+              "hero_id": 155,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 0,
+              "hero_id": 3,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 0,
+              "hero_id": 6,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 0,
+              "hero_id": 13,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 0,
+              "hero_id": 33,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 0,
+              "hero_id": 90,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 0,
+              "hero_id": 96,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 0,
+              "hero_id": 112,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 1,
+              "hero_id": 13,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 1,
+              "hero_id": 25,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 1,
+              "hero_id": 55,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 1,
+              "hero_id": 90,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 1,
+              "hero_id": 11,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 1,
+              "hero_id": 36,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 1,
+              "hero_id": 96,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 1,
+              "hero_id": 106,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 1,
+              "hero_id": 108,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 2,
+              "hero_id": 83,
+              "freq": 0.5,
+              "n": 14
+            },
+            {
+              "ord": 2,
+              "hero_id": 155,
+              "freq": 0.21428571428571427,
+              "n": 14
+            },
+            {
+              "ord": 2,
+              "hero_id": 13,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 2,
+              "hero_id": 25,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 2,
+              "hero_id": 62,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 2,
+              "hero_id": 106,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 3,
+              "hero_id": 25,
+              "freq": 0.2857142857142857,
+              "n": 14
+            },
+            {
+              "ord": 3,
+              "hero_id": 83,
+              "freq": 0.21428571428571427,
+              "n": 14
+            },
+            {
+              "ord": 3,
+              "hero_id": 6,
+              "freq": 0.14285714285714285,
+              "n": 14
+            },
+            {
+              "ord": 3,
+              "hero_id": 90,
+              "freq": 0.14285714285714285,
+              "n": 14
+            },
+            {
+              "ord": 3,
+              "hero_id": 74,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 3,
+              "hero_id": 80,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 3,
+              "hero_id": 107,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 4,
+              "hero_id": 90,
+              "freq": 0.23076923076923078,
+              "n": 13
+            },
+            {
+              "ord": 4,
+              "hero_id": 13,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 4,
+              "hero_id": 36,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 4,
+              "hero_id": 107,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 4,
+              "hero_id": 2,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 4,
+              "hero_id": 3,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 4,
+              "hero_id": 25,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 4,
+              "hero_id": 28,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 5,
+              "hero_id": 11,
+              "freq": 0.2857142857142857,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 3,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 25,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 33,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 53,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 62,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 74,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 80,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 83,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 96,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 5,
+              "hero_id": 155,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 107,
+              "freq": 0.21428571428571427,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 13,
+              "freq": 0.14285714285714285,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 11,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 25,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 28,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 53,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 74,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 90,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 96,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 106,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 6,
+              "hero_id": 108,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 9,
+              "hero_id": 112,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 123,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 9,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 21,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 33,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 36,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 80,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 85,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 90,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 100,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 9,
+              "hero_id": 108,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 28,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 38,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 80,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 2,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 33,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 55,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 69,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 108,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 114,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 10,
+              "hero_id": 135,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 11,
+              "hero_id": 3,
+              "freq": 0.14285714285714285,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 80,
+              "freq": 0.14285714285714285,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 13,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 54,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 59,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 67,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 69,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 90,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 93,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 96,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 108,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 11,
+              "hero_id": 112,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 18,
+              "hero_id": 12,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 17,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 18,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 19,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 21,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 54,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 55,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 59,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 67,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 74,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 97,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 98,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 18,
+              "hero_id": 109,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 19,
+              "hero_id": 60,
+              "freq": 0.14285714285714285,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 9,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 13,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 18,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 65,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 69,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 85,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 98,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 100,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 107,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 111,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 119,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 19,
+              "hero_id": 123,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 20,
+              "hero_id": 54,
+              "freq": 0.15384615384615385,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 2,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 11,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 13,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 18,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 19,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 25,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 46,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 56,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 65,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 114,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 20,
+              "hero_id": 155,
+              "freq": 0.07692307692307693,
+              "n": 13
+            },
+            {
+              "ord": 21,
+              "hero_id": 106,
+              "freq": 0.14285714285714285,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 2,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 9,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 17,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 21,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 60,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 69,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 77,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 90,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 96,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 98,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 100,
+              "freq": 0.07142857142857142,
+              "n": 14
+            },
+            {
+              "ord": 21,
+              "hero_id": 131,
+              "freq": 0.07142857142857142,
+              "n": 14
+            }
+          ]
+        }
+      }
+    },
+    {
+      "team_id": 9256405,
+      "team_name": "Level UP esports",
+      "patch": "7.41e",
+      "as_of": "2026-09-22",
+      "http_status": 200,
+      "elapsed_ms": 370.4,
+      "body": {
+        "team_id": 9256405,
+        "patch": "7.41e",
+        "as_of": "2026-09-22",
+        "sources_used": [
+          "pro_match"
+        ],
+        "coverage": {
+          "pro_match": {
+            "n_matches": 47,
+            "n_stat_available": 47,
+            "n_position_unknown": 47
+          },
+          "pub_match": {
+            "n_matches": 0,
+            "n_stat_available": 0,
+            "n_position_unknown": 0
+          }
+        },
+        "players": [
+          {
+            "account_id": 93526520,
+            "name": "bb3px",
+            "role": null,
+            "hero_pool": {
+              "window_games": 47,
+              "signature": [
+                {
+                  "hero_id": 29,
+                  "games": 13,
+                  "wr": 0.6153846153846154,
+                  "pct": 28
+                },
+                {
+                  "hero_id": 96,
+                  "games": 8,
+                  "wr": 0.75,
+                  "pct": 17
+                },
+                {
+                  "hero_id": 155,
+                  "games": 6,
+                  "wr": 0.6666666666666666,
+                  "pct": 13
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 33,
+                  "games": 6,
+                  "wr": 0.5,
+                  "pct": 13
+                }
+              ],
+              "effective_count": 4,
+              "presence_pick_rate": 0.7021276595744681
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.3153153153153153,
+                "protect": 0.07207207207207207,
+                "push": 0.07207207207207207,
+                "teamfight": 0.42342342342342343,
+                "pickoff": 0.10810810810810811,
+                "splitpush": 0.009009009009009009
+              }
+            }
+          },
+          {
+            "account_id": 196482746,
+            "name": "darkniA",
+            "role": null,
+            "hero_pool": {
+              "window_games": 47,
+              "signature": [
+                {
+                  "hero_id": 106,
+                  "games": 11,
+                  "wr": 0.6363636363636364,
+                  "pct": 23
+                },
+                {
+                  "hero_id": 17,
+                  "games": 9,
+                  "wr": 0.7777777777777778,
+                  "pct": 19
+                },
+                {
+                  "hero_id": 120,
+                  "games": 6,
+                  "wr": 0.6666666666666666,
+                  "pct": 13
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 126,
+                  "games": 11,
+                  "wr": 0.5454545454545454,
+                  "pct": 23
+                }
+              ],
+              "effective_count": 4,
+              "presence_pick_rate": 0.7872340425531915
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.19393939393939394,
+                "protect": 0.006060606060606061,
+                "push": 0.012121212121212121,
+                "teamfight": 0.28484848484848485,
+                "pickoff": 0.26666666666666666,
+                "splitpush": 0.23636363636363636
+              }
+            }
+          },
+          {
+            "account_id": 206097366,
+            "name": "queezy",
+            "role": null,
+            "hero_pool": {
+              "window_games": 47,
+              "signature": [
+                {
+                  "hero_id": 21,
+                  "games": 9,
+                  "wr": 0.6666666666666666,
+                  "pct": 19
+                },
+                {
+                  "hero_id": 9,
+                  "games": 5,
+                  "wr": 0.8,
+                  "pct": 11
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 123,
+                  "games": 10,
+                  "wr": 0.5,
+                  "pct": 21
+                },
+                {
+                  "hero_id": 86,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 6
+                }
+              ],
+              "effective_count": 4,
+              "presence_pick_rate": 0.574468085106383
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.013333333333333334,
+                "protect": 0.31333333333333335,
+                "push": 0.0,
+                "teamfight": 0.31333333333333335,
+                "pickoff": 0.26666666666666666,
+                "splitpush": 0.09333333333333334
+              }
+            }
+          },
+          {
+            "account_id": 340421206,
+            "name": "Htrd",
+            "role": null,
+            "hero_pool": {
+              "window_games": 47,
+              "signature": [
+                {
+                  "hero_id": 105,
+                  "games": 10,
+                  "wr": 0.8,
+                  "pct": 21
+                },
+                {
+                  "hero_id": 51,
+                  "games": 8,
+                  "wr": 0.75,
+                  "pct": 17
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 50,
+                  "games": 4,
+                  "wr": 0.5,
+                  "pct": 9
+                }
+              ],
+              "effective_count": 3,
+              "presence_pick_rate": 0.46808510638297873
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.09302325581395349,
+                "protect": 0.3372093023255814,
+                "push": 0.011627906976744186,
+                "teamfight": 0.5348837209302325,
+                "pickoff": 0.011627906976744186,
+                "splitpush": 0.011627906976744186
+              }
+            }
+          },
+          {
+            "account_id": 1092267175,
+            "name": "WoE",
+            "role": null,
+            "hero_pool": {
+              "window_games": 47,
+              "signature": [
+                {
+                  "hero_id": 18,
+                  "games": 7,
+                  "wr": 0.7142857142857143,
+                  "pct": 15
+                },
+                {
+                  "hero_id": 48,
+                  "games": 7,
+                  "wr": 0.7142857142857143,
+                  "pct": 15
+                },
+                {
+                  "hero_id": 25,
+                  "games": 5,
+                  "wr": 0.6,
+                  "pct": 11
+                },
+                {
+                  "hero_id": 73,
+                  "games": 5,
+                  "wr": 0.6,
+                  "pct": 11
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 10,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 6
+                }
+              ],
+              "effective_count": 5,
+              "presence_pick_rate": 0.574468085106383
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.16,
+                "protect": 0.12,
+                "push": 0.14,
+                "teamfight": 0.45,
+                "pickoff": 0.05,
+                "splitpush": 0.08
+              }
+            }
+          }
+        ],
+        "team_bp_tendency": {
+          "first_phase_ban_freq": [
+            {
+              "hero_id": 90,
+              "freq": 0.5957446808510638,
+              "n": 47
+            },
+            {
+              "hero_id": 74,
+              "freq": 0.425531914893617,
+              "n": 47
+            },
+            {
+              "hero_id": 62,
+              "freq": 0.40425531914893614,
+              "n": 47
+            },
+            {
+              "hero_id": 83,
+              "freq": 0.40425531914893614,
+              "n": 47
+            },
+            {
+              "hero_id": 25,
+              "freq": 0.3404255319148936,
+              "n": 47
+            },
+            {
+              "hero_id": 3,
+              "freq": 0.2127659574468085,
+              "n": 47
+            },
+            {
+              "hero_id": 80,
+              "freq": 0.1702127659574468,
+              "n": 47
+            },
+            {
+              "hero_id": 155,
+              "freq": 0.1702127659574468,
+              "n": 47
+            },
+            {
+              "hero_id": 13,
+              "freq": 0.14893617021276595,
+              "n": 47
+            },
+            {
+              "hero_id": 47,
+              "freq": 0.10638297872340426,
+              "n": 47
+            },
+            {
+              "hero_id": 59,
+              "freq": 0.06382978723404255,
+              "n": 47
+            },
+            {
+              "hero_id": 106,
+              "freq": 0.06382978723404255,
+              "n": 47
+            },
+            {
+              "hero_id": 145,
+              "freq": 0.06382978723404255,
+              "n": 47
+            },
+            {
+              "hero_id": 38,
+              "freq": 0.0425531914893617,
+              "n": 47
+            },
+            {
+              "hero_id": 107,
+              "freq": 0.0425531914893617,
+              "n": 47
+            },
+            {
+              "hero_id": 135,
+              "freq": 0.0425531914893617,
+              "n": 47
+            },
+            {
+              "hero_id": 11,
+              "freq": 0.02127659574468085,
+              "n": 47
+            },
+            {
+              "hero_id": 33,
+              "freq": 0.02127659574468085,
+              "n": 47
+            },
+            {
+              "hero_id": 58,
+              "freq": 0.02127659574468085,
+              "n": 47
+            },
+            {
+              "hero_id": 69,
+              "freq": 0.02127659574468085,
+              "n": 47
+            },
+            {
+              "hero_id": 85,
+              "freq": 0.02127659574468085,
+              "n": 47
+            }
+          ],
+          "first_pick_freq": [
+            {
+              "hero_id": 106,
+              "freq": 0.1702127659574468,
+              "n": 47
+            },
+            {
+              "hero_id": 119,
+              "freq": 0.1702127659574468,
+              "n": 47
+            },
+            {
+              "hero_id": 105,
+              "freq": 0.14893617021276595,
+              "n": 47
+            },
+            {
+              "hero_id": 17,
+              "freq": 0.0851063829787234,
+              "n": 47
+            },
+            {
+              "hero_id": 123,
+              "freq": 0.0851063829787234,
+              "n": 47
+            },
+            {
+              "hero_id": 155,
+              "freq": 0.0851063829787234,
+              "n": 47
+            },
+            {
+              "hero_id": 25,
+              "freq": 0.06382978723404255,
+              "n": 47
+            },
+            {
+              "hero_id": 30,
+              "freq": 0.06382978723404255,
+              "n": 47
+            },
+            {
+              "hero_id": 85,
+              "freq": 0.06382978723404255,
+              "n": 47
+            },
+            {
+              "hero_id": 80,
+              "freq": 0.0425531914893617,
+              "n": 47
+            },
+            {
+              "hero_id": 96,
+              "freq": 0.02127659574468085,
+              "n": 47
+            }
+          ],
+          "ban_by_phase": [
+            {
+              "ord": 0,
+              "hero_id": 90,
+              "freq": 0.2857142857142857,
+              "n": 28
+            },
+            {
+              "ord": 0,
+              "hero_id": 62,
+              "freq": 0.21428571428571427,
+              "n": 28
+            },
+            {
+              "ord": 0,
+              "hero_id": 13,
+              "freq": 0.14285714285714285,
+              "n": 28
+            },
+            {
+              "ord": 0,
+              "hero_id": 74,
+              "freq": 0.14285714285714285,
+              "n": 28
+            },
+            {
+              "ord": 0,
+              "hero_id": 3,
+              "freq": 0.10714285714285714,
+              "n": 28
+            },
+            {
+              "ord": 0,
+              "hero_id": 155,
+              "freq": 0.10714285714285714,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 74,
+              "freq": 0.35714285714285715,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 90,
+              "freq": 0.17857142857142858,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 62,
+              "freq": 0.10714285714285714,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 145,
+              "freq": 0.10714285714285714,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 135,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 13,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 25,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 47,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 58,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 1,
+              "hero_id": 59,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 2,
+              "hero_id": 83,
+              "freq": 0.631578947368421,
+              "n": 19
+            },
+            {
+              "ord": 2,
+              "hero_id": 80,
+              "freq": 0.2631578947368421,
+              "n": 19
+            },
+            {
+              "ord": 2,
+              "hero_id": 62,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 2,
+              "hero_id": 90,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 3,
+              "hero_id": 62,
+              "freq": 0.3157894736842105,
+              "n": 19
+            },
+            {
+              "ord": 3,
+              "hero_id": 83,
+              "freq": 0.3157894736842105,
+              "n": 19
+            },
+            {
+              "ord": 3,
+              "hero_id": 90,
+              "freq": 0.15789473684210525,
+              "n": 19
+            },
+            {
+              "ord": 3,
+              "hero_id": 80,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 3,
+              "hero_id": 3,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 3,
+              "hero_id": 13,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 4,
+              "hero_id": 25,
+              "freq": 0.32142857142857145,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 3,
+              "freq": 0.14285714285714285,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 90,
+              "freq": 0.10714285714285714,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 38,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 47,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 107,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 11,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 62,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 69,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 74,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 85,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 4,
+              "hero_id": 155,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 5,
+              "hero_id": 90,
+              "freq": 0.3684210526315789,
+              "n": 19
+            },
+            {
+              "ord": 5,
+              "hero_id": 74,
+              "freq": 0.21052631578947367,
+              "n": 19
+            },
+            {
+              "ord": 5,
+              "hero_id": 62,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 5,
+              "hero_id": 3,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 5,
+              "hero_id": 13,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 5,
+              "hero_id": 25,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 5,
+              "hero_id": 47,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 5,
+              "hero_id": 80,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 5,
+              "hero_id": 155,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 25,
+              "freq": 0.2631578947368421,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 106,
+              "freq": 0.15789473684210525,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 155,
+              "freq": 0.15789473684210525,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 59,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 3,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 33,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 47,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 74,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 83,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 6,
+              "hero_id": 90,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 9,
+              "hero_id": 55,
+              "freq": 0.14285714285714285,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 90,
+              "freq": 0.10714285714285714,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 13,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 31,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 77,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 100,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 2,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 9,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 25,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 48,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 51,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 74,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 85,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 105,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 107,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 108,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 123,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 131,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 9,
+              "hero_id": 136,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 85,
+              "freq": 0.14285714285714285,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 107,
+              "freq": 0.14285714285714285,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 33,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 123,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 9,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 13,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 17,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 29,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 31,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 36,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 47,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 55,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 80,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 90,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 91,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 96,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 100,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 108,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 131,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 10,
+              "hero_id": 135,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 11,
+              "hero_id": 13,
+              "freq": 0.21052631578947367,
+              "n": 19
+            },
+            {
+              "ord": 11,
+              "hero_id": 55,
+              "freq": 0.21052631578947367,
+              "n": 19
+            },
+            {
+              "ord": 11,
+              "hero_id": 33,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 11,
+              "hero_id": 74,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 11,
+              "hero_id": 93,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 11,
+              "hero_id": 106,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 11,
+              "hero_id": 47,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 11,
+              "hero_id": 85,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 11,
+              "hero_id": 108,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 18,
+              "hero_id": 18,
+              "freq": 0.10714285714285714,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 11,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 19,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 54,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 59,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 69,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 109,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 135,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 2,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 10,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 28,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 33,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 38,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 46,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 47,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 91,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 93,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 106,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 18,
+              "hero_id": 145,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 19,
+              "hero_id": 19,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 107,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 16,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 18,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 29,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 33,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 38,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 48,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 55,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 69,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 74,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 85,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 93,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 98,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 108,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 109,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 19,
+              "hero_id": 135,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 20,
+              "hero_id": 18,
+              "freq": 0.10714285714285714,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 80,
+              "freq": 0.10714285714285714,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 47,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 93,
+              "freq": 0.07142857142857142,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 11,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 13,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 19,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 29,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 48,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 54,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 55,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 61,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 67,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 69,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 72,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 77,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 85,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 89,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 91,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 108,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 126,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 20,
+              "hero_id": 135,
+              "freq": 0.03571428571428571,
+              "n": 28
+            },
+            {
+              "ord": 21,
+              "hero_id": 11,
+              "freq": 0.15789473684210525,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 16,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 77,
+              "freq": 0.10526315789473684,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 2,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 13,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 18,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 29,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 33,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 36,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 38,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 76,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 86,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 96,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 108,
+              "freq": 0.05263157894736842,
+              "n": 19
+            },
+            {
+              "ord": 21,
+              "hero_id": 120,
+              "freq": 0.05263157894736842,
+              "n": 19
+            }
+          ]
+        }
+      }
+    },
+    {
+      "team_id": 10232231,
+      "team_name": "Klim Sani4",
+      "patch": "7.41e",
+      "as_of": "2026-09-22",
+      "http_status": 200,
+      "elapsed_ms": 376.85,
+      "body": {
+        "team_id": 10232231,
+        "patch": "7.41e",
+        "as_of": "2026-09-22",
+        "sources_used": [
+          "pro_match"
+        ],
+        "coverage": {
+          "pro_match": {
+            "n_matches": 41,
+            "n_stat_available": 41,
+            "n_position_unknown": 41
+          },
+          "pub_match": {
+            "n_matches": 0,
+            "n_stat_available": 0,
+            "n_position_unknown": 0
+          }
+        },
+        "players": [
+          {
+            "account_id": 122817493,
+            "name": "Rein",
+            "role": null,
+            "hero_pool": {
+              "window_games": 47,
+              "signature": [
+                {
+                  "hero_id": 112,
+                  "games": 11,
+                  "wr": 0.7272727272727273,
+                  "pct": 23
+                },
+                {
+                  "hero_id": 155,
+                  "games": 6,
+                  "wr": 0.8333333333333334,
+                  "pct": 13
+                },
+                {
+                  "hero_id": 30,
+                  "games": 5,
+                  "wr": 0.6,
+                  "pct": 11
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 85,
+                  "games": 7,
+                  "wr": 0.5714285714285714,
+                  "pct": 15
+                }
+              ],
+              "effective_count": 4,
+              "presence_pick_rate": 0.6170212765957447
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.04081632653061224,
+                "protect": 0.42857142857142855,
+                "push": 0.030612244897959183,
+                "teamfight": 0.4489795918367347,
+                "pickoff": 0.030612244897959183,
+                "splitpush": 0.02040816326530612
+              }
+            }
+          },
+          {
+            "account_id": 123023873,
+            "name": "squad1x",
+            "role": null,
+            "hero_pool": {
+              "window_games": 45,
+              "signature": [
+                {
+                  "hero_id": 106,
+                  "games": 13,
+                  "wr": 0.7692307692307693,
+                  "pct": 29
+                },
+                {
+                  "hero_id": 107,
+                  "games": 6,
+                  "wr": 0.8333333333333334,
+                  "pct": 13
+                },
+                {
+                  "hero_id": 17,
+                  "games": 5,
+                  "wr": 0.8,
+                  "pct": 11
+                },
+                {
+                  "hero_id": 120,
+                  "games": 5,
+                  "wr": 0.8,
+                  "pct": 11
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 16,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 7
+                }
+              ],
+              "effective_count": 5,
+              "presence_pick_rate": 0.7111111111111111
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.24203821656050956,
+                "protect": 0.025477707006369428,
+                "push": 0.025477707006369428,
+                "teamfight": 0.28662420382165604,
+                "pickoff": 0.2484076433121019,
+                "splitpush": 0.17197452229299362
+              }
+            }
+          },
+          {
+            "account_id": 123787715,
+            "name": "RESPECT",
+            "role": null,
+            "hero_pool": {
+              "window_games": 30,
+              "signature": [],
+              "comfortable": [
+                {
+                  "hero_id": 112,
+                  "games": 6,
+                  "wr": 0.5,
+                  "pct": 20
+                }
+              ],
+              "effective_count": 1,
+              "presence_pick_rate": 0.4
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.013157894736842105,
+                "protect": 0.35526315789473684,
+                "push": 0.013157894736842105,
+                "teamfight": 0.39473684210526316,
+                "pickoff": 0.19736842105263158,
+                "splitpush": 0.02631578947368421
+              }
+            }
+          },
+          {
+            "account_id": 175311897,
+            "name": "swedenstrong",
+            "role": null,
+            "hero_pool": {
+              "window_games": 46,
+              "signature": [
+                {
+                  "hero_id": 21,
+                  "games": 10,
+                  "wr": 0.7,
+                  "pct": 22
+                },
+                {
+                  "hero_id": 123,
+                  "games": 9,
+                  "wr": 0.7777777777777778,
+                  "pct": 20
+                },
+                {
+                  "hero_id": 86,
+                  "games": 5,
+                  "wr": 0.6,
+                  "pct": 11
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 119,
+                  "games": 8,
+                  "wr": 0.5,
+                  "pct": 17
+                },
+                {
+                  "hero_id": 90,
+                  "games": 4,
+                  "wr": 0.75,
+                  "pct": 9
+                }
+              ],
+              "effective_count": 5,
+              "presence_pick_rate": 0.782608695652174
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.030534351145038167,
+                "protect": 0.3053435114503817,
+                "push": 0.0,
+                "teamfight": 0.33587786259541985,
+                "pickoff": 0.2366412213740458,
+                "splitpush": 0.0916030534351145
+              }
+            }
+          },
+          {
+            "account_id": 389276156,
+            "name": "",
+            "role": null,
+            "hero_pool": {
+              "window_games": 12,
+              "signature": [
+                {
+                  "hero_id": 17,
+                  "games": 5,
+                  "wr": 0.6,
+                  "pct": 42
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 106,
+                  "games": 4,
+                  "wr": 1.0,
+                  "pct": 33
+                }
+              ],
+              "effective_count": 2,
+              "presence_pick_rate": 0.75
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.23809523809523808,
+                "protect": 0.023809523809523808,
+                "push": 0.0,
+                "teamfight": 0.2857142857142857,
+                "pickoff": 0.21428571428571427,
+                "splitpush": 0.23809523809523808
+              }
+            }
+          },
+          {
+            "account_id": 458287006,
+            "name": "423",
+            "role": null,
+            "hero_pool": {
+              "window_games": 57,
+              "signature": [
+                {
+                  "hero_id": 53,
+                  "games": 10,
+                  "wr": 0.7,
+                  "pct": 18
+                },
+                {
+                  "hero_id": 145,
+                  "games": 7,
+                  "wr": 0.7142857142857143,
+                  "pct": 12
+                },
+                {
+                  "hero_id": 54,
+                  "games": 6,
+                  "wr": 0.6666666666666666,
+                  "pct": 11
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 11,
+                  "games": 9,
+                  "wr": 0.5555555555555556,
+                  "pct": 16
+                },
+                {
+                  "hero_id": 80,
+                  "games": 7,
+                  "wr": 0.5714285714285714,
+                  "pct": 12
+                },
+                {
+                  "hero_id": 56,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 5
+                }
+              ],
+              "effective_count": 6,
+              "presence_pick_rate": 0.7368421052631579
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.05309734513274336,
+                "protect": 0.008849557522123894,
+                "push": 0.24778761061946902,
+                "teamfight": 0.4690265486725664,
+                "pickoff": 0.09734513274336283,
+                "splitpush": 0.12389380530973451
+              }
+            }
+          },
+          {
+            "account_id": 1150772339,
+            "name": "",
+            "role": null,
+            "hero_pool": {
+              "window_games": 52,
+              "signature": [
+                {
+                  "hero_id": 77,
+                  "games": 10,
+                  "wr": 0.6,
+                  "pct": 19
+                },
+                {
+                  "hero_id": 33,
+                  "games": 7,
+                  "wr": 0.8571428571428571,
+                  "pct": 13
+                },
+                {
+                  "hero_id": 96,
+                  "games": 7,
+                  "wr": 0.7142857142857143,
+                  "pct": 13
+                },
+                {
+                  "hero_id": 38,
+                  "games": 6,
+                  "wr": 0.8333333333333334,
+                  "pct": 12
+                }
+              ],
+              "comfortable": [
+                {
+                  "hero_id": 61,
+                  "games": 4,
+                  "wr": 0.5,
+                  "pct": 8
+                },
+                {
+                  "hero_id": 29,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 6
+                },
+                {
+                  "hero_id": 55,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 6
+                },
+                {
+                  "hero_id": 108,
+                  "games": 3,
+                  "wr": 0.6666666666666666,
+                  "pct": 6
+                }
+              ],
+              "effective_count": 8,
+              "presence_pick_rate": 0.8269230769230769
+            },
+            "dimensions": {
+              "hero_pool": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "laning": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "combat": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "map_vision": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "tempo": {
+                "value": null,
+                "reason": "insufficient_samples"
+              },
+              "hero_archetype": {
+                "initiate": 0.25203252032520324,
+                "protect": 0.032520325203252036,
+                "push": 0.17073170731707318,
+                "teamfight": 0.42276422764227645,
+                "pickoff": 0.12195121951219512,
+                "splitpush": 0.0
+              }
+            }
+          }
+        ],
+        "team_bp_tendency": {
+          "first_phase_ban_freq": [
+            {
+              "hero_id": 83,
+              "freq": 0.5121951219512195,
+              "n": 41
+            },
+            {
+              "hero_id": 62,
+              "freq": 0.43902439024390244,
+              "n": 41
+            },
+            {
+              "hero_id": 55,
+              "freq": 0.3902439024390244,
+              "n": 41
+            },
+            {
+              "hero_id": 155,
+              "freq": 0.36585365853658536,
+              "n": 41
+            },
+            {
+              "hero_id": 25,
+              "freq": 0.3170731707317073,
+              "n": 41
+            },
+            {
+              "hero_id": 90,
+              "freq": 0.2682926829268293,
+              "n": 41
+            },
+            {
+              "hero_id": 112,
+              "freq": 0.21951219512195122,
+              "n": 41
+            },
+            {
+              "hero_id": 85,
+              "freq": 0.12195121951219512,
+              "n": 41
+            },
+            {
+              "hero_id": 11,
+              "freq": 0.0975609756097561,
+              "n": 41
+            },
+            {
+              "hero_id": 33,
+              "freq": 0.0975609756097561,
+              "n": 41
+            },
+            {
+              "hero_id": 100,
+              "freq": 0.0975609756097561,
+              "n": 41
+            },
+            {
+              "hero_id": 76,
+              "freq": 0.07317073170731707,
+              "n": 41
+            },
+            {
+              "hero_id": 107,
+              "freq": 0.07317073170731707,
+              "n": 41
+            },
+            {
+              "hero_id": 121,
+              "freq": 0.07317073170731707,
+              "n": 41
+            },
+            {
+              "hero_id": 3,
+              "freq": 0.04878048780487805,
+              "n": 41
+            },
+            {
+              "hero_id": 77,
+              "freq": 0.04878048780487805,
+              "n": 41
+            },
+            {
+              "hero_id": 145,
+              "freq": 0.04878048780487805,
+              "n": 41
+            },
+            {
+              "hero_id": 19,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 28,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 67,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 80,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 93,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 105,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 106,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 109,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 119,
+              "freq": 0.024390243902439025,
+              "n": 41
+            }
+          ],
+          "first_pick_freq": [
+            {
+              "hero_id": 112,
+              "freq": 0.1951219512195122,
+              "n": 41
+            },
+            {
+              "hero_id": 106,
+              "freq": 0.14634146341463414,
+              "n": 41
+            },
+            {
+              "hero_id": 90,
+              "freq": 0.0975609756097561,
+              "n": 41
+            },
+            {
+              "hero_id": 155,
+              "freq": 0.0975609756097561,
+              "n": 41
+            },
+            {
+              "hero_id": 85,
+              "freq": 0.07317073170731707,
+              "n": 41
+            },
+            {
+              "hero_id": 11,
+              "freq": 0.04878048780487805,
+              "n": 41
+            },
+            {
+              "hero_id": 62,
+              "freq": 0.04878048780487805,
+              "n": 41
+            },
+            {
+              "hero_id": 107,
+              "freq": 0.04878048780487805,
+              "n": 41
+            },
+            {
+              "hero_id": 3,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 9,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 17,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 36,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 49,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 55,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 69,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 77,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 105,
+              "freq": 0.024390243902439025,
+              "n": 41
+            },
+            {
+              "hero_id": 119,
+              "freq": 0.024390243902439025,
+              "n": 41
+            }
+          ],
+          "ban_by_phase": [
+            {
+              "ord": 0,
+              "hero_id": 25,
+              "freq": 0.3,
+              "n": 20
+            },
+            {
+              "ord": 0,
+              "hero_id": 155,
+              "freq": 0.2,
+              "n": 20
+            },
+            {
+              "ord": 0,
+              "hero_id": 76,
+              "freq": 0.15,
+              "n": 20
+            },
+            {
+              "ord": 0,
+              "hero_id": 100,
+              "freq": 0.15,
+              "n": 20
+            },
+            {
+              "ord": 0,
+              "hero_id": 55,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 0,
+              "hero_id": 11,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 0,
+              "hero_id": 85,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 1,
+              "hero_id": 55,
+              "freq": 0.25,
+              "n": 20
+            },
+            {
+              "ord": 1,
+              "hero_id": 90,
+              "freq": 0.25,
+              "n": 20
+            },
+            {
+              "ord": 1,
+              "hero_id": 85,
+              "freq": 0.15,
+              "n": 20
+            },
+            {
+              "ord": 1,
+              "hero_id": 3,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 1,
+              "hero_id": 155,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 1,
+              "hero_id": 11,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 1,
+              "hero_id": 77,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 1,
+              "hero_id": 121,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 2,
+              "hero_id": 83,
+              "freq": 0.9523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 2,
+              "hero_id": 62,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 3,
+              "hero_id": 62,
+              "freq": 0.6666666666666666,
+              "n": 21
+            },
+            {
+              "ord": 3,
+              "hero_id": 25,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 3,
+              "hero_id": 33,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 3,
+              "hero_id": 83,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 3,
+              "hero_id": 107,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 3,
+              "hero_id": 155,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 4,
+              "hero_id": 25,
+              "freq": 0.15,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 90,
+              "freq": 0.15,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 155,
+              "freq": 0.15,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 55,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 145,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 11,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 28,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 93,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 105,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 106,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 119,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 4,
+              "hero_id": 121,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 5,
+              "hero_id": 112,
+              "freq": 0.3333333333333333,
+              "n": 21
+            },
+            {
+              "ord": 5,
+              "hero_id": 155,
+              "freq": 0.14285714285714285,
+              "n": 21
+            },
+            {
+              "ord": 5,
+              "hero_id": 55,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 5,
+              "hero_id": 62,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 5,
+              "hero_id": 90,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 5,
+              "hero_id": 107,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 5,
+              "hero_id": 67,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 5,
+              "hero_id": 77,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 5,
+              "hero_id": 121,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 55,
+              "freq": 0.23809523809523808,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 25,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 33,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 112,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 155,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 11,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 19,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 62,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 80,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 85,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 90,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 100,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 6,
+              "hero_id": 109,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 9,
+              "hero_id": 69,
+              "freq": 0.15,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 9,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 55,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 80,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 105,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 11,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 25,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 48,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 51,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 83,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 85,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 112,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 119,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 9,
+              "hero_id": 120,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 3,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 9,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 11,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 51,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 119,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 123,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 25,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 48,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 55,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 69,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 85,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 90,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 105,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 10,
+              "hero_id": 108,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 11,
+              "hero_id": 93,
+              "freq": 0.23809523809523808,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 38,
+              "freq": 0.14285714285714285,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 11,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 36,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 3,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 19,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 54,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 55,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 69,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 96,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 106,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 108,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 11,
+              "hero_id": 109,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 18,
+              "hero_id": 36,
+              "freq": 0.15,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 54,
+              "freq": 0.15,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 59,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 11,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 19,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 33,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 48,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 58,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 74,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 80,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 87,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 93,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 96,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 99,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 18,
+              "hero_id": 109,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 19,
+              "hero_id": 109,
+              "freq": 0.19047619047619047,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 54,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 120,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 9,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 19,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 31,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 33,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 38,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 69,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 77,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 85,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 89,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 96,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 108,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 110,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 19,
+              "hero_id": 135,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 20,
+              "hero_id": 36,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 93,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 109,
+              "freq": 0.1,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 2,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 11,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 19,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 28,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 38,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 41,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 47,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 48,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 56,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 59,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 69,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 89,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 145,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 20,
+              "hero_id": 155,
+              "freq": 0.05,
+              "n": 20
+            },
+            {
+              "ord": 21,
+              "hero_id": 38,
+              "freq": 0.14285714285714285,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 11,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 12,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 96,
+              "freq": 0.09523809523809523,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 18,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 28,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 29,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 33,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 48,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 65,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 85,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 106,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 108,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 131,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 137,
+              "freq": 0.047619047619047616,
+              "n": 21
+            },
+            {
+              "ord": 21,
+              "hero_id": 145,
+              "freq": 0.047619047619047616,
+              "n": 21
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "error_checks": [
+    {
+      "status": 403,
+      "code": "source_not_allowed"
+    },
+    {
+      "status": 404,
+      "code": "not_found"
+    },
+    {
+      "status": 400,
+      "code": "invalid_request"
+    }
+  ]
+}

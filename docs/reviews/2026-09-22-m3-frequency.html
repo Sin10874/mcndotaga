@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>M3 序列频率基线审阅</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f6f5f1;
+      --surface: #ffffff;
+      --ink: #1f2521;
+      --muted: #687069;
+      --line: #d9ddd7;
+      --accent: #315c48;
+      --accent-soft: #e8f0eb;
+      --warn: #895328;
+      --warn-soft: #f8eee3;
+      --negative: #8d3d36;
+      --negative-soft: #f8e9e7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 72px 0 88px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+      gap: 56px;
+      align-items: end;
+      padding-bottom: 36px;
+      border-bottom: 1px solid var(--ink);
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 5vw, 60px);
+      font-weight: 650;
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+    }
+
+    .lede {
+      margin: 20px 0 0;
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .status {
+      margin: 0;
+      padding: 20px 22px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+    }
+
+    .status strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--accent);
+      font-size: 18px;
+    }
+
+    section {
+      padding: 46px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h2 {
+      margin: 0 0 22px;
+      font-size: 23px;
+      font-weight: 650;
+      letter-spacing: -0.015em;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      min-height: 172px;
+      padding: 22px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+    }
+
+    .card.positive {
+      border-top: 3px solid var(--accent);
+    }
+
+    .card.negative {
+      border-top: 3px solid var(--negative);
+    }
+
+    .card.caution {
+      border-top: 3px solid var(--warn);
+    }
+
+    .card p {
+      color: var(--muted);
+    }
+
+    .metric {
+      display: block;
+      margin: 12px 0 7px;
+      font-variant-numeric: tabular-nums;
+      font-size: 30px;
+      font-weight: 650;
+      line-height: 1.1;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th,
+    td {
+      padding: 13px 15px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      color: var(--muted);
+      background: #fafaf8;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    td.number,
+    th.number {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    tbody tr.focus td {
+      background: var(--accent-soft);
+    }
+
+    tbody tr.risk td {
+      background: var(--negative-soft);
+    }
+
+    .delta-down {
+      color: var(--negative);
+      font-weight: 700;
+    }
+
+    .delta-up {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      color: var(--warn);
+      background: var(--warn-soft);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .split-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .split-card {
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+    }
+
+    .split-card dl {
+      display: grid;
+      grid-template-columns: 126px 1fr;
+      gap: 8px 16px;
+      margin: 18px 0 0;
+    }
+
+    dt {
+      color: var(--muted);
+    }
+
+    dd {
+      margin: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .notes {
+      display: grid;
+      gap: 12px;
+    }
+
+    .note {
+      padding: 17px 19px;
+      background: var(--surface);
+      border-left: 3px solid var(--line);
+    }
+
+    .note strong {
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    .note.warning {
+      border-left-color: var(--warn);
+    }
+
+    .note.negative {
+      border-left-color: var(--negative);
+    }
+
+    .provenance {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+    }
+
+    .provenance div {
+      min-height: 108px;
+      padding: 18px;
+      background: var(--surface);
+    }
+
+    .provenance span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .provenance strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 16px;
+      overflow-wrap: anywhere;
+    }
+
+    footer {
+      padding-top: 28px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 820px) {
+      main {
+        width: min(100% - 24px, 1180px);
+        padding-top: 36px;
+      }
+
+      header,
+      .grid,
+      .split-grid {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        gap: 28px;
+      }
+
+      .provenance {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .provenance {
+        grid-template-columns: 1fr;
+      }
+
+      th,
+      td {
+        padding: 11px 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">M3 频率基线审阅</p>
+        <h1>能作为基线，暂不能证明前段预测可用</h1>
+        <p class="lede">阶段加 pick/ban 分层在整体 Top1、Top3、Top5 上均超过全局频率，但前 8 手的 Top1 与 Top3 明显退步。结果适合锁定后续模型的最低对照，不构成模型完成证据。</p>
+      </div>
+      <p class="status"><strong>结论：有限可行</strong>真实职业比赛、严格时间切分、无留出集调参。M7 与 M8 均未完成，当前结果不提供推理 API。</p>
+    </header>
+
+    <section aria-labelledby="key-findings">
+      <h2 id="key-findings">关键判断</h2>
+      <div class="grid">
+        <article class="card positive">
+          <h3>整体分层基线有增益</h3>
+          <span class="metric">12.26%</span>
+          <p>阶段加 pick/ban 的整体 Top5，高于全局频率的 7.47%。整体 Top1 与 Top3 也分别提高 0.79 和 1.66 个百分点。</p>
+        </article>
+        <article class="card negative">
+          <h3>前 8 手 Top1 与 Top3 退步</h3>
+          <span class="metric">0.85% / 2.54%</span>
+          <p>分层基线低于全局频率的 1.62% / 5.19%。当前分层方式没有解决最重要的前段预测问题。</p>
+        </article>
+        <article class="card caution">
+          <h3>跨版本结果需保守解读</h3>
+          <span class="metric">3 个版本无训练样本</span>
+          <p>7.41d、7.41e、7.41f 只出现在留出集。7.41f 仅 61 场，且分层 Top1 低于全局频率。</p>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="overall">
+      <h2 id="overall">三项基线总体结果</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>基线</th>
+              <th class="number">预测样本</th>
+              <th class="number">Top1</th>
+              <th class="number">Top3</th>
+              <th class="number">Top5</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>均匀随机期望</td>
+              <td class="number">72,960</td>
+              <td class="number">0.87%</td>
+              <td class="number">2.61%</td>
+              <td class="number">4.34%</td>
+              <td>按每一步剩余候选数精确计算</td>
+            </tr>
+            <tr>
+              <td>全局英雄频率</td>
+              <td class="number">72,960</td>
+              <td class="number">2.15%</td>
+              <td class="number">5.04%</td>
+              <td class="number">7.47%</td>
+              <td>仅使用训练集计数</td>
+            </tr>
+            <tr class="focus">
+              <td><strong>阶段加 pick/ban 频率</strong></td>
+              <td class="number">72,960</td>
+              <td class="number"><strong>2.95%</strong></td>
+              <td class="number"><strong>6.70%</strong></td>
+              <td class="number"><strong>12.26%</strong></td>
+              <td>整体优于全局频率，空桶回退次数为 0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="split">
+      <h2 id="split">训练与留出</h2>
+      <div class="split-grid">
+        <article class="split-card">
+          <h3>训练集</h3>
+          <dl>
+            <dt>比赛</dt><dd>12,156 场</dd>
+            <dt>预测位置</dt><dd>291,744 手</dd>
+            <dt>时间范围</dt><dd>2025-12-16 08:27:47 至 2026-05-22 14:30:04</dd>
+            <dt>版本范围</dt><dd>7.40 至 7.41c</dd>
+          </dl>
+        </article>
+        <article class="split-card">
+          <h3>留出集</h3>
+          <dl>
+            <dt>比赛</dt><dd>3,040 场</dd>
+            <dt>预测位置</dt><dd>72,960 手</dd>
+            <dt>时间范围</dt><dd>2026-05-22 14:54:55 至 2026-09-22 01:06:13</dd>
+            <dt>版本范围</dt><dd>7.41c 至 7.41f</dd>
+          </dl>
+        </article>
+      </div>
+      <div class="notes" style="margin-top: 18px;">
+        <p class="note"><strong>切分点</strong>2026-05-22 14:54:55。按 started_at 排序，边界同一时间戳不跨集合。留出集没有参与参数选择。</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="stages">
+      <h2 id="stages">三阶段表现</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>阶段</th>
+              <th class="number">预测样本</th>
+              <th>基线</th>
+              <th class="number">Top1</th>
+              <th class="number">Top3</th>
+              <th class="number">Top5</th>
+              <th>判断</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td rowspan="3"><strong>前 8 手</strong></td>
+              <td class="number" rowspan="3">24,320</td>
+              <td>随机期望</td>
+              <td class="number">0.81%</td>
+              <td class="number">2.43%</td>
+              <td class="number">4.05%</td>
+              <td rowspan="3" class="delta-down">分层 Top1 与 Top3 低于全局频率</td>
+            </tr>
+            <tr>
+              <td>全局频率</td>
+              <td class="number">1.62%</td>
+              <td class="number">5.19%</td>
+              <td class="number">7.83%</td>
+            </tr>
+            <tr class="risk">
+              <td>阶段加 pick/ban</td>
+              <td class="number"><strong>0.85%</strong></td>
+              <td class="number"><strong>2.54%</strong></td>
+              <td class="number"><strong>10.72%</strong></td>
+            </tr>
+            <tr>
+              <td rowspan="3"><strong>第 9 至 16 手</strong></td>
+              <td class="number" rowspan="3">24,320</td>
+              <td>随机期望</td>
+              <td class="number">0.87%</td>
+              <td class="number">2.60%</td>
+              <td class="number">4.33%</td>
+              <td rowspan="3" class="delta-up">分层三项均高于全局频率</td>
+            </tr>
+            <tr>
+              <td>全局频率</td>
+              <td class="number">2.07%</td>
+              <td class="number">4.84%</td>
+              <td class="number">6.72%</td>
+            </tr>
+            <tr class="focus">
+              <td>阶段加 pick/ban</td>
+              <td class="number"><strong>3.45%</strong></td>
+              <td class="number"><strong>7.33%</strong></td>
+              <td class="number"><strong>11.55%</strong></td>
+            </tr>
+            <tr>
+              <td rowspan="3"><strong>第 17 至 24 手</strong></td>
+              <td class="number" rowspan="3">24,320</td>
+              <td>随机期望</td>
+              <td class="number">0.93%</td>
+              <td class="number">2.79%</td>
+              <td class="number">4.65%</td>
+              <td rowspan="3" class="delta-up">分层三项均高于全局频率</td>
+            </tr>
+            <tr>
+              <td>全局频率</td>
+              <td class="number">2.76%</td>
+              <td class="number">5.08%</td>
+              <td class="number">7.85%</td>
+            </tr>
+            <tr class="focus">
+              <td>阶段加 pick/ban</td>
+              <td class="number"><strong>4.54%</strong></td>
+              <td class="number"><strong>10.21%</strong></td>
+              <td class="number"><strong>14.51%</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section aria-labelledby="patches">
+      <h2 id="patches">按 patch 的留出表现</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>版本</th>
+              <th class="number">训练比赛</th>
+              <th class="number">留出比赛</th>
+              <th class="number">预测样本</th>
+              <th>基线</th>
+              <th class="number">Top1</th>
+              <th class="number">Top3</th>
+              <th class="number">Top5</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td rowspan="3"><strong>7.41c</strong></td>
+              <td class="number" rowspan="3">1,146</td>
+              <td class="number" rowspan="3">1,146</td>
+              <td class="number" rowspan="3">27,504</td>
+              <td>随机期望</td><td class="number">0.87%</td><td class="number">2.61%</td><td class="number">4.34%</td>
+            </tr>
+            <tr><td>全局频率</td><td class="number">2.47%</td><td class="number">4.82%</td><td class="number">7.48%</td></tr>
+            <tr class="focus"><td>阶段加 pick/ban</td><td class="number">3.59%</td><td class="number">8.14%</td><td class="number">13.42%</td></tr>
+            <tr>
+              <td rowspan="3"><strong>7.41d</strong><br><span class="tag">跨版本</span></td>
+              <td class="number" rowspan="3">0</td>
+              <td class="number" rowspan="3">977</td>
+              <td class="number" rowspan="3">23,448</td>
+              <td>随机期望</td><td class="number">0.87%</td><td class="number">2.61%</td><td class="number">4.34%</td>
+            </tr>
+            <tr><td>全局频率</td><td class="number">2.45%</td><td class="number">5.67%</td><td class="number">8.61%</td></tr>
+            <tr class="focus"><td>阶段加 pick/ban</td><td class="number">2.87%</td><td class="number">6.56%</td><td class="number">12.70%</td></tr>
+            <tr>
+              <td rowspan="3"><strong>7.41e</strong><br><span class="tag">跨版本</span></td>
+              <td class="number" rowspan="3">0</td>
+              <td class="number" rowspan="3">856</td>
+              <td class="number" rowspan="3">20,544</td>
+              <td>随机期望</td><td class="number">0.87%</td><td class="number">2.61%</td><td class="number">4.34%</td>
+            </tr>
+            <tr><td>全局频率</td><td class="number">1.36%</td><td class="number">4.73%</td><td class="number">6.31%</td></tr>
+            <tr class="focus"><td>阶段加 pick/ban</td><td class="number">2.27%</td><td class="number">5.12%</td><td class="number">10.66%</td></tr>
+            <tr>
+              <td rowspan="3"><strong>7.41f</strong><br><span class="tag">61 场小样本</span></td>
+              <td class="number" rowspan="3">0</td>
+              <td class="number" rowspan="3">61</td>
+              <td class="number" rowspan="3">1,464</td>
+              <td>随机期望</td><td class="number">0.87%</td><td class="number">2.61%</td><td class="number">4.34%</td>
+            </tr>
+            <tr><td>全局频率</td><td class="number"><strong>2.46%</strong></td><td class="number">3.55%</td><td class="number">5.26%</td></tr>
+            <tr class="risk"><td>阶段加 pick/ban</td><td class="number"><strong>1.50%</strong></td><td class="number">3.69%</td><td class="number">5.67%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="notes" style="margin-top: 18px;">
+        <p class="note negative"><strong>7.41f 负结果</strong>分层 Top1 为 1.50%，低于全局频率的 2.46%。样本只有 61 场，不能据此单独下稳定结论。</p>
+        <p class="note warning"><strong>跨版本含义</strong>7.41d、7.41e、7.41f 的训练比赛数均为 0。这里测到的是旧版本频率向新版本的直接迁移，不是按该 patch 重训后的效果。</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="data-evidence">
+      <h2 id="data-evidence">数据口径与复算证据</h2>
+      <div class="provenance">
+        <div><span>公共 view 自 2025-01-01</span><strong>45,247 场</strong></div>
+        <div><span>基础筛选后</span><strong>43,977 场</strong></div>
+        <div><span>严格顺序族</span><strong>15,196 场</strong></div>
+        <div><span>冻结词表</span><strong>127 名英雄</strong></div>
+      </div>
+      <div class="notes" style="margin-top: 18px;">
+        <p class="note"><strong>来源锁定</strong>读取公共 opponent_profile_matches view，并显式限定 data_source 等于 pro_match。显式过滤复跑后，全部聚合指标不变。</p>
+        <p class="note"><strong>基础筛选</strong>draft_state 等于 complete，anomaly 等于 false，n_draft_actions 等于 24。另有 28,781 场未命中 spec_6_0_24，因此排除。</p>
+        <p class="note"><strong>完整性</strong>24 手数量异常 0 场，重复英雄 0 场，冻结词表外英雄 0 场。训练分层空桶 0 个。</p>
+        <p class="note warning"><strong>冻结词表边界</strong>本次使用当前冻结的 127 英雄词表，没有重建每个历史时点的线上可选英雄集合。因此这是固定词表下的时间回测，不是严格的历史线上候选池回放。</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="boundary">
+      <h2 id="boundary">本次结果能说明什么</h2>
+      <div class="notes">
+        <p class="note"><strong>已评估</strong>给定一场比赛的真实前缀，在排除前缀已出现英雄后，预测下一手真实英雄是否进入 Top1、Top3、Top5。</p>
+        <p class="note negative"><strong>未评估</strong>自由生成完整 24 手序列、生成序列的合法性与质量、阵容胜率、战队条件收益、真实服务延迟及线上表现。</p>
+        <p class="note warning"><strong>项目状态</strong>这是一项 M3 可行性评估。它没有完成 M7 或 M8，也没有对外提供推理 API。</p>
+      </div>
+    </section>
+
+    <footer>
+      数据快照：2026-09-22 15:29:23 +08:00。事务隔离：repeatable read，只读。常量快照版本：1。报告由 docs/reviews/2026-09-22-m3-frequency.json 生成。
+    </footer>
+  </main>
+</body>
+</html>

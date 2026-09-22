@@ -1,0 +1,244 @@
+{
+  "created_at": "2026-09-22T15:29:27.131555+08:00",
+  "data_flow": {
+    "excluded_after_hard_gate": {
+      "action_count_not_24": 0,
+      "duplicate_hero": 0,
+      "hero_outside_frozen_vocab": 0,
+      "not_spec_6_0_24": 28781
+    },
+    "hard_gate_matches": 43977,
+    "public_view_matches_since": 45247,
+    "rows_received_in_snapshot": 43977,
+    "strict_family_valid_matches": 15196
+  },
+  "fallback": {
+    "empty_training_buckets": [],
+    "n_holdout_predictions_using_global_fallback": 0
+  },
+  "metrics": {
+    "by_patch": {
+      "7.41c": {
+        "global_frequency": {
+          "top1": 0.02468732,
+          "top3": 0.04817481,
+          "top5": 0.07475276
+        },
+        "n_holdout_matches_from_patch": 1146,
+        "n_predictions": 27504,
+        "n_train_matches_from_patch": 1146,
+        "stage_pickban_frequency": {
+          "top1": 0.03588569,
+          "top3": 0.0814427,
+          "top5": 0.13419866
+        },
+        "uniform_random_expected": {
+          "top1": 0.00868931,
+          "top3": 0.02606793,
+          "top5": 0.04344655
+        }
+      },
+      "7.41d": {
+        "global_frequency": {
+          "top1": 0.02452235,
+          "top3": 0.05667861,
+          "top5": 0.08610542
+        },
+        "n_holdout_matches_from_patch": 977,
+        "n_predictions": 23448,
+        "n_train_matches_from_patch": 0,
+        "stage_pickban_frequency": {
+          "top1": 0.02874446,
+          "top3": 0.0656346,
+          "top5": 0.12704708
+        },
+        "uniform_random_expected": {
+          "top1": 0.00868931,
+          "top3": 0.02606793,
+          "top5": 0.04344655
+        }
+      },
+      "7.41e": {
+        "global_frequency": {
+          "top1": 0.01362928,
+          "top3": 0.04726441,
+          "top5": 0.06313279
+        },
+        "n_holdout_matches_from_patch": 856,
+        "n_predictions": 20544,
+        "n_train_matches_from_patch": 0,
+        "stage_pickban_frequency": {
+          "top1": 0.02268302,
+          "top3": 0.05120717,
+          "top5": 0.10664914
+        },
+        "uniform_random_expected": {
+          "top1": 0.00868931,
+          "top3": 0.02606793,
+          "top5": 0.04344655
+        }
+      },
+      "7.41f": {
+        "global_frequency": {
+          "top1": 0.02459016,
+          "top3": 0.03551913,
+          "top5": 0.05259563
+        },
+        "n_holdout_matches_from_patch": 61,
+        "n_predictions": 1464,
+        "n_train_matches_from_patch": 0,
+        "stage_pickban_frequency": {
+          "top1": 0.01502732,
+          "top3": 0.03688525,
+          "top5": 0.05669399
+        },
+        "uniform_random_expected": {
+          "top1": 0.00868931,
+          "top3": 0.02606793,
+          "top5": 0.04344655
+        }
+      }
+    },
+    "by_stage": {
+      "1-8": {
+        "global_frequency": {
+          "top1": 0.01624178,
+          "top3": 0.05193257,
+          "top5": 0.07833059
+        },
+        "n_predictions": 24320,
+        "stage_pickban_frequency": {
+          "top1": 0.00847039,
+          "top3": 0.02541118,
+          "top5": 0.10719572
+        },
+        "uniform_random_expected": {
+          "top1": 0.00809995,
+          "top3": 0.02429986,
+          "top5": 0.04049977
+        }
+      },
+      "17-24": {
+        "global_frequency": {
+          "top1": 0.02763158,
+          "top3": 0.05082237,
+          "top5": 0.07853618
+        },
+        "n_predictions": 24320,
+        "stage_pickban_frequency": {
+          "top1": 0.04543586,
+          "top3": 0.10213816,
+          "top5": 0.14506579
+        },
+        "uniform_random_expected": {
+          "top1": 0.00930656,
+          "top3": 0.02791967,
+          "top5": 0.04653278
+        }
+      },
+      "9-16": {
+        "global_frequency": {
+          "top1": 0.02068257,
+          "top3": 0.0484375,
+          "top5": 0.0671875
+        },
+        "n_predictions": 24320,
+        "stage_pickban_frequency": {
+          "top1": 0.03445724,
+          "top3": 0.07331414,
+          "top5": 0.11550164
+        },
+        "uniform_random_expected": {
+          "top1": 0.00866142,
+          "top3": 0.02598426,
+          "top5": 0.04330709
+        }
+      }
+    },
+    "overall": {
+      "global_frequency": {
+        "top1": 0.02151864,
+        "top3": 0.05039748,
+        "top5": 0.07468476
+      },
+      "n_predictions": 72960,
+      "stage_pickban_frequency": {
+        "top1": 0.0294545,
+        "top3": 0.0669545,
+        "top5": 0.12258772
+      },
+      "uniform_random_expected": {
+        "top1": 0.00868931,
+        "top3": 0.02606793,
+        "top5": 0.04344655
+      }
+    }
+  },
+  "pre_registered_algorithm": {
+    "candidate_rule": "每一步排除该场真实前缀已出现英雄",
+    "hard_gate": "draft_state=complete AND anomaly=false AND n_draft_actions=24",
+    "holdout_used_for_tuning": false,
+    "parameter_search": false,
+    "required_order_family": "spec_6_0_24",
+    "since_inclusive": "2025-01-01T00:00:00+00:00",
+    "source_view": "opponent_profile_matches",
+    "split": "按 started_at 排序，floor(80%)*位置的时间戳为 split_at；started_at < split_at 训练，其余留出",
+    "stratum": "stage(1-8,9-16,17-24) + is_pick；空桶回退 global",
+    "tie_break": "frequency desc, hero_id asc",
+    "until_inclusive": "transaction_timestamp()",
+    "data_source_filter": "pro_match"
+  },
+  "report_kind": "m3_frequency_feasibility",
+  "scope": {
+    "m7_complete": false,
+    "m8_complete": false,
+    "serves_inference_api": false,
+    "status": "feasibility_only"
+  },
+  "snapshot": {
+    "constants_fetched_at": "2026-09-22T14:00:01.601128+08:00",
+    "constants_snapshot_version": 1,
+    "frozen_vocab_size": 127,
+    "pg_snapshot": "15439:15439:",
+    "snapshot_at": "2026-09-22T15:29:23.002992+08:00",
+    "transaction_isolation": "repeatable read",
+    "transaction_read_only": "on"
+  },
+  "split": {
+    "holdout": {
+      "matches_by_patch": {
+        "7.41c": 1146,
+        "7.41d": 977,
+        "7.41e": 856,
+        "7.41f": 61
+      },
+      "max_started_at": "2026-09-22T01:06:13+08:00",
+      "min_started_at": "2026-05-22T14:54:55+08:00",
+      "n_matches": 3040,
+      "n_predictions": 72960
+    },
+    "same_timestamp_crosses_boundary": false,
+    "split_at": "2026-05-22T14:54:55+08:00",
+    "target_train_index_floor_80pct": 12156,
+    "train": {
+      "matches_by_patch": {
+        "7.40": 475,
+        "7.40b": 2380,
+        "7.40c": 4784,
+        "7.41": 254,
+        "7.41a": 743,
+        "7.41b": 2374,
+        "7.41c": 1146
+      },
+      "max_started_at": "2026-05-22T14:30:04+08:00",
+      "min_started_at": "2025-12-16T08:27:47+08:00",
+      "n_matches": 12156,
+      "n_predictions": 291744
+    }
+  },
+  "verification": {
+    "explicit_pro_filter_rerun": true,
+    "rerun_metrics_unchanged": true,
+    "future_hero_vocab_note": "使用当前冻结的127英雄词表，未重建各历史时点的可选英雄集合；因此不是严格的历史线上回放。"
+  }
+}

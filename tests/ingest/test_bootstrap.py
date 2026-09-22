@@ -938,7 +938,7 @@ def test_team_names_are_used_when_the_upstream_provides_them(db, synthetic_cache
                 row[f"{side}_team_name"] = team_names[team_id][0]
             writer.writerow(row)
 
-    _load(db, synthetic_cache)
+    stats = _load(db, synthetic_cache)
     assert db.execute("SELECT count(*) FROM teams").fetchone()[0] == 4
     assert db.execute("SELECT name FROM teams WHERE team_id = 104").fetchone()[0] == "Delta"
     assert db.execute("SELECT radiant_team_id FROM matches WHERE match_id = 900000001"
@@ -1122,6 +1122,79 @@ def test_reload_is_idempotent_and_delete_then_insert_refreshes_actions(db, synth
                       ).fetchone()[0] == 0
     assert db.execute("SELECT count(*) FROM matches WHERE anomaly").fetchone()[0] == \
         db.execute("SELECT count(*) FROM draft_anomalies").fetchone()[0]
+
+
+@pytest.mark.parametrize("data_source", ["pub_match", "scrim"])
+def test_bootstrap_reload_preserves_matches_owned_by_another_source(db, synthetic_cache,
+                                                                   data_source):
+    """历史 bootstrap 不得把同 match_id 的天梯或训练赛改写成职业比赛。
+
+    保护必须覆盖整场写入，而不只是 ``matches`` 那条 upsert：后续的
+    ``DELETE FROM draft_actions`` 与异常清理同样不得碰这场比赛。
+    """
+    _load(db, synthetic_cache)
+    match_id = 900000001
+    db.execute("DELETE FROM draft_actions WHERE match_id = %s", (match_id,))
+    db.execute("""INSERT INTO draft_actions(match_id, ord, is_pick, team, hero_id)
+                  VALUES (%s, 0, false, 1, 80)""", (match_id,))
+    db.execute("""UPDATE matches
+                  SET data_source = %s, duration_s = 9999, first_pick_team = 1,
+                      draft_state = 'complete', n_draft_actions = 1, anomaly = true
+                  WHERE match_id = %s""", (data_source, match_id))
+    db.execute("""INSERT INTO draft_anomalies(match_id, n_actions, kinds, detail)
+                  VALUES (%s, 1, ARRAY['private_sentinel'], '{"owner":"private"}')
+                  ON CONFLICT (match_id) DO UPDATE
+                  SET n_actions = EXCLUDED.n_actions, kinds = EXCLUDED.kinds,
+                      detail = EXCLUDED.detail""", (match_id,))
+
+    stats = _load(db, synthetic_cache)
+
+    assert db.execute("""SELECT data_source, duration_s, first_pick_team, draft_state,
+                                 n_draft_actions, anomaly
+                          FROM matches WHERE match_id = %s""", (match_id,)).fetchone() == \
+        (data_source, 9999, 1, "complete", 1, True)
+    assert db.execute("""SELECT ord, is_pick, team, hero_id FROM draft_actions
+                          WHERE match_id = %s""", (match_id,)).fetchall() == [(0, False, 1, 80)]
+    assert db.execute("SELECT kinds, detail FROM draft_anomalies WHERE match_id = %s",
+                      (match_id,)).fetchone() == (["private_sentinel"], {"owner": "private"})
+    assert stats["matches"] == stats["total"] == 7
+    assert stats["protected_matches"] == 1
+
+
+def test_bootstrap_reload_preserves_a_pro_match_after_live_collection(db, synthetic_cache):
+    """采集器尝试或补全过的职业比赛由 live 路径拥有，bootstrap 只能跳过。
+
+    合成缓存里的这场只有 metadata，首次 bootstrap 会写成 pending。随后模拟采集器补成
+    24 手 complete 并写入尝试位点。再次 bootstrap 必须保留补全序列、状态与队伍外键。
+    """
+    _load(db, synthetic_cache)
+    match_id = MATCH_WITHOUT_ACTIONS
+    db.execute("INSERT INTO teams(team_id, name) VALUES (101, 'Live Radiant'), (102, 'Live Dire')")
+    actions = draft_actions_for("spec_6_0_24", 0)
+    with db.cursor() as cur:
+        cur.executemany("""INSERT INTO draft_actions(match_id, ord, is_pick, team, hero_id)
+                           VALUES (%s, %s, %s, %s, %s)""",
+                        [(match_id, ord_, is_pick, team, hero_id)
+                         for ord_, is_pick, team, hero_id in actions])
+    db.execute("""UPDATE matches
+                  SET duration_s = 7777, first_pick_team = 0,
+                      radiant_team_id = 101, dire_team_id = 102,
+                      draft_state = 'complete', n_draft_actions = 24, anomaly = false,
+                      attempt_count = 2, last_attempt_at = now()
+                  WHERE match_id = %s""", (match_id,))
+
+    stats = _load(db, synthetic_cache)
+
+    assert db.execute("""SELECT data_source, duration_s, first_pick_team,
+                                 radiant_team_id, dire_team_id, draft_state,
+                                 n_draft_actions, anomaly, attempt_count,
+                                 last_attempt_at IS NOT NULL
+                          FROM matches WHERE match_id = %s""", (match_id,)).fetchone() == \
+        ("pro_match", 7777, 0, 101, 102, "complete", 24, False, 2, True)
+    assert db.execute("SELECT count(*) FROM draft_actions WHERE match_id = %s",
+                      (match_id,)).fetchone()[0] == 24
+    assert stats["matches"] == stats["total"] == 7
+    assert stats["protected_matches"] == 1
 
 
 def test_bootstrap_refuses_to_run_without_constants(db, synthetic_cache):

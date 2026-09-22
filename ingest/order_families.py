@@ -190,12 +190,15 @@ def family_for(n_actions: int, first_pick_team: int | None,
         return None
     if n_actions != len(actions):
         return None
+    ordinals = [a["ord"] for a in actions]
+    if any(type(ord_) is not int for ord_ in ordinals):
+        return None
+    if set(ordinals) != set(range(n_actions)):
+        return None
     for family, template in DRAFT_ORDERS.items():
         if len(template) != n_actions:
             continue
-        if any(not 0 <= int(a["ord"]) < len(template) for a in actions):
-            continue                          # ord 有空洞/越界：这一族不可能匹配，且模板索引会炸
-        if all((bool(a["is_pick"]), int(a["team"])) == resolve_in(family, int(a["ord"]),
+        if all((bool(a["is_pick"]), int(a["team"])) == resolve_in(family, a["ord"],
                                                                  first_pick_team)
                for a in actions):
             return family

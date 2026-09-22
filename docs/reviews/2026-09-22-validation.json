@@ -1,0 +1,189 @@
+{
+  "generated_at": "2026-09-22T06:41:41.582094+00:00",
+  "working_branch": "plan-1-contract-and-data-foundation",
+  "base_commit": "2c244a7",
+  "uncommitted_changes": true,
+  "baseline": {
+    "matches": 211051,
+    "draft_actions": 4772342,
+    "teams": 0,
+    "players": 0,
+    "leagues": 1557,
+    "heroes": 127,
+    "items": 501,
+    "patches": 118,
+    "letter_patches": 84,
+    "anomaly_matches": 2048,
+    "pending_matches": 6046
+  },
+  "current_database": {
+    "matches": 211310,
+    "draft_actions": 4772558,
+    "teams": 337,
+    "players": 99,
+    "match_players": 210
+  },
+  "tests": {
+    "passed": 260,
+    "seconds": 185.95,
+    "log": "data/final-pytest.log",
+    "collector_final_review": "passed",
+    "report_regression_passed": 8,
+    "html_script_checks": {
+      "initialRows": 100,
+      "searchNoResults": true,
+      "stateFilter": true,
+      "selfContained": true,
+      "realBrowser": false
+    }
+  },
+  "live_validation": {
+    "requests": [
+      {
+        "source": "match_details",
+        "outcome": "ok",
+        "n": 23
+      },
+      {
+        "source": "pro_matches",
+        "outcome": "ok",
+        "n": 17
+      }
+    ],
+    "daily_budget": 60,
+    "duplicate_match_ids": 0,
+    "first_batch": {
+      "pages": 2,
+      "details": 10,
+      "new_matches": 72,
+      "errors": 0,
+      "checkpoint": 8985409048,
+      "high_water_advanced": false
+    },
+    "restart_batch": {
+      "pages": 14,
+      "details": 10,
+      "new_matches": 187,
+      "errors": 0,
+      "high_water": 9010442404
+    },
+    "idempotency": {
+      "reference_match_id": 8996973546,
+      "before": {
+        "sha256": "43889a582d2afd13a6f22f19bb0567a7b74875c13d9e113e254b38757433aa4e",
+        "draft_rows": 24,
+        "player_rows": 10,
+        "match": {
+          "match_id": 8996973546,
+          "game_mode": 2,
+          "draft_state": "complete",
+          "n_draft_actions": 24,
+          "anomaly": false,
+          "parse_state": "full",
+          "duration_s": 3522,
+          "first_blood_time": 35,
+          "first_tower_time": 826,
+          "first_roshan_time": 1168
+        }
+      },
+      "after": {
+        "sha256": "43889a582d2afd13a6f22f19bb0567a7b74875c13d9e113e254b38757433aa4e",
+        "draft_rows": 24,
+        "player_rows": 10,
+        "match": {
+          "match_id": 8996973546,
+          "game_mode": 2,
+          "draft_state": "complete",
+          "n_draft_actions": 24,
+          "anomaly": false,
+          "parse_state": "full",
+          "duration_s": 3522,
+          "first_blood_time": 35,
+          "first_tower_time": 826,
+          "first_roshan_time": 1168
+        }
+      },
+      "identical": true,
+      "runs": [
+        {
+          "arguments": [
+            "--match-id",
+            "8996973546",
+            "--max-details",
+            "1"
+          ],
+          "exit_code": 0,
+          "result": {
+            "complete": 1,
+            "daily_used": 38,
+            "details": 1,
+            "discovered": 0,
+            "errors": 0,
+            "non_cm": 0,
+            "pages": 0,
+            "pending": 0,
+            "status": "ok"
+          }
+        },
+        {
+          "arguments": [
+            "--match-id",
+            "9010442404",
+            "--max-details",
+            "1"
+          ],
+          "exit_code": 0,
+          "result": {
+            "complete": 0,
+            "daily_used": 39,
+            "details": 1,
+            "discovered": 0,
+            "errors": 0,
+            "non_cm": 1,
+            "pages": 0,
+            "pending": 0,
+            "status": "ok"
+          }
+        },
+        {
+          "arguments": [
+            "--max-pages",
+            "1",
+            "--max-details",
+            "0"
+          ],
+          "exit_code": 0,
+          "result": {
+            "complete": 0,
+            "daily_used": 40,
+            "details": 0,
+            "discovered": 0,
+            "errors": 0,
+            "non_cm": 0,
+            "pages": 1,
+            "pending": 0,
+            "status": "ok"
+          }
+        }
+      ]
+    }
+  },
+  "outstanding": {
+    "continuous_48_hours": "not_verified",
+    "real_browser_visual": "blocked_by_file_url_security_policy",
+    "detail_queue": 1540,
+    "ladder_collector": "not_implemented",
+    "replay_import": "not_implemented",
+    "analysis_apis": "not_implemented",
+    "models": "not_implemented",
+    "product_frontend": "not_implemented",
+    "deployment": "not_implemented"
+  },
+  "storage": {
+    "postgres_directory": "data/postgres",
+    "postgres_port": 55439,
+    "database": "mcndotaga_dev",
+    "service_state_at_delivery": "stopped",
+    "relocation_read_back_verified": true
+  }
+}

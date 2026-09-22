@@ -200,6 +200,31 @@ def test_family_for_treats_an_ord_hole_as_no_match_and_never_raises():
     assert family_for(20, 0, [{**holed[0], "ord": -1}, *holed[1:]]) is None
 
 
+def test_family_for_rejects_duplicate_ordinals_that_hide_a_missing_hand():
+    """手数和逐条值相同也不能掩盖重复 ord，合法序列必须完整覆盖 0..n-1。"""
+    from ingest.order_families import family_for, is_legal
+
+    actions = [{"ord": ord_, "is_pick": is_pick, "team": team, "hero_id": ord_ + 1}
+               for ord_, is_pick, team, _hero in draft_actions_for("cm20_a", 0)]
+    duplicated = [a for a in actions if a["ord"] < 19] + [{**actions[18], "ord": 18}]
+
+    assert [a["ord"] for a in duplicated] == [*range(19), 18]
+    assert family_for(20, 0, duplicated) is None
+    assert is_legal(20, 0, duplicated) is False
+
+
+def test_family_for_rejects_non_integer_ordinals_without_truncating_them():
+    """非整数 ord 不能被 int 截断后伪装成合法序列。"""
+    from ingest.order_families import family_for, is_legal
+
+    actions = [{"ord": ord_, "is_pick": is_pick, "team": team, "hero_id": ord_ + 1}
+               for ord_, is_pick, team, _hero in draft_actions_for("cm20_a", 0)]
+    non_integer = [{**a, "ord": 18.5} if a["ord"] == 18 else a for a in actions]
+
+    assert family_for(20, 0, non_integer) is None
+    assert is_legal(20, 0, non_integer) is False
+
+
 def test_closest_family_points_at_the_least_deviating_registered_family():
     """偏差诊断：写反一手时，最近的族必须是正确的那个，且偏差位置/期望值都要报出来。"""
     from ingest.order_families import closest_family, deviations
