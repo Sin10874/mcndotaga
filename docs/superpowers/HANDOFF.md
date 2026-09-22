@@ -1,11 +1,11 @@
 # 交接说明
 
-更新：2026-09-22。当前交付可操作的本地画像工作台，GUI 与独占 PostgreSQL 保持运行。最新验收见 `docs/reviews/2026-09-22-workbench.html` 与同名 JSON；位置来源快照仍以 `2026-09-22-m3-provenance.json` 为准。
+更新：2026-09-22。当前交付重做后的深色画像工作台，GUI 与独占 PostgreSQL 保持运行。最新验收与完整能力核查见 `docs/reviews/2026-09-22-workbench-redesign.html` 与同名 JSON；上一版验收见 `2026-09-22-workbench.html`；位置来源快照仍以 `2026-09-22-m3-provenance.json` 为准。
 
 ## 工作区与入口
 
 工作目录：`/Users/xinzechao/MCNDOTAGA/.worktrees/plan-1-contract-and-data-foundation`。
-分支：`codex/interactive-profile-workbench`，基线 `e18fbaf`。GitHub main 的首次检查点为 `655d140`，来源补齐在 `codex/profile-data-provenance` 和 draft PR #1。本轮 GUI 基于该分支继续推进，单独推送，不自动合并或部署。用户已明确授权推送 GitHub，不再重复确认。
+分支：`codex/interactive-profile-workbench`，基线 `e18fbaf`。GitHub main 的首次检查点为 `655d140`，来源补齐在 `codex/profile-data-provenance` 和 draft PR #1。本轮 GUI 基于该分支继续推进，单独推送，不自动合并或部署。用户已明确授权推送 GitHub，不再重复确认。GUI PR 为 #2，前端重做在该 PR 继续提交，旧视觉版本保留在 `63ca100`。
 主目录 `main` 仍是 `c486c0d` 的早期骨架。续做必须进入上述 worktree，先检查未提交文件，不能从 main 误建空白分支覆盖成果。
 
 依次阅读：
@@ -16,6 +16,7 @@
 4. `docs/superpowers/plans/2026-09-22-profile-provenance.md` 与 `docs/reviews/2026-09-22-m3-provenance.html`、`2026-09-22-m3-provenance.json`。
 5. `docs/reviews/2026-09-22-m3-collector.html`、`2026-09-22-m3-frequency.html`。
 6. `docs/superpowers/plans/2026-09-22-interactive-workbench.md` 与 `docs/reviews/2026-09-22-workbench.html`。
+7. `docs/superpowers/plans/2026-09-22-workbench-redesign.md` 与 `docs/reviews/2026-09-22-workbench-redesign.html`。
 
 ## 当前完成程度
 
@@ -78,7 +79,21 @@ UTC 当日请求 1,657 次，本轮预算 2,400。账本累计限流 67 次、�
 - BP 倾向只接受当前 spec_6_0_24 族；首阶段 ord 0 至 6，本队第一手 pick 不要求本队拿全局先手。绝不能把它套到所有历史顺序族。
 - sources_used 包含实际贡献目标队伍或目标选手的公开来源；coverage 仍只算目标队伍。训练赛来源始终拒绝。
 
-## 本轮验证证据
+## 前端重做与完整分析边界
+
+用户要求重做前端并询问完整分析能力。基于 `63ca100` 重做为深色分析台，增加官方英雄视觉、五维雷达、选手矩阵、双人叠加图、真实 BP 重点与能力表。保留现有查询和错误处理，没有改变画像计算口径。
+
+根因与修复：窄窗口隐藏导航文字后无可访问名称，已补 aria-label 和 title；手机补可见文字；嵌套 metric-list 在窄窗口错用列布局已修正；雷达缺失不统一称样本不足，保留真实缺失原因。没有修改开发库、运行采集或部署。
+
+本次新增 7 项 Node 行为测试从 RED 到 GREEN，覆盖缺值与零值、雷达闭合、摘要口径、代表英雄、图片路径、BP 并列以及 SVG 原因文字。23 项相关 Python 测试通过，包括静态与 CSP、运行管理、数据库连接护栏。以下 423 项全量结果属于上一版基线，本轮未重复全量运行。
+
+浏览器重新验证：1280px 桌面与 892px 中等窗口、390px 手机；选手卡切换、矩阵跳转、双人雷达切换、BP 展开与手数过滤、能力说明、JSON 复制；Team Spirit 的 not_me 显示五个缺值，实际 DOM 为 0 个面积、0 个数据点；Team Winn 样本不足仍明确保留旧查询标识。页面与独占数据库继续运行。
+
+当前只有真实 Profile 分析可用。Value、Policy、Playbook、Advise 均没有服务实现；models 目录无模型，频率脚本只做离线评估。战队级节奏、双方交手、天梯和最小回放导入也未形成完整能力。不能将 schema、fixture、离线测试结果或漂亮前端称为完整分析。
+
+英雄图像使用已核实的 `cdn.steamstatic.com` 路径，CSP 仅允许该额外图片域；脚本与 API 仍同源。图片失败降级为名称占位。相关版权归 Valve。
+
+## 上一版验证证据
 
 本轮最终全量 423 passed，185.77 秒，退出码 0。独立测试库 `mcndotaga_workbench_final_test`，端口 55439，日志 `data/workbench-final-pytest.log`。新增目录 7 项、HTTP 15 项、运行管理 6 项、测试库护栏 2 项。
 

@@ -82,6 +82,8 @@ def test_static_allowlist_serves_gui_assets_with_safe_headers(route, mime, tmp_p
     assert response.headers["content-type"].startswith(mime)
     assert response.headers["x-content-type-options"] == "nosniff"
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert "img-src 'self' data: https://cdn.steamstatic.com;" in response.headers["content-security-policy"]
+    assert "connect-src 'self';" in response.headers["content-security-policy"]
     assert response.headers["cache-control"] == "no-store"
     assert response.text == assets["index.html" if route == "/" else route[1:]]
 

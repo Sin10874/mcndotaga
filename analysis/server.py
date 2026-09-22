@@ -40,7 +40,7 @@ def make_server(host, port, *, provider, catalog_provider=None):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Workbench-Pid", str(os.getpid()))
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+            self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.steamstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(encoded)

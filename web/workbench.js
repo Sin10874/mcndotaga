@@ -76,7 +76,7 @@ function bindNodes() {
     "team-search", "team-id", "team-search-count", "team-suggestions",
     "patch-select", "patch-help", "as-of-input", "query-button", "draft-notice",
     "draft-query-button", "request-state", "result-shell", "result-team-name",
-    "result-meta", "overview-content", "players-content", "compare-content",
+    "result-meta", "result-summary", "overview-content", "players-content", "compare-content",
     "bp-content", "sources-content", "empty-stage", "export-dialog",
     "export-json", "export-copy", "export-close", "export-status", "export-description",
   ];
@@ -280,7 +280,7 @@ function setControlsDisabled(disabled) {
 
 function renderNoCatalogData() {
   nodes.emptyStage.replaceChildren(
-    el("span", { className: "empty-index", text: "M3" }),
+    el("span", { className: "empty-index", text: "D2" }),
     el("div", {}, [
       el("h2", { text: "目录窗口内没有可查询战队" }),
       el("p", { text: "当前窗口没有已发生的公开职业 CM 比赛。工作台不会制造默认队伍或演示结果。" }),
@@ -290,7 +290,7 @@ function renderNoCatalogData() {
 
 function renderUnqueryableTeam(team) {
   nodes.emptyStage.replaceChildren(
-    el("span", { className: "empty-index", text: "M3" }),
+    el("span", { className: "empty-index", text: "D2" }),
     el("div", {}, [
       el("h2", { text: "该战队暂无可用精确版本" }),
       el("p", { text: `${team ? teamLabel(team) : "所选战队"}在当前目录窗口内没有可查询的精确版本。请选择其他战队。` }),
@@ -534,6 +534,7 @@ function renderProfile() {
   const team = findTeam(profile.team_id);
   nodes.resultTeamName.textContent = team ? safeText(team.name) || `战队 ${profile.team_id}` : `战队 ${profile.team_id}`;
   nodes.resultMeta.textContent = `战队 ID ${profile.team_id} · 精确版本 ${safeText(profile.patch)} · 截止 ${formatDate(profile.as_of)} · ${profile.players.length} 名历史参赛选手`;
+  renderSummary();
   renderOverview();
   renderPlayers();
   renderComparison();
@@ -549,30 +550,43 @@ function renderOverview() {
     nodes.overviewContent.replaceChildren(emptyInline("观察窗口内尚无可识别的选手参赛记录。"));
     return;
   }
-
-  const selector = el("div", { className: "player-selector", ariaLabel: "切换选手" });
-  profile.players.forEach((item) => {
+  const roster = el("div", { className: "roster-ribbon", ariaLabel: "切换选手" });
+  profile.players.forEach((item, index) => {
+    const hero = featuredHero(item);
     const button = el("button", {
-      type: "button",
-      className: `player-chip${String(item.account_id) === String(state.activePlayerId) ? " is-active" : ""}`,
-      text: playerName(item),
-    });
+      type: "button", ariaLabel: playerName(item),
+      className: `roster-card${String(item.account_id) === String(state.activePlayerId) ? " is-active" : ""}`,
+      "aria-pressed": String(String(item.account_id) === String(state.activePlayerId)),
+    }, [
+      heroImage(hero && hero.hero_id, "hero-portrait"),
+      el("span", { className: "roster-number", text: String(index + 1).padStart(2, "0") }),
+      el("span", { className: "roster-info" }, [
+        el("strong", { className: "roster-name", text: playerName(item) }),
+        el("span", { className: "roster-role", text: `${roleLabel(item.role)} · ${formatInteger(item.hero_pool && item.hero_pool.window_games)} 场` }),
+      ]),
+    ]);
     button.addEventListener("click", () => {
       state.activePlayerId = String(item.account_id);
-      renderOverview();
-      renderPlayers();
+      renderOverview(); renderPlayers();
     });
-    selector.append(button);
+    roster.append(button);
   });
-
-  const main = el("div", {}, [selector, playerLead(player), metricList(player)]);
-  const aside = el("aside", { className: "profile-aside" }, [
-    poolStats(player),
-    heroGroup("签名英雄", "窗口内达到签名阈值", player.hero_pool && player.hero_pool.signature),
-    heroGroup("熟练英雄", "窗口内达到熟练阈值", player.hero_pool && player.hero_pool.comfortable),
-    archetypePanel(player),
+  const panel = el("section", { className: "radar-panel" }, [
+    playerLead(player),
+    el("div", { className: "panel-heading" }, [
+      el("h3", { text: "五维画像" }),
+      el("p", { text: "相同位置同侪百分位 · 0 至 100" }),
+    ]),
+    el("div", { className: "radar-layout" }, [
+      radarChart(player), el("div", { className: "radar-metrics" }, [metricList(player)]),
+    ]),
   ]);
-  nodes.overviewContent.replaceChildren(el("div", { className: "overview-grid" }, [main, aside]));
+  nodes.overviewContent.replaceChildren(
+    insightStrip(profile), roster,
+    el("p", { className: "roster-caption", text: "历史参赛选手，卡面为其出场最多的有效池英雄。" }),
+    el("div", { className: "analysis-grid" }, [panel, heroFocus(player)]),
+    el("div", { className: "overview-bottom" }, [archetypePanel(player), teamMatrix(profile)]),
+  );
 }
 
 function renderPlayers() {
@@ -602,7 +616,7 @@ function renderPlayers() {
   const sheet = el("article", { className: "player-sheet" }, [
     playerLead(player),
     el("div", { className: "sheet-grid" }, [
-      el("div", {}, [metricList(player), archetypePanel(player)]),
+      el("div", {}, [radarChart(player), metricList(player), archetypePanel(player)]),
       el("div", {}, [
         poolStats(player),
         heroGroup("签名英雄", "窗口内达到签名阈值", player.hero_pool && player.hero_pool.signature),
@@ -662,7 +676,10 @@ function renderComparison() {
       heroList(right.hero_pool && right.hero_pool.signature),
     ]),
   ]);
-  nodes.compareContent.replaceChildren(controls, caveat, table, heroGrid);
+  const visual = el("div", { className: "comparison-visual" }, [
+    personSummary(left, "A"), radarChart(left, right), personSummary(right, "B"),
+  ]);
+  nodes.compareContent.replaceChildren(controls, caveat, visual, table, heroGrid);
 }
 
 function renderBp() {
@@ -747,7 +764,214 @@ function renderSources() {
     ]),
     leagueList(catalog.provenance && catalog.provenance.leagues),
   ]);
-  nodes.sourcesContent.replaceChildren(cards, el("div", { className: "source-layout" }, [profileInfo, leaguePanel]));
+  nodes.sourcesContent.replaceChildren(cards, capabilityPanel(), el("div", { className: "source-layout" }, [profileInfo, leaguePanel]));
+}
+
+function profileSummary(profile) {
+  const players = Array.isArray(profile.players) ? profile.players : [];
+  const coverage = (profile.coverage && profile.coverage.pro_match) || {};
+  return {
+    matches: finiteNumber(coverage.n_matches),
+    details: finiteNumber(coverage.n_stat_available),
+    players: players.length,
+    availableDimensions: players.reduce((sum, player) => sum + DIMENSIONS.filter(([key]) => dimensionValue(player, key).value !== null).length, 0),
+    totalDimensions: players.length * DIMENSIONS.length,
+  };
+}
+
+function renderSummary() {
+  if (!nodes.resultSummary) return;
+  const summary = profileSummary(state.profile);
+  const data = [[formatInteger(summary.matches), "职业比赛"], [formatInteger(summary.details), "已有详情"], [String(summary.players), "历史选手"], [`${summary.availableDimensions}/${summary.totalDimensions}`, "可算维度"]];
+  nodes.resultSummary.replaceChildren(...data.map(([value, label]) => el("div", { className: "stat-tile" }, [
+    el("strong", { className: "stat-number", text: value }), el("span", { className: "stat-label", text: label }),
+  ])));
+}
+
+function leadingBp(entries) {
+  const valid = (Array.isArray(entries) ? entries : []).filter((entry) => finiteNumber(entry.freq) !== null);
+  if (!valid.length) return [];
+  const maximum = Math.max(...valid.map((entry) => Number(entry.freq)));
+  return valid.filter((entry) => Math.abs(Number(entry.freq) - maximum) < 1e-9);
+}
+
+function insightStrip(profile) {
+  const tendency = profile.team_bp_tendency || {};
+  const summary = profileSummary(profile);
+  const blocks = [
+    bpInsight("首阶段最高禁用频率", leadingBp(tendency.first_phase_ban_freq)),
+    bpInsight("本队第一手最高选择频率", leadingBp(tendency.first_pick_freq)),
+    el("article", { className: "insight-item" }, [
+      el("span", { className: "insight-label", text: "画像覆盖" }),
+      el("strong", { className: "insight-value", text: `${summary.availableDimensions} / ${summary.totalDimensions} 维` }),
+      el("p", { className: "insight-note", text: summary.availableDimensions === summary.totalDimensions ? "所列选手五维均可计算，位置为历史分析口径。" : `${summary.totalDimensions - summary.availableDimensions} 维尚不可算，保留缺值及原因。` }),
+    ]),
+  ];
+  return el("div", { className: "insight-strip" }, blocks);
+}
+
+function bpInsight(label, entries) {
+  const first = entries[0];
+  const names = entries.slice(0, 2).map((entry) => heroName(entry.hero_id)).join(" / ");
+  const value = first ? `${names}${entries.length > 2 ? ` 等 ${entries.length} 个` : ""}` : "暂无可用记录";
+  const note = first ? `${formatPercent(first.freq)} · ${formatInteger(first.n)} 场机会${entries.length > 1 ? " · 并列" : ""}，历史频率不代表建议。` : "需要当前顺序族的合法完整 BP 样本。";
+  return el("article", { className: "insight-item" }, [
+    el("span", { className: "insight-label", text: label }),
+    el("strong", { className: "insight-value", text: value }),
+    el("p", { className: "insight-note", text: note }),
+  ]);
+}
+
+function featuredHero(player) {
+  const pool = (player && player.hero_pool) || {};
+  const entries = [...(pool.signature || []), ...(pool.comfortable || [])];
+  return entries.sort((a, b) => (finiteNumber(b.games) || 0) - (finiteNumber(a.games) || 0) || Number(a.hero_id) - Number(b.hero_id))[0] || null;
+}
+
+function heroImageUrl(heroId, crop = false) {
+  const hero = state.catalog && state.catalog.heroes && state.catalog.heroes[String(heroId)];
+  const name = hero && safeText(hero.name);
+  if (!name || !/^npc_dota_hero_[a-z0-9_]+$/.test(name)) return "";
+  return `https://cdn.steamstatic.com/apps/dota2/images/dota_react/heroes/${crop ? "crops/" : ""}${name.slice(14)}.png`;
+}
+
+function heroImage(heroId, className) {
+  const url = heroImageUrl(heroId, ["hero-focus-art", "person-hero"].includes(className));
+  const fallback = () => el("div", { className: `${className} image-unavailable`, ariaHidden: "true", text: heroId ? heroName(heroId).slice(0, 2).toUpperCase() : "?" });
+  if (!url) return fallback();
+  const image = el("img", { className, src: url, alt: "", loading: "lazy", decoding: "async", referrerPolicy: "no-referrer" });
+  image.addEventListener("error", () => image.replaceWith(fallback()), { once: true });
+  return image;
+}
+
+function heroFocus(player) {
+  const hero = featuredHero(player);
+  if (!hero) return el("section", { className: "hero-focus" }, [emptyInline("暂无达到有效英雄池阈值的代表英雄。")]);
+  const pool = player.hero_pool || {};
+  const signature = (pool.signature || []).some((item) => item.hero_id === hero.hero_id);
+  return el("section", { className: "hero-focus" }, [
+    heroImage(hero.hero_id, "hero-focus-art"),
+    el("div", { className: "hero-focus-content" }, [
+      el("span", { className: "hero-kicker", text: `${playerName(player)} · ${signature ? "签名英雄" : "熟练英雄"}` }),
+      el("h3", { text: heroName(hero.hero_id) }),
+      el("div", { className: "hero-focus-stats" }, [
+        smallStat(formatInteger(hero.games), "出场"),
+        smallStat(formatPercent(hero.wr), "样本内胜率"),
+        smallStat(formatNullablePercentPoint(hero.pct), "出场占比"),
+      ]),
+      el("p", { className: "hero-focus-note", text: "有效英雄池中出场最多的英雄，胜率为历史样本描述。" }),
+    ]),
+  ]);
+}
+
+function radarSeries(player) {
+  const points = [];
+  DIMENSIONS.forEach(([key, label], index) => {
+    const metric = dimensionValue(player, key);
+    if (metric.value === null) return;
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / 5;
+    const radius = clamp(metric.value, 0, 100) * 1.31;
+    points.push({ key, label, value: metric.value, index, x: 210 + Math.cos(angle) * radius, y: 180 + Math.sin(angle) * radius });
+  });
+  return { complete: points.length === DIMENSIONS.length, points };
+}
+
+function svgElement(tagName, attrs = {}, text = "") {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", tagName);
+  Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, String(value)));
+  if (text) element.textContent = text;
+  return element;
+}
+
+function radarChart(player, comparison = null) {
+  const svg = svgElement("svg", { viewBox: "0 0 420 360", class: `radar-figure${comparison ? " radar-comparison" : ""}`, role: "img", "aria-label": `${playerName(player)}${comparison ? ` 与 ${playerName(comparison)}` : ""}的五维百分位，缺失维度不绘制面积` });
+  const point = (index, radius) => {
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / 5;
+    return [210 + Math.cos(angle) * radius, 180 + Math.sin(angle) * radius];
+  };
+  [0.25, 0.5, 0.75, 1].forEach((scale) => {
+    svg.append(svgElement("polygon", { class: "radar-grid", points: DIMENSIONS.map((_, index) => point(index, 131 * scale).join(",")).join(" ") }));
+  });
+  DIMENSIONS.forEach(([key, label], index) => {
+    const [x, y] = point(index, 131);
+    svg.append(svgElement("line", { class: "radar-axis", x1: 210, y1: 180, x2: x, y2: y }));
+    const [lx, ly] = point(index, 158);
+    const labelText = svgElement("text", { x: lx, y: ly - 4, class: "radar-label", "text-anchor": "middle" }, label.replace("与", ""));
+    svg.append(labelText);
+    if (!comparison) {
+      const metric = dimensionValue(player, key);
+      const valueLabel = svgElement("text", { x: lx, y: ly + 16, class: `radar-value${metric.value === null ? " radar-placeholder" : ""}`, "text-anchor": "middle", "aria-label": `${label}：${metric.value === null ? metric.reason : `${metric.value} 百分位`}` }, metric.value === null ? "缺值" : String(metric.value));
+      if (metric.value === null) valueLabel.append(svgElement("title", {}, metric.reason));
+      svg.append(valueLabel);
+    }
+  });
+  [player, comparison].filter(Boolean).forEach((item, seriesIndex) => {
+    const series = radarSeries(item);
+    const suffix = seriesIndex ? " is-secondary" : "";
+    if (series.complete) svg.append(svgElement("polygon", { class: `radar-shape${suffix}`, points: series.points.map((p) => `${p.x},${p.y}`).join(" ") }));
+    series.points.forEach((p) => {
+      const circle = svgElement("circle", { class: `radar-node${suffix}`, cx: p.x, cy: p.y, r: 4 });
+      circle.append(svgElement("title", {}, `${playerName(item)} · ${p.label}：${p.value} 百分位`));
+      svg.append(circle);
+    });
+  });
+  return svg;
+}
+
+function teamMatrix(profile) {
+  const table = el("table", { className: "team-matrix" });
+  table.append(el("thead", {}, [el("tr", {}, [el("th", { scope: "col", text: "历史选手" }), ...DIMENSIONS.map(([, label]) => el("th", { scope: "col", text: label.replace("与", "") }))])]));
+  const body = el("tbody");
+  profile.players.forEach((player) => {
+    const button = el("button", { className: "matrix-player", type: "button", text: playerName(player), ariaLabel: `查看 ${playerName(player)} 的档案` });
+    button.addEventListener("click", () => {
+      state.activePlayerId = String(player.account_id); renderPlayers(); renderOverview(); setActiveView("players", true);
+    });
+    const row = el("tr", {}, [el("th", { scope: "row" }, [button, el("span", { className: "matrix-role", text: roleLabel(player.role) })])]);
+    DIMENSIONS.forEach(([key]) => {
+      const metric = dimensionValue(player, key);
+      const cell = el("span", { className: `matrix-score${metric.value === null ? " is-missing" : ""}`, title: metric.value === null ? metric.reason : `${metric.value} 百分位`, text: metric.value === null ? "缺值" : String(metric.value) });
+      if (metric.value !== null) cell.style.setProperty("--score", String(metric.value / 100));
+      row.append(el("td", {}, [cell]));
+    });
+    body.append(row);
+  });
+  table.append(body);
+  return el("section", { className: "team-matrix-panel" }, [
+    el("div", { className: "panel-heading" }, [el("h3", { text: "选手维度矩阵" }), el("p", { text: "各自按对应位置同侪计算，不表示跨位置的绝对强弱。" })]),
+    el("div", { className: "matrix-scroll" }, [table]),
+  ]);
+}
+
+function personSummary(player, side) {
+  const hero = featuredHero(player);
+  return el("div", { className: `person-summary${side === "B" ? " is-secondary" : ""}` }, [
+    heroImage(hero && hero.hero_id, "person-hero"),
+    el("span", { className: "person-side", text: side }),
+    el("h3", { text: playerName(player) }),
+    el("p", { text: `${roleLabel(player.role)} · ${formatInteger(player.hero_pool && player.hero_pool.window_games)} 场` }),
+    el("p", { className: "microcopy", text: hero ? `代表英雄 · ${heroName(hero.hero_id)}` : "暂无代表英雄" }),
+  ]);
+}
+
+function capabilityPanel() {
+  const rows = [
+    ["历史画像", "已接入", "英雄池、选手五维、BP 历史频率与来源覆盖"],
+    ["局面评估 Value", "未接入", "尚不能计算对局胜率与条件化对位效应"],
+    ["下一手预测 Policy", "未接入", "已有离线频率实验，尚无在线预测与序列模型"],
+    ["剧本 Playbook", "未接入", "尚不能生成双方选禁分支与应对方案"],
+    ["决策 Advise", "未接入", "尚不能给出整手建议和稳健性评估"],
+  ];
+  const table = el("table", { className: "capability-table" }, [
+    el("thead", {}, [el("tr", {}, ["能力", "状态", "实际范围"].map((label) => el("th", { scope: "col", text: label })))]),
+    el("tbody", {}, rows.map(([name, status, note]) => el("tr", {}, [el("th", { scope: "row", text: name }), el("td", { className: status === "已接入" ? "capability-ready" : "capability-pending", text: status }), el("td", { text: note })]))),
+  ]);
+  return el("section", { className: "capability-panel" }, [
+    el("h3", { text: "当前分析能力" }),
+    el("p", { className: "microcopy", text: "当前可做历史画像分析，完整选禁决策链尚未完成。" }),
+    el("div", { className: "matrix-scroll" }, [table]),
+    el("p", { className: "asset-credit", text: "英雄图像来自 Valve 的 Dota 2 公开 CDN，相关图像与商标归 Valve 所有。图像无法载入时保留名称与全部分析数据。" }),
+  ]);
 }
 
 function playerLead(player) {
@@ -809,8 +1033,9 @@ function heroList(entries) {
   entries.forEach((item, index) => {
     list.append(el("li", { className: "hero-item" }, [
       el("span", { className: "hero-rank", text: String(index + 1).padStart(2, "0") }),
+      heroImage(item.hero_id, "hero-thumb"),
       el("span", { className: "hero-name", text: heroName(item.hero_id) }),
-      el("span", { className: "hero-record", text: `${formatNullableInteger(item.games)} 场 · ${formatPercent(item.wr)} · 占比 ${formatNullablePercentPoint(item.pct)}` }),
+      el("span", { className: "hero-record", text: `${formatNullableInteger(item.games)} 场 · 胜率 ${formatPercent(item.wr)} · 占比 ${formatNullablePercentPoint(item.pct)}` }),
     ]));
   });
   return list;
@@ -877,13 +1102,21 @@ function bpCard(title, note, entries, accent) {
     card.append(emptyInline("当前顺序族没有可展示的合法完整 BP。"));
     return card;
   }
-  entries.forEach((entry) => {
-    card.append(el("div", { className: "bp-row" }, [
+  const more = entries.length > 6 ? el("details", { className: "bp-more" }, [
+    el("summary", { text: `查看其余 ${entries.length - 6} 个英雄` }),
+  ]) : null;
+  entries.forEach((entry, index) => {
+    const meter = el("span", { className: "bp-meter", ariaHidden: "true" });
+    if (finiteNumber(entry.freq) !== null) meter.append(el("span", { className: "bar-fill", style: { width: `${clamp(entry.freq * 100, 0, 100)}%` } }));
+    (index < 6 ? card : more).append(el("div", { className: "bp-row" }, [
+      heroImage(entry.hero_id, "hero-thumb"),
       el("strong", { text: heroName(entry.hero_id) }),
+      meter,
       el("span", { className: "bp-frequency", text: formatPercent(entry.freq) }),
       el("span", { className: "bp-sample", text: `${formatNullableInteger(entry.n)} 场机会` }),
     ]));
   });
+  if (more) card.append(more);
   return card;
 }
 
@@ -905,7 +1138,7 @@ function phaseTable(entries, ordFilter = "all") {
     const ord = finiteNumber(entry.ord);
     body.append(el("tr", {}, [
       el("td", { text: ord === null ? "缺值" : `第 ${ord + 1} 手` }),
-      el("td", { text: heroName(entry.hero_id) }),
+      el("td", {}, [el("span", { className: "phase-hero" }, [heroImage(entry.hero_id, "hero-thumb"), el("span", { text: heroName(entry.hero_id) })])]),
       el("td", { text: formatPercent(entry.freq) }),
       el("td", { text: `${formatNullableInteger(entry.n)} 场` }),
     ]));
