@@ -8,6 +8,7 @@ from typing import Any
 
 from psycopg.rows import dict_row
 
+from analysis.position_inference import METHOD_VERSION, team_input_fingerprint
 from db.sources import SourceNotAllowed, resolve_sources
 
 
@@ -68,6 +69,52 @@ def _configured_min_sample_n(cursor: Any) -> int:
     return max(MIN_SAMPLE_N, int(raw))
 
 
+def _apply_position_annotation(
+    match: dict[str, Any], players: list[dict[str, Any]], annotation: dict[str, Any]
+) -> None:
+    """整队证据有效才补空位，不把陈旧或部分损坏的标注混入画像。"""
+    if (
+        len(players) != 5
+        or any(row["position"] is not None for row in players)
+        or annotation["method_version"] != METHOD_VERSION
+        or annotation["input_fingerprint"] != team_input_fingerprint(match, players)
+    ):
+        return
+    items = annotation["annotations"]
+    if not isinstance(items, list) or len(items) != 5:
+        return
+    slots = {row["player_slot"] for row in players}
+    if len(slots) != 5:
+        return
+    by_slot: dict[int, int | None] = {}
+    positions: set[int] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            return
+        slot = item.get("player_slot")
+        position = item.get("position")
+        if (
+            type(slot) is not int
+            or slot not in slots
+            or slot in by_slot
+            or "position" not in item
+            or item.get("method_version") != METHOD_VERSION
+            or (position is not None and (type(position) is not int or position not in range(1, 6)))
+        ):
+            return
+        if position is not None:
+            if position in positions:
+                return
+            positions.add(position)
+        by_slot[slot] = position
+    for player in players:
+        position = by_slot[player["player_slot"]]
+        if position is not None:
+            player["position"] = position
+            player["position_source"] = "heuristic"
+            player["position_method_version"] = METHOD_VERSION
+
+
 def load_profile_dataset(
     conn: Any,
     *,
@@ -111,10 +158,13 @@ def load_profile_dataset(
                         p.version_name AS patch,
                         p.base_version,
                         CASE WHEN l.tier IN ('tier1', 'tier2', 'qualifier', 'other')
-                             THEN l.tier ELSE NULL END AS tier
+                             THEN l.tier
+                             WHEN btrim(lt.verified_name) = btrim(l.name)
+                             THEN lt.canonical_tier ELSE NULL END AS tier
                     FROM {view} AS m
                     JOIN patches AS p ON p.patch_id = m.patch_id
                     LEFT JOIN leagues AS l ON l.league_id = m.league_id
+                    LEFT JOIN profile_league_tiers AS lt ON lt.league_id = m.league_id
                     WHERE p.base_version = %s
                       AND m.data_source = ANY(%s)
                       AND m.started_at >= %s
@@ -135,6 +185,7 @@ def load_profile_dataset(
         draft_by_match: dict[int, list[dict[str, Any]]] = {
             match_id: [] for match_id in match_ids
         }
+        position_annotations: dict[tuple[int, int], dict[str, Any]] = {}
 
         if match_ids:
             player_rows = cursor.execute(
@@ -146,7 +197,15 @@ def load_profile_dataset(
                 (match_ids,),
             ).fetchall()
             for player in player_rows:
+                player["position_source"] = "recorded" if player["position"] is not None else "unknown"
                 players_by_match[player["match_id"]].append(player)
+
+            annotation_rows = cursor.execute(
+                """SELECT match_id, team, input_fingerprint, method_version, annotations
+                   FROM profile_position_annotations WHERE match_id = ANY(%s)""",
+                (match_ids,),
+            ).fetchall()
+            position_annotations = {(row["match_id"], row["team"]): row for row in annotation_rows}
 
             draft_rows = cursor.execute(
                 """SELECT match_id, ord, is_pick, team, hero_id
@@ -162,6 +221,11 @@ def load_profile_dataset(
             match_id = match["match_id"]
             match["players"] = players_by_match[match_id]
             match["draft"] = draft_by_match[match_id]
+            for team in (0, 1):
+                annotation = position_annotations.get((match_id, team))
+                if annotation is not None:
+                    team_players = [row for row in match["players"] if row["team"] == team]
+                    _apply_position_annotation(match, team_players, annotation)
 
         hero_roles = {
             row["hero_id"]: list(row["roles"] or [])

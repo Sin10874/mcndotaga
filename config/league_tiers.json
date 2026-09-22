@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "method_version": "league_tier_review_v1",
+  "reviewed_at": "2026-09-22T08:36:14Z",
+  "classification_note": "本项目分类，不代表主办方采用 tier1 或 qualifier 术语。仅按逐赛事官方证据确认身份与阶段；旗舰国际主赛归 tier1，通向主赛的资格赛归 qualifier。未审或边界不清的赛事保持未知，不转换上游 premium/professional 标签。",
+  "mappings": [
+    {
+      "league_id": 19719,
+      "verified_name": "The International 2026",
+      "canonical_tier": "tier1",
+      "source_url": "https://www.dota2.com.cn/article/details/20260212/220492.html",
+      "evidence": {
+        "publisher": "DOTA2 中国官方网站",
+        "basis": "官方公告确认上海举办、16 支队伍参加的年度 TI 主赛。按本项目旗舰国际主赛口径归类。",
+        "identity_check": "本地赛事名称对应，147 场比赛覆盖 8 月 13 至 23 日，共 16 个非空战队 ID。"
+      }
+    },
+    {
+      "league_id": 19785,
+      "verified_name": "Esports World Cup 2026",
+      "canonical_tier": "tier1",
+      "source_url": "https://resources.esportsworldcup.com/en/competitive-ops/rulebooks/dota2",
+      "evidence": {
+        "publisher": "Esports World Cup",
+        "document_url": "https://cdn.esportsworldcup.com/resources/uploads/Dota_2_at_2026_Esports_World_Cup_Rulebook_dec2d6e169.pdf",
+        "basis": "官方 2026 规则书确认 24 队主赛、8 队淘汰赛和 200 万美元奖金。按本项目旗舰国际主赛口径归类。",
+        "identity_check": "本地名称对应且有 24 个非空战队 ID。官方赛程为 7 月 6 至 18 日，本地比赛为 7 月 7 至 19 日，存在一日偏移，不以日期精确一致为依据。"
+      }
+    },
+    {
+      "league_id": 19890,
+      "verified_name": "The International 2026 - Regional Qualifier North America",
+      "canonical_tier": "qualifier",
+      "source_url": "https://steamcommunity.com/games/dota2/announcements/detail/655981180194128454",
+      "evidence": {
+        "publisher": "Valve",
+        "title": "The International 2026 Invitations and Qualifiers",
+        "steam_news_gid": "1833334318578465",
+        "contents_sha256": "88d4221d79c2da94c2188e7f42a1c88c04ae9b5836a28b7e88307b36a9cd15a5",
+        "basis": "官方正文明确北美区域资格赛于 6 月 24 至 26 日举行，4 队争夺 1 个主赛名额。",
+        "identity_check": "本地名称和地区吻合，4 个非空战队 ID。UTC 尾场跨入 6 月 27 日。"
+      }
+    },
+    {
+      "league_id": 19892,
+      "verified_name": "The International 2026 - Regional Qualifier Europe",
+      "canonical_tier": "qualifier",
+      "source_url": "https://steamcommunity.com/games/dota2/announcements/detail/655981180194128454",
+      "evidence": {
+        "publisher": "Valve",
+        "title": "The International 2026 Invitations and Qualifiers",
+        "steam_news_gid": "1833334318578465",
+        "contents_sha256": "88d4221d79c2da94c2188e7f42a1c88c04ae9b5836a28b7e88307b36a9cd15a5",
+        "basis": "官方正文明确欧洲合并区域资格赛于 6 月 21 至 28 日举行，16 队争夺 4 个主赛名额。",
+        "identity_check": "本地名称、地区和比赛日期吻合；非空战队 ID 仅 14 个，未将缺失 ID 补造为 16 个。"
+      }
+    },
+    {
+      "league_id": 19885,
+      "verified_name": "Road to ENC 2026 Regional Qualifiers",
+      "canonical_tier": "qualifier",
+      "source_url": "https://esportsnationscup.com/en/press-releases/stars-shine-and-underdogs-triumph-in-dota-2-qualifiers-for-esports-nations-cup-2026",
+      "evidence": {
+        "publisher": "Esports Nations Cup",
+        "basis": "官方 7 月 2 日公告确认线上区域资格赛完成，覆盖八个地区，14 队通过资格赛取得主赛席位。",
+        "identity_check": "本地赛事名称对应，246 场比赛在 6 月 29 日至 7 月 2 日举行。只判定已经结束的资格赛，不推断未来主赛日程。"
+      }
+    }
+  ]
+}
