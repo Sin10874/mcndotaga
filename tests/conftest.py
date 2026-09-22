@@ -3,21 +3,6 @@ import os
 from contextlib import contextmanager
 import psycopg, pytest
 
-def _base_dsn() -> str:
-    return os.environ.get("DATABASE_URL", "postgresql://dota:dota@localhost:5432/dota") \
-        .replace("postgresql+psycopg://", "postgresql://")
-
-def _test_dsn_from(base: str) -> str:
-    """把 <db> 派生成 <db>_test，保留查询串。
-
-    必须先把 "?" 之后切掉再拼后缀：否则
-    `.../dota?sslmode=disable` 会推出 `dota?sslmode=disable_test`，
-    PG 报 `invalid sslmode value: "disable_test"`。
-    """
-    dsn, sep, query = base.partition("?")
-    head, dbname = dsn.rsplit("/", 1)
-    return f"{head}/{dbname}_test{sep}{query}"
-
 @pytest.fixture(scope="session")
 def dsn() -> str:
     """每 session 重建 <db>_test 并跑迁移，使测试不污染开发库（规格 §15）。
@@ -38,7 +23,12 @@ def dsn() -> str:
     """
     base = os.environ.get("TEST_DATABASE_URL")
     if not base:
-        base = _test_dsn_from(_base_dsn())
+        pytest.exit(
+            "数据库测试必须显式设置 TEST_DATABASE_URL，拒绝使用默认端口或从 DATABASE_URL 推导。"
+            "测试库会被 DROP 重建，请使用当前任务独占的 _test 数据库。",
+            returncode=1,
+        )
+    base = base.replace("postgresql+psycopg://", "postgresql://")
     # 查询串（?sslmode=... 等）必须在解析库名之前切掉：否则 test_name 会变成
     # 'dota_test?sslmode=disable'，既过不了下面的 _test 护栏，也会让 ident 带上 '?'。
     dsn_only, sep, query = base.partition("?")

@@ -1,0 +1,319 @@
+{
+  "date": "2026-09-22",
+  "mode": "experimental",
+  "release_ready": false,
+  "python_regression": {
+    "passed": 493,
+    "seconds": 179.26
+  },
+  "frontend_tests": {
+    "passed": 11
+  },
+  "http_acceptance": [
+    {
+      "case": "默认空局面",
+      "http": 200,
+      "seconds": 8.324,
+      "modules": {
+        "value": {
+          "returned": true,
+          "items": 0
+        },
+        "policy": {
+          "returned": true,
+          "items": 8
+        },
+        "advise": {
+          "returned": true,
+          "items": 3
+        },
+        "playbook": {
+          "returned": true,
+          "items": 7
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "小样本新版本",
+      "http": 200,
+      "seconds": 0.127,
+      "modules": {
+        "value": {
+          "code": "insufficient_data",
+          "message": "该精确版本及来源的 Value 模型尚未就绪"
+        },
+        "policy": {
+          "returned": true,
+          "items": 8
+        },
+        "advise": {
+          "code": "insufficient_data",
+          "message": "可完整评估的候选不足 2 个，无法提供 fallback。33: 该精确版本及来源的 Value 模型尚未就绪；25: 该精确版本及来源的 Value 模型尚未就绪；80: 该精确版本及来源的 Value 模型尚未就绪"
+        },
+        "playbook": {
+          "code": "insufficient_data",
+          "message": "分支 us:teamfight 数据不足。可完整评估的候选不足 2 个，无法提供 fallback。119: 该精确版本及来源的 Value 模型尚未就绪；90: 该精确版本及来源的 Value 模型尚未就绪；123: 该精确版本及来源的 Value 模型尚未就绪"
+        }
+      },
+      "error": null
+    },
+    {
+      "case": "未知队伍",
+      "http": 404,
+      "seconds": 0.004,
+      "modules": {},
+      "error": {
+        "code": "not_found",
+        "message": "请求的战队不存在"
+      }
+    },
+    {
+      "case": "私密来源",
+      "http": 403,
+      "seconds": 0.001,
+      "modules": {},
+      "error": {
+        "code": "source_not_allowed",
+        "message": "公开分析不允许使用训练赛来源"
+      }
+    }
+  ],
+  "policy": {
+    "algorithm_version": "conditional-sequence-v2",
+    "metrics": {
+      "by_patch": {
+        "7.41e": {
+          "global_frequency": {
+            "top1": 0.06909722,
+            "top3": 0.15277778,
+            "top5": 0.22916667
+          },
+          "model": {
+            "top1": 0.10729167,
+            "top3": 0.22951389,
+            "top5": 0.31979167
+          },
+          "n_predictions": 5760,
+          "stage_pickban_frequency": {
+            "top1": 0.09305556,
+            "top3": 0.18888889,
+            "top5": 0.25954861
+          },
+          "uniform_random_expected": {
+            "top1": 0.00868931,
+            "top3": 0.02606793,
+            "top5": 0.04344655
+          }
+        },
+        "7.41f": {
+          "global_frequency": {
+            "top1": 0.00336022,
+            "top3": 0.05443548,
+            "top5": 0.13172043
+          },
+          "model": {
+            "top1": 0.06922043,
+            "top3": 0.14852151,
+            "top5": 0.22983871
+          },
+          "n_predictions": 1488,
+          "stage_pickban_frequency": {
+            "top1": 0.06384409,
+            "top3": 0.14717742,
+            "top5": 0.19489247
+          },
+          "uniform_random_expected": {
+            "top1": 0.00868931,
+            "top3": 0.02606793,
+            "top5": 0.04344655
+          }
+        }
+      },
+      "by_stage": {
+        "1-8": {
+          "global_frequency": {
+            "top1": 0.10554636,
+            "top3": 0.18046358,
+            "top5": 0.2785596
+          },
+          "model": {
+            "top1": 0.14114238,
+            "top3": 0.28145695,
+            "top5": 0.37251656
+          },
+          "n_predictions": 2416,
+          "stage_pickban_frequency": {
+            "top1": 0.1080298,
+            "top3": 0.22599338,
+            "top5": 0.29139073
+          },
+          "uniform_random_expected": {
+            "top1": 0.00809995,
+            "top3": 0.02429986,
+            "top5": 0.04049977
+          }
+        },
+        "17-24": {
+          "global_frequency": {
+            "top1": 0.0281457,
+            "top3": 0.10182119,
+            "top5": 0.14321192
+          },
+          "model": {
+            "top1": 0.0625,
+            "top3": 0.15066225,
+            "top5": 0.23427152
+          },
+          "n_predictions": 2416,
+          "stage_pickban_frequency": {
+            "top1": 0.06663907,
+            "top3": 0.14735099,
+            "top5": 0.21440397
+          },
+          "uniform_random_expected": {
+            "top1": 0.00930656,
+            "top3": 0.02791967,
+            "top5": 0.04653278
+          }
+        },
+        "9-16": {
+          "global_frequency": {
+            "top1": 0.03311258,
+            "top3": 0.11548013,
+            "top5": 0.20571192
+          },
+          "model": {
+            "top1": 0.09478477,
+            "top3": 0.20653974,
+            "top5": 0.29718543
+          },
+          "n_predictions": 2416,
+          "stage_pickban_frequency": {
+            "top1": 0.08650662,
+            "top3": 0.16763245,
+            "top5": 0.2330298
+          },
+          "uniform_random_expected": {
+            "top1": 0.00866142,
+            "top3": 0.02598426,
+            "top5": 0.04330709
+          }
+        }
+      },
+      "overall": {
+        "global_frequency": {
+          "top1": 0.05560155,
+          "top3": 0.1325883,
+          "top5": 0.20916115
+        },
+        "model": {
+          "top1": 0.09947572,
+          "top3": 0.21288631,
+          "top5": 0.3013245
+        },
+        "n_predictions": 7248,
+        "stage_pickban_frequency": {
+          "top1": 0.0870585,
+          "top3": 0.18032561,
+          "top5": 0.24627483
+        },
+        "uniform_random_expected": {
+          "top1": 0.00868931,
+          "top3": 0.02606793,
+          "top5": 0.04344655
+        }
+      }
+    },
+    "protocol": {
+      "baseline": "stage(1-8,9-16,17-24)+is_pick frequency",
+      "candidate_rule": "每一步排除当前真实前缀已出现英雄",
+      "holdout_used_for_tuning": false,
+      "independent_holdout": false,
+      "parameter_search": false,
+      "split": "按 started_at 排序，在 floor(80%) 位置取边界，同时间戳全部进入留出集"
+    },
+    "split": {
+      "holdout_matches": 302,
+      "holdout_max_started_at": "2026-09-22T15:04:17+08:00",
+      "holdout_min_started_at": "2026-08-30T05:25:36+08:00",
+      "split_at": "2026-08-30T05:25:36+08:00",
+      "train_matches": 1205,
+      "train_max_started_at": "2026-08-30T05:22:29+08:00",
+      "train_min_started_at": "2026-06-24T16:05:33+08:00"
+    },
+    "release_ready": false
+  },
+  "value_7_41e": {
+    "train_n": 682,
+    "validation_n": 172,
+    "excluded_overlap_n": 2,
+    "train_start": "2026-07-30T09:03:26+00:00",
+    "train_end": "2026-08-30T10:09:25+00:00",
+    "context_cutoff": "2026-08-30T10:09:49+00:00",
+    "validation_start": "2026-08-30T10:09:49+00:00",
+    "validation_end": "2026-09-13T13:09:52+00:00",
+    "validation": {
+      "n": 172,
+      "accuracy": 0.5058139534883721,
+      "brier": 0.24944448853472218,
+      "log_loss": 0.6921448890882204
+    },
+    "partial_validation": {
+      "1": {
+        "n": 172,
+        "accuracy": 0.5581395348837209,
+        "brier": 0.24497071068908796,
+        "log_loss": 0.6830078670722906
+      },
+      "3": {
+        "n": 172,
+        "accuracy": 0.47674418604651164,
+        "brier": 0.24967316007721727,
+        "log_loss": 0.6923032728392339
+      }
+    },
+    "baseline": {
+      "n": 172,
+      "accuracy": 0.5174418604651163,
+      "brier": 0.2499511378177981,
+      "log_loss": 0.6930494559231286
+    },
+    "hyperparameters": {
+      "l2": 0.02,
+      "learning_rate": 0.3,
+      "iterations": 300
+    },
+    "holdout_used_for_tuning": false,
+    "evaluation_status": "development_reused_holdout",
+    "experimental": true,
+    "feature_nonzero_training_examples": {
+      "comfort": 418,
+      "counter": 0
+    },
+    "feature_policy": "BP英雄、先手、赛前已结束比赛的历史选手熟练度与条件化对位；不读取同场赛后数据",
+    "limitations": [
+      "部分局面验证只覆盖双方各 1、3、5 个 pick，非完整实时前缀回放",
+      "胜率未作独立校准；confidence 仅表示样本档位",
+      "patch_strength 包含该精确版本的 Radiant 侧偏置",
+      "历史位置含经指纹核对的启发式标注，推断准确率未经真值验证",
+      "此版增加历史位置特征后复用已看过的时间留出集，仅属开发评估"
+    ]
+  },
+  "artifacts": {
+    "value-7.41e-pro_match.json": "e83256a520f25768253ab9d7fb2fda25919a79c588027e8f5d8f8a8cc8b1751f",
+    "value-7.41d-pro_match.json": "ff4686b72e96878f14d4e6fdc247d024704b646cfeb2e8f8e28744c4db31babf",
+    "policy-evaluation.json": "8be5590aa9fc272a696c1050bbe0dc7f7996bdd92c5662e94dfb467c9e8efa95"
+  },
+  "browser": {
+    "desktop": "真实12手输入返回四模块；候选采用、撤回、先手改动已操作",
+    "mobile": "390px，页面宽度和scrollWidth均390；24手编辑器无水平溢出"
+  },
+  "limitations": [
+    "开发复用时间留出集，未通过独立质量验收",
+    "Value提升很弱，7.41d未优于固定胜率基准，不进入决策搜索",
+    "当前127英雄词表不能代替历史CM池快照",
+    "选手条件对位真实样本不足时为0，不使用全局矩阵",
+    "神经序列模型、位置真值、天梯采集、回放导入和48小时连续采集验收尚未完成"
+  ]
+}

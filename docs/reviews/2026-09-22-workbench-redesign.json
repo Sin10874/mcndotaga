@@ -1,0 +1,91 @@
+{
+  "date": "2026-09-22",
+  "baseline": "63ca100",
+  "url": "http://127.0.0.1:8016/",
+  "complete_analysis": false,
+  "checks": [
+    {
+      "item": "桌面和中等窗口",
+      "result": "已验证",
+      "evidence": "1280px 桌面与 892px 窗口，界面无横向溢出；真实英雄图像、选手卡与雷达可见。"
+    },
+    {
+      "item": "手机",
+      "result": "已验证",
+      "evidence": "390px 导航带可见文字；雷达、英雄卡和 JSON 弹窗可用，页面内容宽度为 390px。"
+    },
+    {
+      "item": "真实交互",
+      "result": "已验证",
+      "evidence": "切换 WoE，矩阵打开 Htrd 档案，双人对比更换选手，BP 按手数过滤并展开剩余英雄。"
+    },
+    {
+      "item": "缺值语义",
+      "result": "已验证",
+      "evidence": "Team Spirit 的 not_me 五维均缺失，雷达为 0 个面积、0 个数据点、5 个缺值标签。0 百分位仍按有效值处理。"
+    },
+    {
+      "item": "不足与复制",
+      "result": "已验证",
+      "evidence": "Team Winn 返回样本不足，旧画像保留队名和日期；复制 JSON 读回队伍、版本和人数与页面一致。"
+    },
+    {
+      "item": "本次自动检查",
+      "result": "已验证",
+      "evidence": "7 项前端行为测试，23 项相关 Python 回归通过；JS 语法、diff 和禁止排版检查通过。"
+    },
+    {
+      "item": "既有完整回归",
+      "result": "上一版证据",
+      "evidence": "63ca100 基线有 423 项全量通过，本轮只修改前端和图片 CSP，未重复全量。"
+    },
+    {
+      "item": "用户视觉验收",
+      "result": "待用户检查",
+      "evidence": "本轮完成实现与自动验收，是否符合视觉预期由用户检查。"
+    }
+  ],
+  "capabilities": [
+    {
+      "item": "历史画像与 BP 频率",
+      "result": "可用",
+      "scope": "英雄池、对应位置五维百分位、英雄类型偏好、真实 BP 经验频率与分母。"
+    },
+    {
+      "item": "局面评估 Value",
+      "result": "未实现",
+      "scope": "尚不能给对局胜率、贡献分解、条件化对位效应。"
+    },
+    {
+      "item": "下一手预测 Policy",
+      "result": "未实现",
+      "scope": "只有离线频率基线实验，无在线概率接口或序列模型。"
+    },
+    {
+      "item": "剧本 Playbook",
+      "result": "未实现",
+      "scope": "尚不能生成双方分支、反制方案与备选剧本。"
+    },
+    {
+      "item": "整手决策 Advise",
+      "result": "未实现",
+      "scope": "尚不能给出下一手建议与稳健性分析。"
+    },
+    {
+      "item": "其他分析与数据",
+      "result": "仍有缺口",
+      "scope": "战队节奏与交手分析、天梯与回放导入、48 小时采集、位置真值验证。"
+    }
+  ],
+  "tests": {
+    "frontend_passed": 7,
+    "related_python_passed": 23,
+    "previous_full_suite": 423
+  },
+  "runtime": {
+    "gui": "保留运行",
+    "postgres_port": 55439,
+    "collector": "未运行"
+  },
+  "assets": "Valve 官方 CDN，图片失败保留名称和数据，无外部分析服务。"
+}

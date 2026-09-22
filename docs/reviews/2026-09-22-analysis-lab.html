@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>对局实验室验收 · MCNDOTAGA</title><style>
+:root{color-scheme:dark;--bg:#08110f;--panel:#101d18;--ink:#eaf5ef;--muted:#93aa9f;--line:#294337;--accent:#72e6b3;--amber:#e2be77}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.8 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}main{max-width:1060px;margin:auto;padding:60px 28px 100px}h1{font-size:clamp(30px,5vw,54px);line-height:1.2;letter-spacing:-1px;margin:16px 0 24px}h2{font-size:23px;margin:44px 0 18px}p{color:var(--muted)}a{color:var(--accent)}.eyebrow{font-size:12px;letter-spacing:3px;color:var(--accent)}.lead{font-size:18px;max-width:840px;color:var(--ink)}.banner{padding:18px 22px;border:1px solid #6e5b32;background:#292315;color:var(--amber)}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin:30px 0}.metric{padding:20px;border-top:1px solid var(--line);background:var(--panel)}.metric strong{display:block;font-size:34px;font-weight:600;color:var(--accent);line-height:1.4}.metric span{font-size:12px;color:var(--muted)}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:13px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}th{color:var(--muted);font-weight:500}td:first-child{white-space:nowrap}code{font-family:ui-monospace,monospace;font-size:12px;color:#bddecf}li{margin:9px 0;color:var(--muted)}.scroll{overflow:auto}.good{color:var(--accent)}.pending{color:var(--amber)}footer{margin-top:50px;border-top:1px solid var(--line);padding-top:20px;font-size:12px;color:var(--muted)}@media(max-width:600px){main{padding:30px 18px 60px}.metrics{grid-template-columns:1fr 1fr;gap:10px}.metric{padding:15px}th,td{padding:10px 8px;font-size:11px}.lead{font-size:16px}}
+</style></head><body><main>
+<div class="eyebrow">MCNDOTAGA · 2026.09.22</div><h1>完整实验链，已经能点着测。</h1>
+<p class="lead">选择双方、录入24手 BP，真实计算局面、下一手候选、当前手方案和赛前剧本。数据、模型和页面已经接通，模型质量仍处于开发验证阶段。</p>
+<p><a href="http://127.0.0.1:8016/#analysis">打开本机对局实验室</a> · <a href="2026-09-22-analysis-lab.json">聚合验收证据</a> · <a href="https://github.com/Sin10874/mcndotaga/pull/2">GitHub 实现与审阅</a></p>
+<div class="banner">可验收的是实验流程和真实行为。当前不是成熟的比赛预测产品。开发曾复用留出集，正式质量门保持未通过。</div>
+<div class="metrics"><div class="metric"><strong>4</strong><span>分析模块返回实际结果</span></div><div class="metric"><strong>8.3 s</strong><span>默认局面真实 HTTP 耗时</span></div><div class="metric"><strong>493</strong><span>全仓 Python 测试通过</span></div><div class="metric"><strong>11</strong><span>前端行为测试通过</span></div></div>
+<h2>怎么验收</h2><ol><li>打开“对局实验室”，在真实 BP 输入中选择 <code>7.41e · Dawn Bulls vs Klim Sani4 · 8996973546</code>。</li><li>点击“载入前12手”。系统把当前行动方设为我方，保留真实天辉和夜魇身份。</li><li>运行分析。查看局面贡献、8个候选、3个实验方案以及7类剧本分支。</li><li>点击候选的“采用此手”，检查第14手与阵容变化；撤回后应恢复第13手。更改先手会清空原前缀，避免静默改写归属。</li><li>切换到7.41f再运行。Value样本不足，下一手分布仍能展示，依赖模块明确说明不足。</li></ol>
+<p>历史前缀仅是交互输入，当前模型可能已经见过该场。不把这次操作记为独立回测。</p>
+<h2>本轮真实结果</h2><div class="scroll"><table><thead><tr><th>范围</th><th>已验证</th><th>边界</th></tr></thead><tbody>
+<tr><td>Value</td><td>真实训练、四项贡献守恒、选手历史熟练度可非零</td><td>7.41e提升很弱；对位不足时为0并附原因，禁止全局克制矩阵回填</td></tr>
+<tr><td>Policy</td><td>条件概率模型、合法英雄排重、概率尾部、证据与基准</td><td>实验模型，不是LSTM或Transformer；英雄池缺历史快照</td></tr>
+<tr><td>Advise</td><td>3个方案，全对手候选计算期望与最差结果，明确fallback及降权</td><td>仅我方当前手；依赖有效模型。Value劣于基准时不进入搜索</td></tr>
+<tr><td>Playbook</td><td>7类对手体系，单局先手一致；系列赛按真实队伍映射换边</td><td>逐体系条件搜索，不是经过教练验证的完整战术。OP每个量不足30时降级</td></tr>
+<tr><td>GUI</td><td>双方、版本、UTC日期、阵营、先手、24手编辑、真实输入、完整JSON</td><td>本机只读服务，不训练、不采集、不写数据库</td></tr>
+</tbody></table></div>
+<h2>模型质量没有藏起来</h2><p>Policy开发数据为1507场，1205场训练，302场时间留出，共7248次预测。此前失败的v1看过同一尾段，因此以下是开发复核数字。</p>
+<div class="scroll"><table><thead><tr><th>Policy方法</th><th>Top1</th><th>Top3</th><th>Top5</th></tr></thead><tbody><tr><td>随机期望</td><td>0.87%</td><td>2.61%</td><td>4.34%</td></tr><tr><td>全局频率</td><td>5.56%</td><td>13.26%</td><td>20.92%</td></tr><tr><td>阶段频率</td><td>8.71%</td><td>18.03%</td><td>24.63%</td></tr><tr><td class="good">条件概率v2</td><td>9.95%</td><td>21.29%</td><td>30.13%</td></tr></tbody></table></div>
+<p>7.41e Value：682场训练，172场验证。准确率50.58%，固定胜率基准51.74%；log loss为0.692145，基准0.693049，改善很弱。7.41d的log loss为0.700734，劣于0.693175基准，因此不能进入决策搜索。样本数量大不等于预测可信。</p>
+<h2>验收证据</h2><ul><li>全仓回归：493 passed，179.26秒。前端测试：11 passed。</li><li>默认空局面：HTTP 200，8候选、3方案、7分支，8.324秒。</li><li>7.41f：HTTP 200，Value及依赖项保留insufficient_data，Policy仍显示；未知队伍404；训练赛来源403。</li><li>真实浏览器：12手样例四模块全部返回；采用、撤回、先手重置实际操作通过。390px手机布局无水平溢出。</li><li>独立代码审查修复：UTC时区、截止后赛果、pub来源、系列赛换边、单模块异常隔离及候选不足处理。</li></ul>
+<h2>距离正式完整分析还差什么</h2><ul><li>新的未读时间段和明确的独立质量验收，不能继续用同一留出集调整后宣称独立通过。</li><li>更强的序列模型与可靠的Value效果，目前分支搜索会继承基础模型的误差。</li><li>历史CM可选池、足够的选手条件对位数据、位置真值与推断准确率。</li><li>天梯采集、回放导入、完整的战队体系与节奏分析、48小时采集连续验收。</li></ul>
+<footer>模型与原始数据保留在本机。Git提交代码、复算入口及脱敏聚合证据，不提交数据库、凭据、原始比赛载荷或模型计数表。此HTML静态自包含，可直接打开。</footer>
+</main></body></html>

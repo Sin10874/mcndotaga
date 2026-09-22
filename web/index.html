@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#07110f">
+  <title>DOTA2 对局分析工作台</title>
+  <link rel="stylesheet" href="/workbench.css">
+  <script src="/workbench.js" defer></script>
+  <link rel="stylesheet" href="/analysis-workbench.css">
+  <script src="/analysis-workbench.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="index-rail" aria-label="工作台导航">
+      <a class="brand" href="#overview" aria-label="DOTA2 战队画像工作台首页">
+        <span class="brand-mark" aria-hidden="true"><span>D2</span></span>
+        <span class="brand-copy">
+          <strong class="brand-name">MATCH<br>INTEL</strong>
+          <small>战队分析工作台</small>
+        </span>
+      </a>
+
+      <nav class="view-nav" aria-label="分析页面">
+        <button class="nav-item" type="button" data-view-target="analysis" aria-label="对局实验室" title="对局实验室">
+          <span class="nav-index" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4l16 16M20 4L4 20M4 4h6M20 4v6M4 20v-6M20 20h-6"/></svg></span><span>对局实验室</span>
+        </button>
+        <button class="nav-item is-active" type="button" data-view-target="overview" aria-label="画像总览" title="画像总览" aria-current="page">
+          <span class="nav-index" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h4l2.2-6 3.6 12 2.2-6h4"/></svg></span><span>画像总览</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="players" aria-label="选手档案" title="选手档案">
+          <span class="nav-index" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c.6-4 2.7-6 6.5-6s5.9 2 6.5 6"/></svg></span><span>选手档案</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="compare" aria-label="双人对比" title="双人对比">
+          <span class="nav-index" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5v14M19 5v14M5 8h7l-2.5-2.5M19 16h-7l2.5 2.5"/></svg></span><span>双人对比</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="bp" aria-label="BP 倾向" title="BP 倾向">
+          <span class="nav-index" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h9M5 18h5"/><circle cx="18" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg></span><span>BP 倾向</span>
+        </button>
+        <button class="nav-item" type="button" data-view-target="sources" aria-label="数据与来源" title="数据与来源">
+          <span class="nav-index" aria-hidden="true"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg></span><span>数据与来源</span>
+        </button>
+      </nav>
+
+      <div class="rail-foot">
+        <span class="connection-dot" id="connection-dot" aria-hidden="true"></span>
+        <span id="connection-label">正在连接真实数据</span>
+      </div>
+    </aside>
+
+    <main class="workbench">
+      <header class="topbar">
+        <div>
+          <p class="kicker"><span>历史分析</span> 公开职业 CM 比赛</p>
+          <h1>DOTA2 战队画像</h1>
+        </div>
+        <div class="topbar-actions">
+          <span class="analysis-tag">公开画像 / 01</span>
+          <button class="quiet-button" type="button" id="export-button" aria-label="查看与复制 JSON" title="查看与复制 JSON" disabled>查看与复制 JSON</button>
+        </div>
+      </header>
+
+      <section id="view-analysis" class="view-panel lab" data-view="analysis" aria-labelledby="lab-title" hidden>
+        <div class="lab-intro"><div><p class="kicker">从双方历史，走到当前这一手</p><h2 id="lab-title">把对局放上桌。</h2><p>录入真实选禁，查看局面、对手候选与应对路径。</p></div><span class="lab-edition">BP / 24</span></div>
+        <form id="lab-form" class="lab-form">
+          <div class="field"><label for="lab-us">我方战队</label><select id="lab-us" required disabled><option>载入中</option></select></div>
+          <div class="field"><label for="lab-them">对手战队</label><select id="lab-them" required disabled><option>载入中</option></select></div>
+          <div class="field"><label for="lab-patch">分析版本</label><select id="lab-patch" required disabled><option>载入中</option></select></div>
+          <div class="field"><label for="lab-date">分析截止日期</label><input id="lab-date" type="date" required></div>
+          <div class="field"><label for="lab-side">我方阵营</label><select id="lab-side"><option value="0">天辉</option><option value="1">夜魇</option></select></div>
+          <div class="field"><label for="lab-first">先手阵营</label><select id="lab-first"><option value="0">天辉先手</option><option value="1">夜魇先手</option></select></div>
+          <button class="primary-button lab-run" id="lab-run" type="submit" disabled>运行对局分析 <span aria-hidden="true">↗</span></button>
+        </form>
+        <div class="lab-sample"><label for="lab-example">真实 BP 输入</label><select id="lab-example" aria-label="选择历史 BP 前缀"><option value="">选择一场历史比赛</option></select><button type="button" id="lab-load" class="quiet-button" disabled>载入前 12 手</button></div>
+        <p class="microcopy" id="lab-sample-note">历史前缀仅用于交互测试，模型按所选截止日期运行，不是对该场的独立回测。</p>
+        <section class="draft-board" aria-labelledby="draft-title">
+          <div class="lab-section-head"><div><p class="kicker" id="lab-progress">0 / 24 手</p><h3 id="draft-title">从第一手开始</h3></div><div class="lab-actions"><button id="lab-undo" type="button" class="quiet-button" disabled>撤回一手</button><button id="lab-clear" type="button" class="quiet-button" disabled>清空 BP</button></div></div>
+          <div id="lab-draft" class="lab-draft" aria-label="选禁时间线"></div>
+          <div id="lab-lineups" class="lab-lineups"></div>
+          <div class="hero-picker"><label for="lab-hero-search">为当前手选择英雄</label><input id="lab-hero-search" type="search" placeholder="搜索英雄名称或 ID" autocomplete="off"><div id="lab-heroes" class="lab-heroes"></div><p id="lab-hero-count" class="microcopy"></p></div>
+        </section>
+        <div id="lab-status" role="status" class="lab-status">正在准备真实数据与 BP 规则。</div>
+        <div id="lab-results" class="lab-results"></div>
+      </section>
+
+      <section class="query-panel" aria-labelledby="query-title">
+        <div class="query-heading">
+          <div>
+            <span class="section-number">查询条件</span>
+            <h2 id="query-title">观察窗口</h2>
+          </div>
+          <p id="catalog-window" class="query-context">目录载入中</p>
+        </div>
+
+        <div class="catalog-error" id="catalog-error" role="alert" hidden>
+          <div>
+            <strong>战队目录暂时不可用</strong>
+            <p id="catalog-error-message"></p>
+          </div>
+          <button class="text-button" id="catalog-retry" type="button">重试目录</button>
+        </div>
+
+        <form id="profile-form" autocomplete="off">
+          <div class="field team-field">
+            <label for="team-search">战队</label>
+            <div class="search-control">
+              <input id="team-search" name="team_search" type="search" placeholder="搜索队名、缩写或 ID" role="combobox" aria-autocomplete="list" aria-controls="team-suggestions" aria-expanded="false" disabled>
+              <input id="team-id" name="team_id" type="hidden">
+              <span class="search-count" id="team-search-count"></span>
+            </div>
+            <div class="suggestions" id="team-suggestions" role="listbox" hidden></div>
+          </div>
+
+          <div class="field">
+            <label for="patch-select">精确版本</label>
+            <select id="patch-select" name="patch" disabled>
+              <option value="">等待目录</option>
+            </select>
+            <p class="field-help" id="patch-help" hidden></p>
+          </div>
+
+          <div class="field">
+            <label for="as-of-input">截止日期</label>
+            <input id="as-of-input" name="as_of" type="date" disabled>
+          </div>
+
+          <button class="primary-button" id="query-button" type="submit" disabled>
+            <span>生成画像</span><span aria-hidden="true">↗</span>
+          </button>
+        </form>
+
+        <div class="draft-notice" id="draft-notice" hidden>
+          <span>筛选已修改，当前页面仍显示上一次查询。</span>
+          <button type="button" id="draft-query-button">按新条件查询</button>
+        </div>
+      </section>
+
+      <section class="request-state" id="request-state" aria-live="polite" hidden></section>
+
+      <div id="result-shell" hidden>
+        <div class="result-masthead">
+          <div class="result-identity">
+            <p class="kicker">当前查询结果</p>
+            <h2 id="result-team-name"></h2>
+            <p class="result-meta" id="result-meta"></p>
+          </div>
+          <div class="result-summary" id="result-summary" aria-label="画像摘要"></div>
+        </div>
+
+        <section class="view-panel is-active" id="view-overview" data-view="overview" aria-labelledby="overview-title">
+          <div class="section-heading">
+            <div>
+              <span class="section-number">01</span>
+              <h2 id="overview-title">画像总览</h2>
+            </div>
+            <p>选手来自观察窗口内的历史参赛记录</p>
+          </div>
+          <div id="overview-content"></div>
+        </section>
+
+        <section class="view-panel" id="view-players" data-view="players" aria-labelledby="players-title" hidden>
+          <div class="section-heading">
+            <div>
+              <span class="section-number">02</span>
+              <h2 id="players-title">选手档案</h2>
+            </div>
+            <p>逐项查看英雄池、五维百分位和英雄类型偏好</p>
+          </div>
+          <div id="players-content"></div>
+        </section>
+
+        <section class="view-panel" id="view-compare" data-view="compare" aria-labelledby="compare-title" hidden>
+          <div class="section-heading">
+            <div>
+              <span class="section-number">03</span>
+              <h2 id="compare-title">双人对比</h2>
+            </div>
+            <p>缺值维度保持空白，不以零替代</p>
+          </div>
+          <div id="compare-content"></div>
+        </section>
+
+        <section class="view-panel" id="view-bp" data-view="bp" aria-labelledby="bp-title" hidden>
+          <div class="section-heading">
+            <div>
+              <span class="section-number">04</span>
+              <h2 id="bp-title">BP 倾向</h2>
+            </div>
+            <p>仅呈现合法完整 BP 中可观测的真实频率</p>
+          </div>
+          <div id="bp-content"></div>
+        </section>
+
+        <section class="view-panel" id="view-sources" data-view="sources" aria-labelledby="sources-title" hidden>
+          <div class="section-heading">
+            <div>
+              <span class="section-number">05</span>
+              <h2 id="sources-title">数据与来源</h2>
+            </div>
+            <p>窗口、覆盖、计算口径与赛事证据</p>
+          </div>
+          <div id="sources-content"></div>
+        </section>
+      </div>
+
+      <section class="empty-stage" id="empty-stage" aria-live="polite">
+        <span class="empty-index">D2</span>
+        <div>
+          <h2>等待真实画像</h2>
+          <p>目录就绪后选择战队、精确版本与截止日期。工作台只读取真实接口，不使用演示数据补位。</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="export-dialog" class="export-dialog" aria-labelledby="export-title" aria-describedby="export-description">
+    <h2 id="export-title">当前画像 JSON</h2>
+    <p id="export-description"></p>
+    <label for="export-json">结果 JSON</label>
+    <textarea id="export-json" readonly spellcheck="false"></textarea>
+    <p id="export-status" role="status"></p>
+    <div class="export-actions">
+      <button class="primary-button" id="export-copy" type="button">复制 JSON</button>
+      <button class="quiet-button" id="export-close" type="button">关闭</button>
+    </div>
+  </dialog>
+  <noscript>此工作台需要启用 JavaScript 才能查询真实画像。</noscript>
+</body>
+</html>
