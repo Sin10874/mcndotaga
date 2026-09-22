@@ -5,6 +5,7 @@ import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from analysis.profile_service import ProfileServiceError, parse_profile_query
@@ -18,21 +19,35 @@ ERROR_STATUS = {
     "not_found": 404,
     "upstream_unavailable": 503,
 }
+WEB_ROOT = Path(__file__).resolve().parents[1] / "web"
+STATIC_ROUTES = {
+    "/": ("index.html", "text/html"),
+    "/index.html": ("index.html", "text/html"),
+    "/workbench.css": ("workbench.css", "text/css"),
+    "/workbench.js": ("workbench.js", "text/javascript"),
+}
 
 
-def make_server(host, port, *, provider):
+def make_server(host, port, *, provider, catalog_provider=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "MCNDOTAGA"
 
-        def write_json(self, http_status, body):
-            encoded = json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        def write_bytes(self, http_status, encoded, content_type):
             self.send_response(http_status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Type", f"{content_type}; charset=utf-8")
             self.send_header("Content-Length", str(len(encoded)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Workbench-Pid", str(os.getpid()))
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(encoded)
+
+        def write_json(self, http_status, body):
+            encoded = json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            self.write_bytes(http_status, encoded, "application/json")
 
         def write_error(self, code, message):
             self.write_json(ERROR_STATUS[code], {"error": {"code": code, "message": message}})
@@ -43,8 +58,31 @@ def make_server(host, port, *, provider):
                     self.write_error("invalid_request", "请求参数过长")
                     return
                 route = urlsplit(self.path)
+                if route.path in STATIC_ROUTES:
+                    filename, content_type = STATIC_ROUTES[route.path]
+                    try:
+                        encoded = (WEB_ROOT / filename).read_bytes()
+                    except OSError:
+                        self.write_error("upstream_unavailable", "工作台资源暂时不可用")
+                        return
+                    self.write_bytes(200, encoded, content_type)
+                    return
                 if route.path == "/health":
                     self.write_json(200, {"status": "ok", "scope": "process"})
+                    return
+                if route.path == "/v1/catalog":
+                    if route.query:
+                        self.write_error("invalid_request", "目录接口不接受查询参数")
+                        return
+                    if catalog_provider is None:
+                        self.write_error("upstream_unavailable", "工作台目录暂时不可用")
+                        return
+                    try:
+                        self.write_json(200, catalog_provider())
+                    except ProfileServiceError as exc:
+                        self.write_error(exc.code, exc.message)
+                    except Exception:
+                        self.write_error("upstream_unavailable", "工作台目录暂时不可用，请稍后重试")
                     return
                 if route.path != "/v1/profile":
                     self.write_error("not_found", "接口不存在")
@@ -90,8 +128,13 @@ def main(argv=None):
     if not dsn:
         parser.error("缺少 DATABASE_URL")
     from analysis.profile_service import load_profile
+    from analysis.workbench_catalog import load_catalog
 
-    server = make_server(args.host, args.port, provider=lambda request: load_profile(dsn, request))
+    server = make_server(
+        args.host, args.port,
+        provider=lambda request: load_profile(dsn, request),
+        catalog_provider=lambda: load_catalog(dsn),
+    )
     print(f"画像服务已启动：http://{args.host}:{server.server_port}", flush=True)
     try:
         server.serve_forever()

@@ -1,0 +1,82 @@
+{
+  "date": "2026-09-22",
+  "branch": "codex/interactive-profile-workbench",
+  "base": "e18fbaf",
+  "gui_url": "http://127.0.0.1:8016/",
+  "catalog": {
+    "teams": 319,
+    "patches": 3,
+    "public_cm_matches": 1501,
+    "detailed_matches": 1501
+  },
+  "tests": {
+    "passed": 423,
+    "seconds": 185.77,
+    "exit_code": 0
+  },
+  "checks": [
+    {
+      "item": "真实目录与默认画像",
+      "result": "通过",
+      "evidence": "319 支战队、3 个精确版本、1,501 场公共 CM 比赛。默认 Level UP esports，7.41e，5 人均有完整五维。"
+    },
+    {
+      "item": "战队与精确版本",
+      "result": "通过",
+      "evidence": "浏览器搜索 Team Spirit，查询 7.41e 和 7.41d，选手及样本随查询更新。"
+    },
+    {
+      "item": "选手档案与对比",
+      "result": "通过",
+      "evidence": "实际从 Larl 切换至 Yatoro；双人比较更换第二名选手，数据随之更新。各自百分位按对应位置同侪计算。"
+    },
+    {
+      "item": "BP 与来源",
+      "result": "通过",
+      "evidence": "查看首阶段常禁、第一手常选、按手数禁用表；选择第 1 手后正确过滤。来源页列出 5 个核定赛事及官方链接。"
+    },
+    {
+      "item": "空值与不足",
+      "result": "通过",
+      "evidence": "位置未知维度明确降级；2020 年截止日期返回空画像；Team Winn 返回样本不足，旧结果保留其队名与日期。"
+    },
+    {
+      "item": "真实断线恢复",
+      "result": "通过",
+      "evidence": "实际停止 GUI 服务，查询显示连接失败；重新启动后点击重试，真实画像恢复。"
+    },
+    {
+      "item": "JSON 预览与复制",
+      "result": "通过",
+      "evidence": "预览当前已应用画像，点击复制，读回 Team Spirit、7.41d、2026-09-22 和 5 名选手，与页面一致。"
+    },
+    {
+      "item": "桌面与手机",
+      "result": "通过",
+      "evidence": "1280×900 和 390×844 已实际检查。修复手机导航隐藏，手机页面宽度与内容宽度均为 390px，BP 表在容器内滚动。"
+    },
+    {
+      "item": "完整回归",
+      "result": "通过",
+      "evidence": "423 项测试，185.77 秒，退出码 0。独立端口 55439 和 mcndotaga_workbench_final_test；日志留在本地。"
+    },
+    {
+      "item": "用户最终验收",
+      "result": "待用户检查",
+      "evidence": "GUI 已保留运行，以上是自动化和人工式浏览器操作证据，尚未代替用户认可。"
+    }
+  ],
+  "limitations": [
+    "Value、剧本、序列预测和部署未实现，本轮交付画像工作台。",
+    "位置使用赛后分路与经济规则推断，仅用于历史分组；准确率尚无真值验证。",
+    "48 小时连续采集尚未验收。本轮没有启动后台采集。",
+    "JSON 已验证预览和复制；浏览器文件下载不作为已完成能力。",
+    "其他机器克隆后需自行准备数据库与数据；数据库和原始 payload 不上传 GitHub。"
+  ],
+  "runtime": {
+    "gui": "保留运行",
+    "postgres_port": 55439,
+    "collector": "未运行"
+  },
+  "test_incident": "审查期间误运行旧默认连接并重建 localhost:5432/dota_test，执行范围为该测试库。已向用户说明，并取消默认连接，强制显式 TEST_DATABASE_URL。未连接原测试库尝试恢复。"
+}

@@ -1,16 +1,19 @@
 # MCNDOTAGA
 
-DOTA2 职业比赛 BP 与战队画像分析系统。当前提供数据采集、历史手序校验、公开画像 API 和可复算的频率基线评估。
+DOTA2 职业比赛 BP 与战队画像分析系统。当前提供可操作的浏览器工作台、真实画像查询、数据采集和可复算的频率基线评估。
+
+本机工作台：[打开 GUI](http://127.0.0.1:8016/)。先选战队、精确版本和日期，再查看选手档案、双人对比、BP 倾向与数据来源。页面连接真实数据库；首次在其他机器使用需按下文准备数据并启动服务。
 
 ## 当前状态
 
-- 已实现：数据契约、PostgreSQL 地基、职业采集器、断点与限流、画像计算与 HTTP 查询，可追溯的历史位置推断与逐赛事层级映射。
-- 已验证：393 项全量测试通过。
+- 已实现：数据契约、PostgreSQL 地基、职业采集器、断点与限流、画像计算与 HTTP 查询，可追溯的历史位置推断与逐赛事层级映射，以及同源 GUI、公开目录和进程管理。
+- 已验证：423 项全量测试通过，实际浏览器完成查询、切换、样本不足、断线重试、JSON 复制及桌面和手机检查。
 - 真实结果：4 支队伍、22 名选手的 110 个维度中，73 个可以计算百分位，37 个按冻结契约降级。公开查询插入训练赛前后保持一致。
+- 工作台目录：90 天公开 CM 窗口内 319 支战队、3 个精确版本、1,501 场比赛；全部有选手详情。
 - 数据快照：2026-09-22 本地库共 211,311 场比赛，1,562 场有选手详情。数据库和原始数据不随代码发布。
-- 尚待补齐：位置真值和推断准确率验收、更多赛事证据、48 小时采集验收、Value、剧本、产品界面及序列模型。
+- 尚待补齐：位置真值和推断准确率验收、更多赛事证据、48 小时采集验收、Value、剧本及序列模型。
 
-[最新画像报告](docs/reviews/2026-09-22-m3-provenance.html) · [旧画像快照](docs/reviews/2026-09-22-m3-profile.html) · [采集报告](docs/reviews/2026-09-22-m3-collector.html) · [频率基线报告](docs/reviews/2026-09-22-m3-frequency.html) · [交接说明](docs/superpowers/HANDOFF.md)
+[工作台验收记录](docs/reviews/2026-09-22-workbench.html) · [画像来源报告](docs/reviews/2026-09-22-m3-provenance.html) · [旧画像快照](docs/reviews/2026-09-22-m3-profile.html) · [采集报告](docs/reviews/2026-09-22-m3-collector.html) · [频率基线报告](docs/reviews/2026-09-22-m3-frequency.html) · [交接说明](docs/superpowers/HANDOFF.md)
 
 HTML 报告可下载后直接用浏览器打开，不需要启动服务。GitHub 页面默认显示 HTML 源码。
 
@@ -45,10 +48,19 @@ with psycopg.connect(os.environ['DATABASE_URL']) as conn:
 PY
 python -m analysis.profile_bootstrap
 python -m ingest.collector --once --max-pages 2 --max-details 20 --daily-limit 2400
-python -m analysis.server --port 8016
+python scripts/workbench.py start
 ```
 
-接口：`GET /v1/profile?team_id=...&patch=...&as_of=YYYY-MM-DD&sources=pro_match`。新数据库需要先收集真实比赛，不能把空库或样本不足视为完整画像。
+打开 `http://127.0.0.1:8016/` 即可操作。前端使用原生 HTML、CSS 和 JavaScript，无需 Node 构建；由 Python 同源提供页面与接口。
+
+```bash
+python scripts/workbench.py status
+python scripts/workbench.py stop
+```
+
+启动器只管理当前工作区的 GUI 进程，不启动采集或数据库。停止 GUI 不会停止 PostgreSQL。JSON 可在页面预览并复制保存。
+
+目录接口：`GET /v1/catalog`。画像接口：`GET /v1/profile?team_id=...&patch=...&as_of=YYYY-MM-DD&sources=pro_match`。新数据库需要先收集真实比赛，不能把空库或样本不足视为完整画像。
 
 `GET /health` 仅检查进程存活。画像 API 默认只监听 `127.0.0.1`。
 
@@ -74,7 +86,7 @@ python -m ingest.kaggle_subset
 TEST_DATABASE_URL=postgresql://dota:dota@localhost:5432/dota_test python -m pytest -q
 ```
 
-测试会删除并重建指定测试库，名称必须以 `_test` 结尾。不要指向开发库；并行运行使用不同测试库名。缺少历史数据时完整验收会失败，不会假装通过。
+测试必须显式设置 `TEST_DATABASE_URL`，缺失时直接中止，不使用默认连接，也不从 `DATABASE_URL` 推导。测试会删除并重建指定测试库，名称必须以 `_test` 结尾。不要指向开发库；并行运行使用不同测试库名。缺少历史数据时完整验收会失败，不会假装通过。
 
 阶段频率基线采用严格时间切分，只用于评估，尚未接入推理服务。需要包含历史比赛的数据库及 `psql`：
 
