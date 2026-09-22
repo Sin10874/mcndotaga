@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#07110f">
-  <title>DOTA2 战队画像工作台</title>
+  <title>DOTA2 对局分析工作台</title>
   <link rel="stylesheet" href="/workbench.css">
   <script src="/workbench.js" defer></script>
+  <link rel="stylesheet" href="/analysis-workbench.css">
+  <script src="/analysis-workbench.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -21,6 +23,9 @@
       </a>
 
       <nav class="view-nav" aria-label="分析页面">
+        <button class="nav-item" type="button" data-view-target="analysis" aria-label="对局实验室" title="对局实验室">
+          <span class="nav-index" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4l16 16M20 4L4 20M4 4h6M20 4v6M4 20v-6M20 20h-6"/></svg></span><span>对局实验室</span>
+        </button>
         <button class="nav-item is-active" type="button" data-view-target="overview" aria-label="画像总览" title="画像总览" aria-current="page">
           <span class="nav-index" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h4l2.2-6 3.6 12 2.2-6h4"/></svg></span><span>画像总览</span>
         </button>
@@ -55,6 +60,29 @@
           <button class="quiet-button" type="button" id="export-button" aria-label="查看与复制 JSON" title="查看与复制 JSON" disabled>查看与复制 JSON</button>
         </div>
       </header>
+
+      <section id="view-analysis" class="view-panel lab" data-view="analysis" aria-labelledby="lab-title" hidden>
+        <div class="lab-intro"><div><p class="kicker">从双方历史，走到当前这一手</p><h2 id="lab-title">把对局放上桌。</h2><p>录入真实选禁，查看局面、对手候选与应对路径。</p></div><span class="lab-edition">BP / 24</span></div>
+        <form id="lab-form" class="lab-form">
+          <div class="field"><label for="lab-us">我方战队</label><select id="lab-us" required disabled><option>载入中</option></select></div>
+          <div class="field"><label for="lab-them">对手战队</label><select id="lab-them" required disabled><option>载入中</option></select></div>
+          <div class="field"><label for="lab-patch">分析版本</label><select id="lab-patch" required disabled><option>载入中</option></select></div>
+          <div class="field"><label for="lab-date">分析截止日期</label><input id="lab-date" type="date" required></div>
+          <div class="field"><label for="lab-side">我方阵营</label><select id="lab-side"><option value="0">天辉</option><option value="1">夜魇</option></select></div>
+          <div class="field"><label for="lab-first">先手阵营</label><select id="lab-first"><option value="0">天辉先手</option><option value="1">夜魇先手</option></select></div>
+          <button class="primary-button lab-run" id="lab-run" type="submit" disabled>运行对局分析 <span aria-hidden="true">↗</span></button>
+        </form>
+        <div class="lab-sample"><label for="lab-example">真实 BP 输入</label><select id="lab-example" aria-label="选择历史 BP 前缀"><option value="">选择一场历史比赛</option></select><button type="button" id="lab-load" class="quiet-button" disabled>载入前 12 手</button></div>
+        <p class="microcopy" id="lab-sample-note">历史前缀仅用于交互测试，模型按所选截止日期运行，不是对该场的独立回测。</p>
+        <section class="draft-board" aria-labelledby="draft-title">
+          <div class="lab-section-head"><div><p class="kicker" id="lab-progress">0 / 24 手</p><h3 id="draft-title">从第一手开始</h3></div><div class="lab-actions"><button id="lab-undo" type="button" class="quiet-button" disabled>撤回一手</button><button id="lab-clear" type="button" class="quiet-button" disabled>清空 BP</button></div></div>
+          <div id="lab-draft" class="lab-draft" aria-label="选禁时间线"></div>
+          <div id="lab-lineups" class="lab-lineups"></div>
+          <div class="hero-picker"><label for="lab-hero-search">为当前手选择英雄</label><input id="lab-hero-search" type="search" placeholder="搜索英雄名称或 ID" autocomplete="off"><div id="lab-heroes" class="lab-heroes"></div><p id="lab-hero-count" class="microcopy"></p></div>
+        </section>
+        <div id="lab-status" role="status" class="lab-status">正在准备真实数据与 BP 规则。</div>
+        <div id="lab-results" class="lab-results"></div>
+      </section>
 
       <section class="query-panel" aria-labelledby="query-title">
         <div class="query-heading">
@@ -189,7 +217,7 @@
   <dialog id="export-dialog" class="export-dialog" aria-labelledby="export-title" aria-describedby="export-description">
     <h2 id="export-title">当前画像 JSON</h2>
     <p id="export-description"></p>
-    <label for="export-json">画像 JSON</label>
+    <label for="export-json">结果 JSON</label>
     <textarea id="export-json" readonly spellcheck="false"></textarea>
     <p id="export-status" role="status"></p>
     <div class="export-actions">

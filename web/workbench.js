@@ -124,6 +124,7 @@ async function loadCatalog() {
     state.catalog = catalog;
     state.suggestions = catalog.teams;
     configureControlsFromCatalog();
+    if (typeof initAnalysisWorkbench === "function") initAnalysisWorkbench(catalog);
     setCatalogState("ready");
     const query = restoredQuery(catalog);
     if (query) {
@@ -957,10 +958,10 @@ function personSummary(player, side) {
 function capabilityPanel() {
   const rows = [
     ["历史画像", "已接入", "英雄池、选手五维、BP 历史频率与来源覆盖"],
-    ["局面评估 Value", "未接入", "尚不能计算对局胜率与条件化对位效应"],
-    ["下一手预测 Policy", "未接入", "已有离线频率实验，尚无在线预测与序列模型"],
-    ["剧本 Playbook", "未接入", "尚不能生成双方选禁分支与应对方案"],
-    ["决策 Advise", "未接入", "尚不能给出整手建议和稳健性评估"],
+    ["局面评估 Value", "实验接入", "对局实验室可运行训练模型；验证质量和缺值原因逐次显示"],
+    ["下一手预测 Policy", "实验接入", "合法候选分布、证据与频率基准；未过门时明确降级"],
+    ["剧本 Playbook", "条件接入", "依赖有效 Value 与 Policy，按先手和对手体系生成分支"],
+    ["决策 Advise", "条件接入", "依赖模型就绪，搜索我方当前手、替代英雄及反制风险"],
   ];
   const table = el("table", { className: "capability-table" }, [
     el("thead", {}, [el("tr", {}, ["能力", "状态", "实际范围"].map((label) => el("th", { scope: "col", text: label })))]),
@@ -968,7 +969,7 @@ function capabilityPanel() {
   ]);
   return el("section", { className: "capability-panel" }, [
     el("h3", { text: "当前分析能力" }),
-    el("p", { className: "microcopy", text: "当前可做历史画像分析，完整选禁决策链尚未完成。" }),
+    el("p", { className: "microcopy", text: "历史画像与对局实验室共用真实数据。接口接入不代表模型已通过实战验证，请查看本次运行的质量与降级说明。" }),
     el("div", { className: "matrix-scroll" }, [table]),
     el("p", { className: "asset-credit", text: "英雄图像来自 Valve 的 Dota 2 公开 CDN，相关图像与商标归 Valve 所有。图像无法载入时保留名称与全部分析数据。" }),
   ]);
@@ -1181,6 +1182,9 @@ function leagueList(leagues) {
 function setActiveView(view, writeHash) {
   if (!nodes.navButtons.some((button) => button.dataset.viewTarget === view)) view = "overview";
   state.activeView = view;
+  document.body.classList.toggle("analysis-mode", view === "analysis");
+  document.querySelector(".topbar h1").textContent = view === "analysis" ? "DOTA2 对局实验室" : "DOTA2 战队画像";
+  nodes.exportButton.disabled = view === "analysis" ? !(typeof labState !== "undefined" && labState.result) : !state.profile;
   nodes.navButtons.forEach((button) => {
     const active = button.dataset.viewTarget === view;
     button.classList.toggle("is-active", active);
@@ -1195,12 +1199,15 @@ function setActiveView(view, writeHash) {
   if (writeHash && window.location.hash !== `#${view}`) {
     history.pushState(null, "", `${window.location.pathname}${window.location.search}#${view}`);
   }
-  if (writeHash && nodes.resultShell && !nodes.resultShell.hidden) {
+  if (writeHash && view === "analysis") document.getElementById("view-analysis").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (writeHash && view !== "analysis" && nodes.resultShell && !nodes.resultShell.hidden) {
     nodes.resultShell.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
 function exportProfile() {
+  if (state.activeView === "analysis" && typeof exportLabAnalysis === "function") { exportLabAnalysis(); return; }
+  document.getElementById("export-title").textContent = "当前画像 JSON";
   if (!state.profile) return;
   nodes.exportJson.value = `${JSON.stringify(state.profile, null, 2)}\n`;
   nodes.exportDescription.textContent = `战队 ${state.profile.team_id} · ${state.profile.patch} · ${state.profile.as_of}，与当前已展示的画像一致。`;
@@ -1213,7 +1220,7 @@ function exportProfile() {
 async function copyProfile() {
   try {
     await navigator.clipboard.writeText(nodes.exportJson.value);
-    nodes.exportStatus.textContent = "已复制当前画像 JSON。";
+    nodes.exportStatus.textContent = "已复制当前 JSON。";
   } catch (_) {
     nodes.exportJson.focus();
     nodes.exportJson.select();
